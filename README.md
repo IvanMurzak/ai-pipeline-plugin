@@ -4,6 +4,15 @@ Repository: [`IvanMurzak/ai-pipeline-plugin`](https://github.com/IvanMurzak/ai-p
 
 Claude Code plugin for designing and executing long-chain AI workflows as ordered, self-contained iteration files under the consumer project's `.claude/pipeline/` directory. Ships six coordinated agents — one that designs pipelines, a depth-0 `/pipeline:run` supervisor + a `pipeline-manager` orchestrator + per-step `step-executor`s that run them, one that feeds discovered knowledge back into the pipeline's own docs, one that extracts heavy procedural blocks out of iteration markdown into per-pipeline Python scripts so each fresh-context run pays fewer tokens, and a cheap Haiku disambiguator for matching tasks to pipelines.
 
+## Install
+
+```
+/plugin marketplace add IvanMurzak/ai-pipeline-plugin
+/plugin install pipeline@ai-pipeline
+```
+
+This repository is itself the plugin, so the `pipeline` CLI and the local dashboard UI under `apps/` ship inside — nothing else to fetch or build. Updates arrive via `/plugin update` whenever this repo's `.claude-plugin/plugin.json` version is bumped.
+
 ## What you get
 
 - **`/pipeline:design <high-level goal>`** — invokes the `pipeline-designer` agent to decompose the goal into an ordered chain of iteration files under `./.claude/pipeline/<pipeline-name>/`. Each file is one PR-sized unit of work.

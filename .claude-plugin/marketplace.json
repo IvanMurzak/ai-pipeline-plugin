@@ -1,0 +1,15 @@
+{
+  "name": "ai-pipeline",
+  "owner": {
+    "name": "IvanMurzak"
+  },
+  "description": "Self-hosted marketplace for the pipeline plugin — long-chain AI workflow design, execution, and self-improvement for Claude Code.",
+  "plugins": [
+    {
+      "name": "pipeline",
+      "source": "./",
+      "description": "Design, run, and self-improve long-chain AI workflows as ordered, self-contained iteration files under the consumer project's .claude/pipeline/. A deterministic Bun CLI (pipeline next) owns orchestration control flow; a thin pipeline-manager subagent executes each step in a fresh-context step-executor, and a self-improvement loop feeds execution-discovered knowledge back into the pipeline's own docs. Ships the pipeline CLI and a local live dashboard UI.",
+      "category": "productivity"
+    }
+  ]
+}
