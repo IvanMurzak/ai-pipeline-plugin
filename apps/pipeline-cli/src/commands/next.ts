@@ -90,7 +90,8 @@ import {
   type WorktreeRecord,
 } from '../lib/next';
 import { emitEvent } from '../lib/event';
-import { statsAppend, statsFinalizeRun } from '../lib/stats';
+import { statsAppend, statsEnabled, statsFinalizeRun } from '../lib/stats';
+import { backfillProject } from '../lib/stats-backfill';
 import { resolveHookScript, runHook, parseHookJson, tail } from '../lib/hooks';
 import {
   executeScriptStep,
@@ -662,6 +663,42 @@ function statsNoteTerminal(root: string, runId: string, action: NextAction): voi
   }
   if (action.action === 'halt') {
     statsFinalizeRun(root, runId, action.status ?? 'halted', action.reason ?? null);
+  }
+}
+
+/** Walk up from a pipeline root (`a.root` — e.g. `<project>/.claude/pipeline/
+ *  <name>`) to the project root `backfillProject` expects (the ancestor
+ *  whose child is `.claude/pipeline`). Mirrors hooks/stats_relay.ts's own
+ *  `findProjectRoot`, generalized to start from inside the pipeline tree
+ *  rather than an arbitrary cwd. Null when no such ancestor exists (e.g. a
+ *  detached/relocated root) — the run-init kick then no-ops. */
+function findStatsProjectRoot(pipelineRoot: string): string | null {
+  let dir = resolve(pipelineRoot);
+  for (let i = 0; i < 16; i++) {
+    if (existsSync(join(dir, '.claude', 'pipeline'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
+}
+
+/** T3 (run-init kick, 01-current-architecture.md §7 Wave 1): a best-effort
+ *  backfill pass fired once per run, right after `run.started` is buffered.
+ *  Closes E1 (a missed SubagentStop hook leaves an EARLIER run's record
+ *  null forever) a little sooner than the next Stop/SubagentStop — every new
+ *  run's init is another chance to reconcile the tree — without adding any
+ *  latency budget worth mentioning (soft `budgetMs`, and the whole thing is
+ *  wrapped so a stats hiccup can never block `pipeline next` from acting).
+ *  Gated by PIPELINE_STATS_ENABLED like every other trigger. */
+function statsRunInitKick(pipelineRoot: string): void {
+  if (!statsEnabled()) return;
+  try {
+    const projectRoot = findStatsProjectRoot(pipelineRoot);
+    if (projectRoot === null) return;
+    backfillProject(projectRoot, { budgetMs: 1500 });
+  } catch {
+    // best-effort — never affect the run
   }
 }
 
@@ -1878,7 +1915,11 @@ function invokeNextCore(a: InvokeNextArgs): InvokeNextResult {
   // Early run.started measurement on init — BEFORE any in-process hook/script
   // execution appends its own timeline lines, so the buffer stays
   // chronologically ordered (the tail statsNoteAction call passes false).
-  if (statsIsInit) statsAppend(a.root, a.runId, { k: 'run.started', mode, model: plan.default_model ?? null });
+  if (statsIsInit) {
+    statsAppend(a.root, a.runId, { k: 'run.started', mode, model: plan.default_model ?? null });
+    // T3 run-init kick — best-effort, budget-capped; never blocks or throws.
+    statsRunInitKick(a.root);
+  }
 
   // ---------------------------------------------------------------------
   // In-process execution loop: worktree hooks AND `type: script` steps are
