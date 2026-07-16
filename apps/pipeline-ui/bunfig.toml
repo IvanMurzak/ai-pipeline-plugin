@@ -1,0 +1,6 @@
+[test]
+# Restrict bun's recursive test discovery to the daemon's own tests/ folder.
+# Without this, `bun test` (no args) walks into web/src/lib/__tests__/ and tries
+# to run those Vitest specs through Bun's runner, which doesn't know `vi`.
+# The Vitest specs are run separately via `cd web && bun run test`.
+root = "tests"

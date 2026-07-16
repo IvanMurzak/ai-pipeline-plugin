@@ -1,0 +1,71 @@
+{
+  "description": "Pipeline plugin hooks: Stop → analytics relay (token usage from transcript); SubagentStop (matcher: pipeline-manager) → analytics relay (manager.stopped liveness signal when a pipeline-manager subagent ends — the matcher keeps the hook from spawning for every other subagent); SessionStart → pipeline-ui daemon launcher + project registration; PreToolUse → analytics relay (live mirror binding + run-level bypass START synthesis for pipeline-manager spawns); PostToolUse → analytics relay (tool counts + agent spawns + bypass END/fallback lifecycle synthesis); UserPromptSubmit → prompt match relay (BM25-matches the submitted prompt against the project's PIPELINE.md manifests and, on a confident single match only, injects one line of additionalContext suggesting the pipeline — gated by its own opt-in switch PIPELINE_PROMPT_MATCH_ENABLED, off by default). The whole UI/analytics system is OFF BY DEFAULT — every hook no-ops at entry unless PIPELINE_UI_ENABLED is set to a non-falsy value (the master opt-in switch; the prompt match relay is gated by PIPELINE_PROMPT_MATCH_ENABLED instead) — and is additionally a no-op when cwd has no .claude/pipeline/. EXCEPTION: SubagentStop additionally runs the stats relay (token + tool-failure enrichment for the per-run measurement files under .claude/pipeline/.stats/), which is ON BY DEFAULT and gated by its own PIPELINE_STATS_ENABLED (set 0 to disable); it too no-ops when the project has no .stats dir.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "pipeline-manager",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
+          },
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/stats_relay.ts\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/pipeline_ui_relay.ts\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Agent|Task|TaskCreate)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt_match_relay.ts\""
+          }
+        ]
+      }
+    ]
+  }
+}

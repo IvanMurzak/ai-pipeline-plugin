@@ -1,0 +1,36 @@
+# Pipeline UI — local-only artifacts
+# (the built dist/ IS committed so users get the UI without running a build).
+
+# Web build inputs
+web/node_modules/
+web/.vite/
+web/*.tsbuildinfo
+web/tsconfig.tsbuildinfo
+web/.cache/
+
+# tsc -b emits a JS + .d.ts next to the .ts files declared as composite
+# references (vite.config.ts). They are build artifacts, not source.
+web/vite.config.js
+web/vite.config.d.ts
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+
+# Bun
+.bun/
+
+# Daemon-side dependencies (Agent SDK + transitive). package.json IS
+# committed but the install lands here per cache directory; users run
+# `bun install` here, or the daemon auto-installs on first /api/chat use.
+node_modules/
+bun.lock
+
+# Local daemon logs that occasionally land here when running from
+# this directory during development.
+daemon.stdout.log
+daemon.stderr.log
+
+# Don't commit a `dist/` produced inside web/ — the build is configured
+# to emit to ../dist (apps/pipeline-ui/dist) which IS committed.
+web/dist/

@@ -1,0 +1,16 @@
+{
+  "name": "pipeline-ui-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pipeline UI daemon (server.ts). The Anthropic Agent SDK is installed on first use of the /api/chat endpoint; the package is listed here so `bun install` works deterministically in CI and on user machines.",
+  "scripts": {
+    "test": "bun ../pipeline-cli/scripts/parallel-tests.ts tests",
+    "test:seq": "bun test tests/",
+    "test:lib": "bun test tests/lib.test.ts",
+    "test:server": "bun test tests/server.test.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.148"
+  }
+}

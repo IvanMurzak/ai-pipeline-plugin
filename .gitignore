@@ -1,0 +1,20 @@
+.env
+.env.*
+!.env.example
+
+.DS_Store
+Thumbs.db
+
+# Stray `nul` files: Git Bash creates a REAL file when a command uses a Windows
+# `> nul` redirect (cmd/PowerShell treat `nul` as the null device; Git Bash does not).
+nul
+NUL
+
+.vscode/
+.idea/
+
+# Pipeline-UI build artifacts not meant to live in the plugin repo
+# (a more specific .gitignore lives at apps/pipeline-ui/.gitignore).
+apps/pipeline-ui/web/node_modules/
+apps/pipeline-ui/web/.vite/
+apps/pipeline-ui/web/*.tsbuildinfo

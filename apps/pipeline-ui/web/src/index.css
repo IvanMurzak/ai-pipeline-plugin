@@ -1,0 +1,421 @@
+/* Pipeline UI — CRT / cyberpunk styling (dark) + blueprint paper (light).
+   Bright outlines, minimal glow, high text contrast in both themes. */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+[data-theme="dark"] {
+  /* CRT / cyberpunk — deep ink + neon, MAX CONTRAST */
+  --canvas: 4 5 9;             /* near-black page */
+  --panel: 11 14 24;           /* card surface */
+  --panel2: 18 23 38;          /* nested card */
+  --ink: 250 252 255;          /* near-white primary text */
+  --muted: 180 196 222;        /* bright slate-blue for secondary */
+  --accent: 56 232 255;        /* slightly brighter neon cyan */
+  --accent2: 192 168 255;      /* lifted neon violet */
+  --good: 190 245 90;          /* brighter neon lime */
+  --warn: 255 200 60;          /* brighter neon amber */
+  --bad: 255 130 200;          /* brighter neon magenta */
+  --line: 80 200 232;          /* cyan-tinted line for borders */
+  --grid-line: rgba(56, 232, 255, 0.08);
+  --grid-cell: 48px;
+  --scanline-alpha: 0.022;
+  --vignette-alpha: 0.55;
+  /* Panel translucency + border weight — themed via variables so the light
+     theme never needs higher-specificity .surface overrides (which would
+     beat Tailwind border-* utilities on the same element). */
+  --surface-alpha: 0.85;
+  --surface-border-alpha: 0.55;
+
+  --color-background: rgb(11 14 24);
+  --color-foreground: rgb(250 252 255);
+  --color-card: rgb(18 23 38);
+  --color-card-foreground: rgb(250 252 255);
+  --color-popover: rgb(18 23 38);
+  --color-popover-foreground: rgb(250 252 255);
+  --color-primary: rgb(56 232 255);
+  --color-primary-foreground: rgb(4 5 9);
+  --color-secondary: rgb(18 23 38);
+  --color-secondary-foreground: rgb(250 252 255);
+  --color-muted: rgb(18 23 38);
+  --color-muted-foreground: rgb(180 196 222);
+  --color-accent: rgb(56 232 255);
+  --color-accent-foreground: rgb(4 5 9);
+  --color-destructive: rgb(255 130 200);
+  --color-destructive-foreground: rgb(4 5 9);
+  --color-border: rgb(80 200 232 / 0.55);
+  --color-input: rgb(18 23 38);
+  --color-ring: rgb(56 232 255);
+  --color-white: rgb(255 255 255);
+  --radius: 2px;
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  /* Blueprint paper — warm cream + deep ink with high-contrast accents */
+  --canvas: 242 238 226;        /* warm cream */
+  --panel: 253 250 240;         /* lighter paper */
+  --panel2: 232 226 208;        /* nested paper / fold */
+  --ink: 3 5 8;                 /* near-black ink (boosted contrast) */
+  --muted: 62 50 30;            /* rich sepia — dark enough for small text */
+  --accent: 6 66 92;            /* deep teal-cyan, darkened for chips/labels */
+  --accent2: 66 18 148;         /* deep violet */
+  --good: 14 82 38;             /* forest ink */
+  --warn: 128 54 4;             /* burnt amber */
+  --bad: 148 12 84;             /* alarmed crimson pen */
+  --line: 82 62 34;             /* sepia ruled line — heavier than before */
+  --grid-line: rgba(4, 6, 10, 0.07);
+  --grid-cell: 48px;
+  --scanline-alpha: 0.025;
+  --vignette-alpha: 0.07;
+  /* Near-opaque paper + stronger ink borders: the translucent dark recipe let
+     the page grid bleed through every card and washed the borders out. */
+  --surface-alpha: 0.97;
+  --surface-border-alpha: 0.8;
+
+  --color-background: rgb(253 250 240);
+  --color-foreground: rgb(3 5 8);
+  --color-card: rgb(232 226 208);
+  --color-card-foreground: rgb(3 5 8);
+  --color-popover: rgb(253 250 240);
+  --color-popover-foreground: rgb(3 5 8);
+  --color-primary: rgb(6 66 92);
+  --color-primary-foreground: rgb(253 250 240);
+  --color-secondary: rgb(232 226 208);
+  --color-secondary-foreground: rgb(3 5 8);
+  --color-muted: rgb(232 226 208);
+  --color-muted-foreground: rgb(62 50 30);
+  --color-accent: rgb(6 66 92);
+  --color-accent-foreground: rgb(253 250 240);
+  --color-destructive: rgb(148 12 84);
+  --color-destructive-foreground: rgb(253 250 240);
+  --color-border: rgb(82 62 34 / 0.75);
+  --color-input: rgb(232 226 208);
+  --color-ring: rgb(6 66 92);
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html,
+body {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--canvas));
+  color: rgb(var(--ink));
+  font-family: theme("fontFamily.mono");
+  font-feature-settings: "calt", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 350ms cubic-bezier(0.4, 0, 0.2, 1),
+              color 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+    radial-gradient(ellipse at top, rgb(var(--accent) / 0.10), transparent 60%),
+    radial-gradient(ellipse at bottom right, rgb(var(--accent2) / 0.08), transparent 60%);
+  background-size:
+    var(--grid-cell) var(--grid-cell),
+    var(--grid-cell) var(--grid-cell),
+    auto,
+    auto;
+  background-attachment: fixed;
+}
+
+[data-theme="light"] body {
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+    radial-gradient(ellipse at top, rgb(var(--accent) / 0.05), transparent 60%),
+    radial-gradient(ellipse at bottom right, rgb(var(--accent2) / 0.04), transparent 60%);
+}
+
+* {
+  border-color: rgb(var(--line) / 0.55);
+}
+
+::selection {
+  background: rgb(var(--accent) / 0.4);
+  color: rgb(var(--ink));
+}
+
+/* Scrollbars — thin, accent-tinted */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--accent) / 0.5);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--accent) / 0.8);
+}
+
+/* ----------------------------------------------------------------------
+   CRT overlay — scanlines + vignette. The .crt-scanlines / .crt-vignette
+   elements are mounted by ScanlineOverlay near the top of <App>.
+   ---------------------------------------------------------------------- */
+
+@layer components {
+  .crt-scanlines {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 70;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, var(--scanline-alpha)) 0,
+      rgba(255, 255, 255, var(--scanline-alpha)) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    mix-blend-mode: overlay;
+  }
+
+  [data-theme="light"] .crt-scanlines {
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(4, 6, 10, var(--scanline-alpha)) 0,
+      rgba(4, 6, 10, var(--scanline-alpha)) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    mix-blend-mode: multiply;
+  }
+
+  .crt-vignette {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 60;
+    background: radial-gradient(
+      ellipse at center,
+      transparent 50%,
+      rgba(0, 0, 0, var(--vignette-alpha)) 100%
+    );
+  }
+
+  [data-theme="light"] .crt-vignette {
+    background: radial-gradient(
+      ellipse at center,
+      transparent 60%,
+      rgba(70, 50, 24, var(--vignette-alpha)) 100%
+    );
+  }
+}
+
+/* ----------------------------------------------------------------------
+   HUD bracket corners — used by .surface and the standalone HudFrame.
+   Brighter (2 px) corner strokes for the "bright outline" look.
+   ---------------------------------------------------------------------- */
+
+@layer components {
+  .hud-corner {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-color: currentColor;
+    border-style: solid;
+    pointer-events: none;
+    opacity: 0.95;
+  }
+  .hud-corner.tl { top: -1px; left: -1px;  border-width: 2px 0 0 2px; }
+  .hud-corner.tr { top: -1px; right: -1px; border-width: 2px 2px 0 0; }
+  .hud-corner.bl { bottom: -1px; left: -1px;  border-width: 0 0 2px 2px; }
+  .hud-corner.br { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+}
+
+/* ----------------------------------------------------------------------
+   Surfaces — sharp HUD panels. Crisp 1-px accent border, NO outer glow.
+   The HUD bracket corners (drawn by HudCorners) provide the focal accent.
+   ---------------------------------------------------------------------- */
+
+/* Inside @layer components so Tailwind UTILITIES (emitted later) always beat
+   these on specificity ties — e.g. `absolute` on a dropdown must override
+   .surface's `position: relative`, and `border-warn/60` must override its
+   border color. Outside a layer, .surface silently won and put "absolutely
+   positioned" panels back into normal flow. Theme differences go through the
+   --surface-* variables above, NEVER through [data-theme] .surface overrides —
+   those carry higher specificity and would beat utilities again. */
+@layer components {
+  .surface {
+    position: relative;
+    background: rgb(var(--panel) / var(--surface-alpha));
+    backdrop-filter: blur(8px) saturate(125%);
+    -webkit-backdrop-filter: blur(8px) saturate(125%);
+    border: 1px solid rgb(var(--accent) / var(--surface-border-alpha));
+    border-radius: 2px;
+  }
+
+  .surface-nested {
+    position: relative;
+    background: rgb(var(--panel2) / var(--surface-alpha));
+    border: 1px solid rgb(var(--line) / var(--surface-border-alpha));
+    border-radius: 2px;
+  }
+}
+
+/* Interior dividers — the horizontal lines INSIDE a frame (panel header
+   separator, form bottom rule, etc.). These were noisy on the cream
+   blueprint canvas, so the light theme uses a much fainter ink tone.
+   Apply alongside `border-b` / `border-t` Tailwind width utilities;
+   `.frame-divider` only sets the colour. */
+@layer components {
+  .frame-divider {
+    border-color: rgb(var(--accent) / 0.22);
+  }
+  [data-theme="light"] .frame-divider {
+    border-color: rgb(var(--ink) / 0.18);
+  }
+}
+
+/* ----------------------------------------------------------------------
+   Decorative animations
+   ---------------------------------------------------------------------- */
+
+@layer components {
+  .text-gradient-cyber {
+    background: linear-gradient(
+      90deg,
+      rgb(var(--accent)),
+      rgb(var(--accent2)) 50%,
+      rgb(var(--bad))
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgb(var(--accent) / 0.16) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2.4s linear infinite;
+  }
+
+  /* Glitch text — kept for the TopBar logo, blends with the active theme */
+  .glitch {
+    position: relative;
+    display: inline-block;
+  }
+  .glitch::before,
+  .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    mix-blend-mode: screen;
+  }
+  .glitch::before {
+    color: rgb(var(--accent));
+    transform: translate(1px, 0);
+    clip-path: inset(0 0 60% 0);
+    animation: glitch-top 3.4s steps(8, end) infinite;
+  }
+  .glitch::after {
+    color: rgb(var(--bad));
+    transform: translate(-1px, 0);
+    clip-path: inset(70% 0 0 0);
+    animation: glitch-bottom 3.7s steps(8, end) infinite;
+  }
+  [data-theme="light"] .glitch::before,
+  [data-theme="light"] .glitch::after {
+    mix-blend-mode: multiply;
+  }
+}
+@keyframes glitch-top {
+  0%, 90%, 100% { transform: translate(1px, 0); }
+  92% { transform: translate(3px, -1px); }
+  94% { transform: translate(-2px, 1px); }
+  96% { transform: translate(1px, -2px); }
+}
+@keyframes glitch-bottom {
+  0%, 88%, 100% { transform: translate(-1px, 0); }
+  90% { transform: translate(-3px, 1px); }
+  92% { transform: translate(2px, -1px); }
+  94% { transform: translate(-1px, 2px); }
+}
+
+@layer components {
+  .caret::after {
+    content: "_";
+    margin-left: 2px;
+    color: rgb(var(--accent));
+    animation: blink 1s steps(2, start) infinite;
+  }
+
+  /* Slow accent grid pulse — replaces the static washes with a gentle
+     breathing background. Used by App.tsx as an aria-hidden overlay. */
+  .accent-wash {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(circle at 18% 20%, rgb(var(--accent) / 0.16), transparent 45%),
+      radial-gradient(circle at 82% 78%, rgb(var(--accent2) / 0.14), transparent 50%);
+    animation: accent-wash-drift 22s ease-in-out infinite alternate;
+  }
+  [data-theme="light"] .accent-wash {
+    background:
+      radial-gradient(circle at 18% 20%, rgb(var(--accent) / 0.06), transparent 45%),
+      radial-gradient(circle at 82% 78%, rgb(var(--accent2) / 0.05), transparent 50%);
+  }
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+@keyframes accent-wash-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(2vw, -1vw, 0) scale(1.04); }
+  100% { transform: translate3d(-2vw, 1vw, 0) scale(1); }
+}
+
+/* ----------------------------------------------------------------------
+   assistant-ui overrides — kept verbatim.
+   ---------------------------------------------------------------------- */
+
+.aui-thread-scroll-to-bottom {
+  position: static !important;
+  top: auto !important;
+  align-self: auto !important;
+  background-color: rgb(var(--panel)) !important;
+}
+.aui-thread-scroll-to-bottom:disabled {
+  visibility: visible !important;
+}
+
+/* ----------------------------------------------------------------------
+   Forms — sharp, mono-typed inputs.
+   ---------------------------------------------------------------------- */
+
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+:focus-visible {
+  outline-color: rgb(var(--accent) / 0.85);
+}

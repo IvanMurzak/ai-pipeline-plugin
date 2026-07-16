@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '.gitignore'
+      - '.gitattributes'
+      - 'LICENSE'
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - '.gitignore'
+      - '.gitattributes'
+      - 'LICENSE'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bun-tests:
+    name: Bun unit tests (apps/pipeline-ui)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/pipeline-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Run unit + integration tests
+        run: bun test tests/
+
+  web-build:
+    name: Web build (tsc + vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/pipeline-ui/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # NOTE: --frozen-lockfile is intentionally omitted here because the
+      # committed bun.lock under apps/pipeline-ui/web is currently out of
+      # sync with package.json. Re-add the flag after the next clean
+      # `bun install` regenerates and commits an up-to-date lockfile.
+      - name: Install dependencies
+        run: bun install
+      - name: Type-check and build
+        run: bun run build
+
+  pipeline-cli:
+    name: Pipeline CLI (apps/pipeline-cli)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/pipeline-cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Run unit tests
+        run: bun test tests/
+      - name: CLI smoke (version + Node bundle build)
+        run: |
+          bun src/cli.ts --version
+          bun run build
+
+  manifest-validation:
+    name: Plugin manifest validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate plugin manifest, hooks, agents, skills
+        run: python .github/scripts/validate-manifest.py
