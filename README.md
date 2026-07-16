@@ -59,18 +59,9 @@ Every pipeline folder has a small metadata file named `PIPELINE.md` at its root 
 - `/pipeline:run` once at start, to show a banner like `▶ Starting pipeline <name>: <end state>`.
 - Individual iterations that opt in by explicitly referencing it in their `Context` (rare — only when pipeline-wide invariants are needed mid-execution).
 
-## Install
-
-Register Ivan's marketplace (once) and install the plugin:
-
-```
-/plugin marketplace add --source local --path "C:/Projects/AI/claude-plugins"
-/plugin install pipeline
-```
-
 ## Using the plugin in a consumer project
 
-This section is the practical walkthrough — install once, then a small set of commands you'll use day to day. Everything below assumes you've run the install command from the section above and that your terminal's working directory is your **consumer project's root** (the project where you want pipelines to live, not the plugin's own folder).
+This section is the practical walkthrough — install once, then a small set of commands you'll use day to day. Everything below assumes you've run the install commands from the "Install" section at the top and that your terminal's working directory is your **consumer project's root** (the project where you want pipelines to live, not the plugin's own folder).
 
 ### Cheat sheet — which command does what
 
