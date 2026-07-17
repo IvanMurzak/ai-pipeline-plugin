@@ -3,7 +3,7 @@ name: run
 description: Run (or resume) a pipeline the pipeline-designer already wrote. Stays in the main session as the thin supervisor and spawns a single pipeline-manager that drives the whole chain in fresh-context step-executors. Invoke when the user wants to run or resume a pipeline.
 user-invocable: true
 allowed-tools: Read, Bash, Glob, Grep, Agent, WebFetch, WebSearch, Skill, TaskCreate, TaskGet, TaskList
-argument-hint: <absolute-path-to-iteration.md> [--model <step_id>=<model> ...] [--effort <step_id>=<level> ...]
+argument-hint: <absolute-path-to-iteration.md> [--model <step_id>=<model> ...] [--effort <step_id>=<level> ...] | --resume [<run_id>]
 ---
 
 # Run a Pipeline
@@ -14,15 +14,15 @@ You are starting or resuming pipeline execution. The iteration file to start at 
 
 You are the **supervisor** running in the main session (depth 0). You do **not** loop over iterations yourself. Instead you spawn a single **`pipeline-manager`** subagent (depth 1) that drives the entire chain — spawning a fresh `step-executor` per iteration and running `pipeline-improver` / `pipeline-script-creator` between steps (the `pipeline next` CLI it drives auto-emits the per-iteration UI events and executes any external worktree hooks itself) — and returns a structured report when the run completes, halts, or hits an out-of-scope blocker.
 
-You stay at depth 0 because three things must live in the main session and a subagent cannot do them: (a) own a stable pid for the UI's liveness tracking, (b) wait hours for an external condition (a blocker PR to merge) and resume, (c) eventually surface results to the human. So your job is: mint the run id, set up UI tracking, spawn the manager, and act on its report — including running the nested-blocker poll-wait and re-invoking the manager to resume.
+You stay at depth 0 because three things must live in the main session and a subagent cannot do them: (a) own a stable pid for the UI's liveness tracking, (b) wait hours for an external condition (a blocker PR to merge) and resume, (c) eventually surface results to the human. So your job is: mint the run id (or, on `--resume`, re-enter an EXISTING one — see "Resume Procedure"), set up UI tracking, spawn the manager, and act on its report — including running the nested-blocker poll-wait and re-invoking the manager to resume.
 
 ## CRITICAL — token discipline: read almost nothing
 
 This skill is a supervisor, not a reader. Every iteration file is read by a `step-executor` in its own fresh context; per-step model resolution happens inside the `pipeline-manager`.
 
 - **Never `Read` an iteration file (`steps/**/*.md`).** You never touch them — not even their frontmatter. The manager resolves per-step models; you only pass it the pipeline-level default.
-- **Read `PIPELINE.md` only as frontmatter (`limit: 50`), once, at chain start**, to extract the `model:` field for `pipeline_default_model` and nothing else. Do not pass its content to the manager.
-- The only files you may `Read` in full are ones you write yourself in the nested-blocker flow (issue bodies, partial-work notes).
+- **Read `PIPELINE.md` only as frontmatter (`limit: 50`), once, at chain start**, to extract the `model:` field for `pipeline_default_model` and nothing else. Do not pass its content to the manager. **On `--resume`, skip this read entirely** — `pipeline_default_model` comes from the existing run's persisted `next.json.default_model` instead (see "Resume Procedure"), which is what keeps a resume from adding a manifest read on top of the `next.json` read it already needs for `current_iteration`.
+- The only files you may `Read` in full are ones you write yourself in the nested-blocker flow (issue bodies, partial-work notes) and, on `--resume`, the small `.runtime/*/next.json` orchestration-cursor file(s) — never an iteration file or `PIPELINE.md` body.
 
 ## Runner selection (experimental)
 
@@ -55,7 +55,7 @@ A pipeline and each iteration may also opt into a **reasoning effort** via the O
 ## Prerequisites
 
 - A pipeline exists under the current project's `./.claude/pipeline/` (typically authored with `/pipeline:design`).
-- `$1` is the absolute path to an iteration file under `<pipeline>/steps/` (usually `steps/01-*.md` to start fresh, or any later iteration to resume).
+- `$1` is either the absolute path to an iteration file under `<pipeline>/steps/` (usually `steps/01-*.md`, to start a FRESH run — this always mints a NEW run_id, even when the path is a later iteration), OR `--resume [<run_id>]` to re-enter an EXISTING run under its ORIGINAL run_id (see "Resume Procedure") — the only way to continue a dead session's run without orphaning its state.
 - The current working directory is the consumer project's root — all file edits performed by iterations land here.
 
 ## UI event emissions (pipeline-ui)
@@ -74,6 +74,7 @@ bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" event <event-type> run_
 
 **What you emit (one call per bullet):**
 
+- **On `--resume`, this whole list does not apply** — the Resume Procedure emits only `write-liveness` + `register-mirror-binding` for the EXISTING run_id, and never `pipeline.started` (re-entering a run is not starting one). See "Resume Procedure".
 - After the banner: `pipeline.started run_id=<id> pipeline_name=<name> first_iteration_path=<abs> pipeline_root=<abs> default_model=<model-or-null>` — `default_model` is `pipeline_default_model` (an alias `haiku`/`sonnet`/`opus`/`fable`, a canonical `claude-*` id, or literal `null`).
 - Immediately after `pipeline.started`, write the **liveness lockfile** so the daemon can detect this run dying without a terminal event: `bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" event write-liveness run_id=<id> pid=$PPID` (PowerShell: `pid=$PID`). Pass the OS pid of the process **driving** this supervisor — `$PPID` is the best portable handle for the persistent Claude session. The daemon only auto-retires a run when this pid is a real, dead process, so an untrustworthy value is a safe no-op.
 - Immediately after, register the **mirror binding** so the daemon mirrors this run's transcripts into the UI chat panel: `bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" event register-mirror-binding run_id=<id> pipeline_name=<name> iteration_path=<abs-first-iteration>`. Idempotent; silent on success. If `CLAUDE_SESSION_ID` is unset it writes `session_id=null` and the daemon no-ops the tail.
@@ -85,7 +86,7 @@ The writer pops `run_id`, `parent_run_id`, and `session_id` out of the kv args a
 
 ## Procedure
 
-1. If `$1` is empty, ask the user which iteration file to start at (suggest `./.claude/pipeline/<pipeline>/steps/01-*.md`). Do not proceed without a path.
+1. **Detect the resume form first.** If the invocation is `--resume` or `--resume <run_id>` (with or without a trailing run id — never a path), do NOT treat it as an iteration path: follow the **Resume Procedure** below instead, which re-joins this Procedure at step 5.1 once it has resolved `current_iteration` and the run's id. Otherwise, if `$1` is empty, ask the user which iteration file to start at (suggest `./.claude/pipeline/<pipeline>/steps/01-*.md`). Do not proceed without a path.
 2. Verify the file exists and is under the current project's `.claude/pipeline/` tree. If not, stop and ask the user to confirm the path.
 3. **Derive the pipeline name and root from the path — do not read iteration content.** Walk up from the iteration file: the parent is `steps/` (or a nested sub-step folder — keep walking until you reach `steps/`), and the parent of `steps/` is the pipeline root; its basename is the pipeline name. Show a one-line banner:
 
@@ -132,6 +133,15 @@ The writer pops `run_id`, `parent_run_id`, and `session_id` out of the kv args a
    step-executor spawn, then clear):
    <partial_work_note>
    </if>
+
+   <if this invocation came from the Resume Procedure (--resume <run_id>), even
+   though partial_work_note is null>
+   This is a RESUME of an existing run, not a fresh start — its
+   `.runtime/<run_id>/next.json` already carries progress. Make your FIRST
+   `pipeline next` call with `--resume` (the "Resume / re-entry" branch of
+   "Starting / resuming the run"), exactly as you would after a nested-blocker
+   landed, even though no partial_work_note is attached.
+   </if>
    ```
 
    Do NOT pass any iteration or manifest content in the prompt — only the fields above. The manager reads what it needs from disk.
@@ -149,6 +159,39 @@ The writer pops `run_id`, `parent_run_id`, and `session_id` out of the kv args a
    - **`blocked-delegating`** → run the **Nested-Blocker Flow** below. On successful resolution, set `current_iteration = next_on_resume.file`, set `partial_work_note` from the brief, and go back to 5.1 to re-invoke the manager. On terminal failure, emit `pipeline.halted` + `clear-liveness` and exit.
 
 6. When the loop exits, deliver the report in the format below.
+
+## Resume Procedure
+
+Triggered by step 1 when the invocation is `--resume` (list candidates) or `--resume <run_id>` (resume that id directly) — a dead session's run re-entering under its EXISTING run_id instead of minting a new one and orphaning its state.
+
+**`<pipeline-root>/.runtime/<id>/next.json`'s `phase` field is the SINGLE AUTHORITY on resumability.** `phase: "terminal"` (run finished, `done` or `halt`) — or a missing/unparseable file — means dead; anything else (`await-*` or `blocked`) means the run can be re-entered. The `.stats` SUMMARY "In-flight or crashed runs" section is for DISCOVERY ONLY, to help the human recall run ids — it is NEVER the refusal criterion: a crashed run's `.stats` entry is an unflushed timeline buffer, not a finalized record, so its mere presence or absence proves nothing about resumability.
+
+1. **With an id** (`--resume <run_id>`): `Glob` `./.claude/pipeline/*/.runtime/<run_id>/next.json` (existence only; at most one match across all pipelines in this project).
+   - No match → refuse: "No run found with id `<run_id>`. Start fresh: `/pipeline:run ./.claude/pipeline/<pipeline>/steps/01-*.md`." Stop — do not proceed to step 4.
+   - Match found → go to step 3.
+
+2. **Without an id** (bare `--resume`): discover candidates, then ask — this is the ONLY branch that reads more than one `next.json`.
+   - `Glob` `./.claude/pipeline/*/.runtime/*/next.json`. For each match, `Read` the file (a small orchestration-cursor JSON, not iteration content) and keep it only when it parses AND `phase !== "terminal"`.
+   - No non-terminal candidates → tell the user there is nothing to resume and suggest starting fresh (`/pipeline:run ./.claude/pipeline/<pipeline>/steps/01-*.md`). Stop.
+   - One or more candidates → list them, one line each: `<pipeline-name> · <run_id> · currently at <current_step_id or current_path> · <phase>` (append `(blocked on an external delegation — resuming will re-attempt this iteration)` when `phase === "blocked"`, so the user can choose knowingly). Optionally cross-reference the `.stats` SUMMARY "In-flight or crashed runs" section (`bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" stats`) to add a human-friendly "idle for Nh" hint — informational only, never filtering. Ask the user which to resume, or whether to start fresh instead. **This ask is user step 1 of the ≤2-step budget.**
+   - On the user's answer (step 2): if they chose to start fresh, stop this flow and use the ordinary Procedure (step 1 onward) instead. If they chose a candidate, you already have its `next.json` content from this pass — skip the re-`Read` in step 3 and continue at step 4 with that id and state.
+
+3. **Load and validate `next.json`** (skip when step 2 already read it): `Read` `<matched-path>`.
+   - Unparseable → treat exactly like "missing" (refuse as in step 1).
+   - `phase === "terminal"` → refuse: "Run `<run_id>` already finished (status: `<status>`). It can't be resumed — start a fresh run instead: `/pipeline:run <current_path, or ./.claude/pipeline/<pipeline>/steps/01-*.md if current_path is null>`." Stop.
+   - Otherwise, continue to step 4.
+
+4. **Derive run context from the matched path and the state — no `PIPELINE.md` read, no `steps/**` read.** From `<pipeline-root>/.runtime/<run_id>/next.json`: `pipeline_root` = `<pipeline-root>` (two path segments up from `next.json`), `pipeline_name` = its basename. From the state JSON: `current_iteration = current_path` (per 08.3, the single authority — this is why the resume path never re-derives it from a fresh plan or manifest read), `pipeline_default_model = default_model` (already resolved and persisted at run init; reusing it — instead of re-`Read`ing `PIPELINE.md` frontmatter — is what keeps this path from adding a manifest read on top of the one `next.json` read).
+
+5. **Re-emit liveness and the mirror binding for the EXISTING id.** Do NOT emit `pipeline.started` — this is not a new run, and re-minting would desync the UI's run list from the actual run_id. Show a one-line banner, then the two calls:
+
+   ```
+   ▶ Resuming pipeline <pipeline-name> (run <run_id>)
+   ```
+
+   `bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" event write-liveness run_id=<run_id> pid=$PPID` (PowerShell: `pid=$PID`), then `bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" event register-mirror-binding run_id=<run_id> pipeline_name=<pipeline_name> iteration_path=<current_iteration>`.
+
+6. **Join the ordinary Procedure at step 5.1**, with `current_iteration` and `partial_work_note = null` set from step 4 above, and `run_id` = the EXISTING id (never regenerated). Use the `<if this invocation came from the Resume Procedure>` block in the 5.1 spawn-prompt template so the manager's first `pipeline next` call uses `--resume`. From there, 5.2/5.3 and step 6 of the Procedure are unchanged — including that a resumed run's `.stats` buffer finalizes normally on completion (the idempotent finalize guard is per-run-id, and this run was never finalized while dead — 08.3, 01§3.4).
 
 ## Nested-Blocker Flow (supervisor-side)
 
