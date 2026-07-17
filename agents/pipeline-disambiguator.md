@@ -1,6 +1,6 @@
 ---
 name: pipeline-disambiguator
-description: Picks the single best-fit pipeline from 2–5 ambiguous candidates returned by the deterministic BM25 matcher, reasoning over the task text and candidate manifests inlined in its prompt. Returns one chosen pipeline (or a 2-pipeline chain) with a one-sentence rationale. Called ONLY by /pipeline:dispatch tier 2 — never invoke directly. Runs on Haiku for near-zero cost.
+description: Picks best-fit pipeline from BM25-matched candidates by reasoning over task and manifests. Returns single choice (or chain). Called by /pipeline:dispatch tier 2.
 tools: Read
 model: haiku
 color: cyan
