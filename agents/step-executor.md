@@ -1,6 +1,6 @@
 ---
 name: step-executor
-description: Executes ONE pipeline iteration file in a fresh context and reports a structured result to its caller, the pipeline-manager, which spawns one step-executor per step. Internal worker — do not invoke directly; it neither designs pipelines (pipeline-designer) nor orchestrates the chain (pipeline-manager).
+description: Internal pipeline worker — spawned per step by pipeline-manager or pipeline drive to execute one iteration file in a fresh context. Never invoke directly.
 tools: Read, Edit, Write, Bash, Glob, Grep, WebFetch, WebSearch, Skill, Agent, LSP, ToolSearch, TaskCreate, TaskGet, TaskList, TaskUpdate
 model: inherit
 color: blue
