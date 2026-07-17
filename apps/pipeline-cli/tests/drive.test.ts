@@ -521,7 +521,10 @@ test('drive: needs-input parks the run (exit 4) and --answer resumes the SAME se
   expect(first.status).toBe(4);
   expect(first.json.status).toBe('awaiting-input');
   expect(first.json.step_id).toBe(step0);
-  // question_id is a UUID string, varies per run
+  // question_id is at top-level (06.2.1 contract for runner correlation)
+  expect(typeof first.json.question_id).toBe('string');
+  expect(first.json.question_id).toMatch(/^[0-9a-f-]{36}$/);
+  // question_id is also nested inside question object
   expect(typeof first.json.question.question_id).toBe('string');
   expect(first.json.question.question_id).toMatch(/^[0-9a-f-]{36}$/);
   expect(first.json.question).toEqual({
@@ -536,6 +539,8 @@ test('drive: needs-input parks the run (exit 4) and --answer resumes the SAME se
   expect(sess.status).toBe('awaiting-input');
   expect(sess.questions.length).toBe(1);
   expect(first.json.session_id).toBe(sess.session_id);
+  // Top-level and nested question_ids must match for runner correlation
+  expect(first.json.question_id).toBe(first.json.question.question_id);
 
   // Answer: the SAME session id is resumed (--resume <id>), the answer prompt
   // carries the text, and the run completes.
