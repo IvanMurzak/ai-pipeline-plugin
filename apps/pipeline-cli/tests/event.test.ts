@@ -16,7 +16,7 @@
 
 import { test, expect, afterEach, describe } from 'bun:test';
 import { emitEvent, parseKvArgs } from '../src/lib/event';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -28,7 +28,11 @@ import { spawnSync } from 'node:child_process';
 const created: string[] = [];
 
 function mkTmp(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  // realpath so path comparisons survive short (8.3) TEMP paths on Windows —
+  // GH's windows-latest runner sets TEMP to `C:\Users\RUNNER~1\...` while git
+  // (and process.cwd() after a chdir) resolve to the long form
+  // (`C:\Users\runneradmin\...`); mirrors tests/_git-sandbox.ts:mkTmp.
+  const d = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   created.push(d);
   return d;
 }
