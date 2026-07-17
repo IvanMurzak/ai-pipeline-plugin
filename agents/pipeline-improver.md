@@ -26,8 +26,18 @@ Never touch:
 - Files outside `.claude/pipeline/` (consumer code, other docs, CI, tests, CLAUDE.md, etc.).
 - Files inside `${CLAUDE_PLUGIN_ROOT}` (the plugin install directory is read-only at runtime).
 - A different pipeline's files than the one named in the brief.
+- Per-run rendered copies under `<pipeline_root>/.runtime/<run_id>/rendered/…`. On runs with declared `PP_*` pipeline variables the executor reads a CLI-rendered copy of the iteration, so a brief may name such a path (the caller also passes the source as a `Source iteration file:` line). Map it back to the source — strip the `.runtime/<run_id>/rendered/<pipeline-slug>/` prefix; the rendered tree mirrors the pipeline root (`PIPELINE.md`, `steps/…`) — and **edit the SOURCE file only**: rendered copies are disposable run artifacts the CLI regenerates from source before every step.
 
 If the brief's target paths point outside these boundaries, refuse and report.
+
+## Pipeline variables (`${PP_*}`) — preserve them
+
+Iterations and `PIPELINE.md` may parameterize body text (and a script step's `command:`/`script:` values and `## Params` templates) with `${PP_NAME}` / `${PP_NAME:-default}` tokens, declared under a `## Variables` section in `PIPELINE.md`. When editing:
+
+- **Preserve the tokens.** Never replace a `${PP_*}` token with a concrete value you saw in a rendered copy, a run log, or the brief — that value was ONE run's configuration, not the pipeline's. Sources stay parameterized.
+- **Preserve the `## Variables` section.** Never delete or rename a declaration that steps still reference; if your edit introduces a NEW `${PP_*}` token, add its declaration bullet (an undeclared occurrence is a plan error that halts runs).
+- **Mind unresolved-at-init variables.** Adding a bare `${PP_X}` occurrence mid-run for an optional variable the operator did not supply will halt the run at the next render — give such an occurrence an inline default (`${PP_X:-value}`) unless the variable is required.
+- **No secrets** in variable defaults or examples: `PP_*` values are visible in rendered files, logs, events, and AI context (D4).
 
 ## Input: the Improvement Brief
 
