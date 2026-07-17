@@ -69,6 +69,11 @@ Rules:
   WARNING (meaningless; ignored).
 - On `type: agent` steps the new fields (`script`, `command`, `timeout`,
   `retries`, `on-failure`) → plan WARNING (ignored).
+- `script:` and `command:` are declared `${PP_*}` substitution surfaces
+  (D5(c), env-variables design) — a pipeline's declared `## Variables`
+  substitute into these two frontmatter values exactly as into iteration body
+  text; every OTHER frontmatter field stays banned (plan ERROR). Full argv/env
+  contract: §3.5.
 
 ### 2.2 Body sections
 
@@ -116,9 +121,15 @@ Type/enum mismatch after resolution ⇒ `binding`.
 Inside `from` strings: `${steps.<step_id>.output.<dot.path>}`, `${run.id}`,
 `${run.task}` (contents of the drive `task.md` when present, else null),
 `${env.<NAME>}`, `${pipeline.root}`, `${project.root}`,
-`${worktree.path}`, `${worktree.env_file}` (external isolation only).
+`${worktree.path}`, `${worktree.env_file}` (external isolation only), and
+`${PP_NAME}` / `${PP_NAME:-default}` / `${PP_NAME-default}` — the run's FROZEN
+pipeline-variable map (§3.5; env-variables design D7), same POSIX `:-`/`-`
+default rules as body substitution, always resolving to a JSON **string** even
+in single-ref position (E6).
 A `from` that is exactly one `${…}` keeps the referenced JSON type; a mixed
-template string interpolates to a string.
+template string interpolates to a string. **`$$` escaping is body-only** — a
+`$${PP_X}` inside a `from` template is NOT the D13 escape; write `PP_*` refs
+in Params templates without `$$`.
 
 ### 3.3 Plan-time lints on bindings
 
@@ -138,6 +149,41 @@ violation ⇒ failure class `contract`; (b) plan-time lint can field-check
 downstream `${steps.x.output.y}` references against it (missing declared field
 ⇒ ERROR). Producers without the block get runtime-only checking.
 
+### 3.5 Pipeline variables (`${PP_*}`) — env-variables design integration
+
+Full user-facing contract: `docs/script-steps.md` §2.5. Design summary:
+
+- **argv/`script:` substitution** happens at command build, AFTER plan-time
+  tokenization: each `command:` argv element (except `argv[0]`) and the
+  `script:` value each go through one `substituteText` pass (`lib/substitution.ts`)
+  — a value with spaces/metacharacters stays exactly one argv element (no
+  shell in the spawn path, T3).
+- **`argv[0]` is NEVER a substitution surface** — a `${PP_*}` occurrence there
+  is a pre-spawn `binding` failure (forbidden outright, the stricter of T3b's
+  two options; the plan lint mirrors this at design time).
+- **T3b containment**: a substituted `script:` path is canonicalized (resolve
+  + realpath) and checked against the project root + script-resolution root —
+  never a string-prefix compare; a violation is a pre-spawn `binding` failure.
+- **T3c `.bat`/`.cmd` carve-out**: a substituted `script:` path landing on
+  `.bat`/`.cmd`, or substituted `command:` args reaching an authored
+  `cmd`/`cmd.exe`/`.bat`/`.cmd` `argv[0]`, is refused — `cmd.exe` RE-PARSES its
+  command line (shell-reachable, not argv-safe). Platform-independent by
+  construction (fails identically off-Windows). An all-literal such command is
+  untouched (pre-existing authoring capability).
+- **T3c option-injection guidance**: author `--` before variable-derived
+  positional `command:` arguments so a leading-`-` value cannot be read as a
+  flag; not enforceable at the framework layer, documented only.
+- **Env overlay (D10)**: every resolved `PP_*` entry rides the child env
+  (§4 Environment) — no extra invocation-plumbing beyond declaring the
+  variable (existing scripts adopt variables with zero changes to their own
+  invocation).
+- **Trust (D4/T10)**: values are non-secret configuration BY CONTRACT, visible
+  in the params file, argv, child env, failure records, logs, events, and (for
+  agent steps) the executor's LLM context, where a value is untrusted data,
+  never an authored instruction. Never design a variable to carry a secret.
+- Lockstep: `lib/substitution.ts` (pure engine) + `lib/run-vars.ts` (run-init
+  plumbing) join the chain in §15 whenever this section changes.
+
 ## 4. Execution contract (the process I/O)
 
 Mirrors the frozen worktree-hook contract style. Executed via the existing
@@ -148,7 +194,11 @@ grandchildren).
 `PIPELINE_STEP_RUN_ID`, `PIPELINE_STEP_ID`, `PIPELINE_STEP_INDEX` (dispatch
 index), `PIPELINE_STEP_PIPELINE_ROOT`, `PIPELINE_STEP_PROJECT_ROOT`,
 `PIPELINE_STEP_PARAMS_FILE`, and under external isolation
-`PIPELINE_STEP_WORKTREE_PATH` + `PIPELINE_STEP_WORKTREE_ENV_FILE`.
+`PIPELINE_STEP_WORKTREE_PATH` + `PIPELINE_STEP_WORKTREE_ENV_FILE`. When the
+pipeline declares `## Variables` (§3.5, D10): every resolved `PP_*` name,
+added AFTER the worktree env-file entries and BEFORE the `PIPELINE_STEP_*`
+vars above. Precedence for a given name: `PIPELINE_STEP_*` > frozen `PP_*` >
+worktree env-file > inherited process env.
 
 **Params file**: resolved params JSON written to
 `<pipeline_root>/.runtime/<run-id>/params/<step_id>.json`, path passed via
@@ -440,10 +490,12 @@ whitespace-free — the schema test asserts it).
 
 ## 15. Lockstep & invariants
 
-- Change chain: `plan.ts` ↔ `script-types.ts`/`script-step.ts` ↔ `next.ts` ↔
-  `commands/next.ts` ↔ `step-schema.ts` ↔ `EVENTS.md`/`web/src/types.ts`/
-  `logs.ts`/`stats.ts` ↔ agent docs (designer / script-creator / improver /
-  manager / step-executor) ↔ `README.md`/`docs/cli.md` — change together.
+- Change chain: `plan.ts` ↔ `script-types.ts`/`script-step.ts` ↔
+  `substitution.ts`/`run-vars.ts` (the `${PP_*}` engine + run-init plumbing,
+  §3.5) ↔ `next.ts` ↔ `commands/next.ts` ↔ `step-schema.ts` ↔
+  `EVENTS.md`/`web/src/types.ts`/`logs.ts`/`stats.ts` ↔ agent docs (designer /
+  script-creator / improver / manager / step-executor) ↔
+  `README.md`/`docs/cli.md`/`docs/script-steps.md` — change together.
 - The pure engine (`lib/next.ts`) NEVER touches the filesystem or spawns
   processes — execution lives in the command layer / `script-step.ts`,
   injected seams for tests (a `ProcessRunner` seam like `GitRunner`).

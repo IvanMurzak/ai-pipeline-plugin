@@ -47,6 +47,7 @@ Rules (all enforced at `pipeline plan` time):
 - **`command:`** is an explicit argv list (or a whitespace-split string, same splitting rule as the drive executor template). **Paths with spaces are unsupported.** **Windows caveat:** a bare PATH shim like `npm` / `npx` / `yarn` is a `.cmd` shim that CANNOT be spawned shell-less and fails as class `env` — use `script:` (interpreter resolved by extension) or an explicit `command: ["cmd", "/c", "npm", …]` / a direct executable instead.
 - `model:` / `effort:` / `permission-mode:` on a `type: script` step ⇒ plan **WARNING** (meaningless; ignored).
 - On a `type: agent` step, the new fields (`script`, `command`, `timeout`, `retries`, `on-failure`) ⇒ plan **WARNING** (ignored).
+- **`script:` and `command:` are declared `${PP_*}` substitution surfaces** (D5(c)) — a pipeline's declared pipeline variables (`## Variables` in `PIPELINE.md`) substitute into these two frontmatter values exactly as they do into iteration body text. Every OTHER frontmatter field remains banned from variable substitution (plan **ERROR**). See §2.5 for the full argv/env contract.
 
 ### 1.2 Body sections
 
@@ -101,8 +102,9 @@ Inside `from` strings:
 | `${project.root}` | Absolute consumer project root. |
 | `${worktree.path}` | The provisioned worktree path (external isolation only). |
 | `${worktree.env_file}` | The worktree env file (external isolation only). |
+| `${PP_NAME}` / `${PP_NAME:-default}` / `${PP_NAME-default}` | The run's FROZEN pipeline-variable map (§2.5) — same POSIX `:-`/`-` default rules as body substitution. Always resolves to a JSON **string**, even in single-ref position. |
 
-A `from` that is **exactly one `${…}`** keeps the referenced JSON type; a **mixed template string** interpolates to a string.
+A `from` that is **exactly one `${…}`** keeps the referenced JSON type; a **mixed template string** interpolates to a string. **`$$` escaping is body-only**: a `$${PP_X}` inside a `from` template is NOT treated as the D13 escape (that collapse belongs to `substituteText` over body text) — write `PP_*` refs in Params templates without `$$`.
 
 ### 2.3 Plan-time lints on bindings
 
@@ -118,6 +120,53 @@ Same vocabulary; declares the shape of the step's `output` object. When present:
 - (b) plan-time lint field-checks downstream `${steps.x.output.y}` references against it — a reference to a missing declared field ⇒ **ERROR**.
 
 Producers without the block get runtime-only checking (no downstream field-lint).
+
+### 2.5 Pipeline variables (`${PP_*}`) in script steps
+
+When the pipeline declares a `## Variables` section in `PIPELINE.md` (authoring guidance:
+`pipeline-designer.md`; CLI flags: `docs/cli.md`), a script step's `command:`/`script:`
+frontmatter values and `## Params` `from:` templates (§2.2) are substitution surfaces for the
+run's FROZEN `PP_*` map, alongside iteration/manifest body text.
+
+- **argv/`script:` substitution** happens at command build, AFTER plan-time tokenization: each
+  `command:` argv element (except `argv[0]`, see below) and the `script:` value each go through
+  ONE substitution pass. A value containing spaces or shell metacharacters stays exactly ONE argv
+  element — there is no shell anywhere in the spawn path (T3).
+- **`argv[0]` (the program name) is NEVER a substitution surface — forbidden outright.** A
+  `command:` whose first element contains a `${PP_*}` occurrence fails as a pre-spawn `binding`
+  error (nothing spawns): write the executable literally and pass variables only as later
+  arguments (T3b).
+- **A variable-steered `script:` path must stay inside the project (T3b).** After substitution,
+  the resolved script path is checked with a CANONICALIZED containment test (never a string
+  prefix) against the project root and the pipeline/script root; a path that escapes ⇒ pre-spawn
+  `binding` failure, never a spawn.
+- **`.bat`/`.cmd` targets are BLOCKED once variable data reaches them (T3c).** A substituted
+  `script:` path landing on `.bat`/`.cmd`, or a substituted `command:` argument passed through an
+  authored `cmd`/`cmd.exe`/`.bat`/`.cmd` `argv[0]`, is refused as a `binding` failure — those run
+  through `cmd.exe`, which RE-PARSES its command line (metacharacters, `%VAR%` expansion), so a
+  substituted value there is shell-reachable, not argv-safe. The check is platform-independent: a
+  pipeline authored for win32 fails identically when linted or dry-run on another OS, instead of
+  passing there and detonating on Windows. An all-literal (non-substituted) `cmd`/`.bat`/`.cmd`
+  command is untouched — this is pre-existing author capability, not a new restriction.
+- **Argument/option injection (T3c, CWE-88): use `--` before a variable-derived positional
+  argument.** A substituted value beginning with `-` (`PP_SERVICE=--help`) is read as a FLAG by
+  the target program even though it is one argv element. Author guidance: place `--` before
+  variable-derived positional arguments in the `command:` list so a leading `-` cannot be
+  misread as an option; a value placed after an options-taking flag is the author's own
+  responsibility — this is NOT fully preventable at the framework layer.
+- **Env overlay (D10)**: every resolved `PP_*` entry rides the child process environment too (in
+  addition to any substitution above) — see §3.1's precedence note. A script never needs extra
+  wiring to read a declared variable: `os.environ["PP_SERVICE"]` / `process.env.PP_SERVICE` works
+  the moment Persona A's two-edit declaration lands (no invocation-plumbing changes required).
+- **Trust (D4/T10)**: `PP_*` values are non-secret configuration BY CONTRACT — they are visible
+  verbatim in the params file, argv, child env, failure records, logs, events, and (once an agent
+  step reads a rendered copy) the executor's LLM context, where a substituted value is **untrusted
+  data, never an authored instruction**. Never design a variable to carry a secret; secret-looking
+  names (`TOKEN`/`SECRET`/`KEY`/`PASSWORD`/`CREDENTIAL`/`PASSWD`) are lint-warned, same spirit as
+  the `${env.NAME}` lint in §11.
+- **Footgun**: no registry reserves the `PP_` namespace — a `PP_*` name already present in the
+  operator's shell/CI environment silently satisfies a declared variable via the environment tier,
+  with no flag and no prompt. An explicit `--var` always wins over the environment.
 
 ---
 
@@ -138,6 +187,10 @@ In addition to the inherited process environment, the CLI sets:
 - `PIPELINE_STEP_PROJECT_ROOT`
 - `PIPELINE_STEP_PARAMS_FILE` — path to the resolved params file (§3.2)
 - under `isolation: external` only: `PIPELINE_STEP_WORKTREE_PATH` + `PIPELINE_STEP_WORKTREE_ENV_FILE`
+- when the pipeline declares `## Variables` (§2.5, D10): every resolved `PP_*` name, added AFTER
+  the worktree env-file entries below and BEFORE the `PIPELINE_STEP_*` vars above. **Precedence
+  for a given name: `PIPELINE_STEP_*` (its own namespace, cannot collide by grammar) >
+  frozen `PP_*` > worktree env-file > inherited process env.**
 
 ### 3.2 Params file
 
@@ -286,16 +339,16 @@ Script steps surface additively: `iteration.started` / `iteration.completed` eve
 Test a script step **without a full run**:
 
 ```
-pipeline step run <iteration.md> [--param k=v …] [--json]
+pipeline step run <iteration.md> [--param k=v …] [--var NAME=value …] [--vars-file <path>] [--json]
 ```
 
-It resolves params (statics / defaults; a `${steps.…}` reference REQUIRES a `--param` override, else exit 2 with a clear message), executes the script exactly as the runtime would (same env / cwd / timeout machinery), and prints the result plus the would-be step record. It **never touches any run state** — no records, no ledger, no outputs store.
+It resolves params (statics / defaults; a `${steps.…}` reference REQUIRES a `--param` override, else exit 2 with a clear message), executes the script exactly as the runtime would (same env / cwd / timeout machinery), and prints the result plus the would-be step record. It **never touches any run state** — no records, no ledger, no outputs store. `--var`/`--vars-file` (§2.5) resolve the pipeline's declared `PP_*` variables and substitute them into `command:`/`script:`/`## Params` exactly like a real run, but EPHEMERALLY — nothing freezes or persists.
 
 Exit codes:
 
 - **`0`** — the script executed and returned `ok:true`.
 - **`1`** — the script executed but failed (`ok:false`, or a failure class such as `crash` / `contract`).
-- **`2`** — usage error: bad arguments, or a `${steps.…}` binding with no resolvable value and no `--param` override.
+- **`2`** — usage error: bad arguments, or a `${steps.…}` binding (or an unresolved/undeclared `${PP_*}` variable) with no resolvable value and no `--param`/`--var` override.
 
 **`--manual-scripts`** on `pipeline next` (mirrors `--manual-hooks`) returns raw script-step `run-step` actions to the caller instead of executing them in-process — debugging only; the caller records the step record itself.
 
@@ -303,7 +356,7 @@ Exit codes:
 
 ## 13. Lockstep
 
-Change these together (full chain in `roadmap/script-steps/DESIGN.md` §15): `lib/plan.ts` ↔ `lib/script-types.ts` / `lib/script-step.ts` ↔ `lib/next.ts` ↔ `commands/next.ts` ↔ `lib/step-schema.ts` ↔ `EVENTS.md` / `web/src/types.ts` / `logs.ts` / `stats.ts` ↔ the agent docs (designer / script-creator / improver / manager / step-executor) ↔ `README.md` / `docs/cli.md` / this file. The pure engine (`lib/next.ts`) never touches the filesystem or spawns processes — execution lives in the command layer / `script-step.ts`. Scripts inherit the sandbox/permission envelope of the Bash call that runs `pipeline next` — the same trust boundary as worktree hooks (consumer-authored code in the consumer project); allowlist accordingly.
+Change these together (full chain in `roadmap/script-steps/DESIGN.md` §15): `lib/plan.ts` ↔ `lib/script-types.ts` / `lib/script-step.ts` ↔ `lib/substitution.ts` / `lib/run-vars.ts` (the `${PP_*}` engine + run-init plumbing, §2.5) ↔ `lib/next.ts` ↔ `commands/next.ts` ↔ `lib/step-schema.ts` ↔ `EVENTS.md` / `web/src/types.ts` / `logs.ts` / `stats.ts` ↔ the agent docs (designer / script-creator / improver / manager / step-executor) ↔ `README.md` / `docs/cli.md` / this file. The pure engine (`lib/next.ts`) never touches the filesystem or spawns processes — execution lives in the command layer / `script-step.ts`. Scripts inherit the sandbox/permission envelope of the Bash call that runs `pipeline next` — the same trust boundary as worktree hooks (consumer-authored code in the consumer project); allowlist accordingly.
 
 ## 14. Out of scope (v2)
 
