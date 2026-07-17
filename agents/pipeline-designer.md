@@ -466,6 +466,8 @@ A pipeline is treated as DAG/parallel **only when `PIPELINE.md` declares `execut
 
 When in doubt, keep it sequential. Parallelism is an optimization for independent branches (e.g. "lint", "typecheck", and "unit-test" of disjoint modules that all depend on a shared "01-build" step), not a default.
 
+**Authoring Rule: Parallel steps must be self-contained.** Any step placed in a parallel layer must be self-contained — never call `needs-input` or ask the user for anything. A step that may ask a question must be scheduled sequentially, not in a parallel layer. To enforce this, give such a step a `depends-on` list that includes all the parallel branches that precede it, forcing it into a distinct sequential layer after the fan-in. Rationale: in headless mode (`runner: headless`), a needs-input question inside a parallel layer halts the entire run with no way for the runner to answer. **Consequence: v1 halts unattended runs if a step that calls `needs-input` runs in a parallel layer.** This is a design-time constraint, not a runtime discovery — plan your DAG so question-asking steps land in sequential layers.
+
 **Example — a fan-out/fan-in DAG** (`01-build` runs first; `02-lint`, `03-typecheck`, `04-test` run concurrently against disjoint files; `05-package` waits for all three):
 
 `PIPELINE.md` frontmatter:
