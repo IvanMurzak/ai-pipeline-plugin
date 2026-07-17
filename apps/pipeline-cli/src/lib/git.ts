@@ -195,11 +195,6 @@ export function gitmodulesPaths(git: GitRunner, root: string, gitmodulesFile: st
 /** Parse `git worktree list --porcelain` into `[{path, branch|null}]`. */
 export function iterWorktrees(git: GitRunner, root: string): Array<{ path: string; branch: string | null }> {
   const r = git(['worktree', 'list', '--porcelain'], root);
-  if (process.env.PIPELINE_GC_DEBUG) {
-    console.error(
-      `[gc-debug] iterWorktrees root=${JSON.stringify(root)} code=${r.code} stdout=${JSON.stringify(r.stdout)} stderr=${JSON.stringify(r.stderr)}`,
-    );
-  }
   if (r.code !== 0) return [];
   const out: Array<{ path: string; branch: string | null }> = [];
   let curPath: string | null = null;

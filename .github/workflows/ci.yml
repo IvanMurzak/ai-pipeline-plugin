@@ -76,8 +76,6 @@ jobs:
           bun-version: latest
       - name: Run unit tests
         run: bun test tests/
-        env:
-          PIPELINE_GC_DEBUG: '1'
       - name: CLI smoke (version + Node bundle build)
         run: |
           bun src/cli.ts --version

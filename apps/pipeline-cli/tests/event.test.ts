@@ -16,7 +16,7 @@
 
 import { test, expect, afterEach, describe } from 'bun:test';
 import { emitEvent, parseKvArgs } from '../src/lib/event';
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -28,13 +28,24 @@ import { spawnSync } from 'node:child_process';
 const created: string[] = [];
 
 function mkTmp(prefix: string): string {
-  // realpath so path comparisons survive short (8.3) TEMP paths on Windows —
-  // GH's windows-latest runner sets TEMP to `C:\Users\RUNNER~1\...` while git
-  // (and process.cwd() after a chdir) resolve to the long form
-  // (`C:\Users\runneradmin\...`); mirrors tests/_git-sandbox.ts:mkTmp.
-  const d = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  const d = mkdtempSync(join(tmpdir(), prefix));
   created.push(d);
   return d;
+}
+
+/** Canonical git-reported top-level path for an existing worktree/repo dir —
+ *  NOT realpathSync, which does not reliably expand Windows 8.3 short-name
+ *  path segments (e.g. a CI runner whose profile resolves to `RUNNER~1` while
+ *  git always reports the long `runneradmin` form via `--show-toplevel`, same
+ *  as `worktree list --porcelain`). Use wherever a test-constructed path is
+ *  compared against a value the library derived from git. */
+function gitTopLevel(dir: string): string {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' });
+  if (r.status !== 0 || !r.stdout.trim()) {
+    throw new Error(`git rev-parse --show-toplevel failed at ${dir}: ${r.stderr}`);
+  }
+  const tl = r.stdout.trim();
+  return process.platform === 'win32' ? tl.replace(/\//g, '\\') : tl;
 }
 
 /** A real git repo so resolveProjectRoot resolves to it. */
@@ -42,7 +53,7 @@ function mkGitRepo(): string {
   const root = mkTmp('evt-');
   const r = spawnSync('git', ['init', '-q'], { cwd: root });
   if (r.status !== 0) throw new Error(`git init failed: ${r.stderr}`);
-  return root;
+  return gitTopLevel(root);
 }
 
 afterEach(() => {
@@ -310,10 +321,11 @@ describe('golden — worktree detection', () => {
       return;
     }
     created.push(wtPath);
+    const wtTop = gitTopLevel(wtPath);
     runTs(() => emitEvent('iteration.started', ['index=1', 'run_id=wt']), wtPath, controlledEnv(home));
     // Event lands in the MAIN repo's journal (worktree events route to main).
     const ev = JSON.parse(readFileSync(join(main, EVENTS_REL), 'utf-8').trim());
     expect(resolve(ev.project_root as string)).toBe(resolve(main));
-    expect(resolve(ev.worktree as string)).toBe(resolve(wtPath));
+    expect(resolve(ev.worktree as string)).toBe(resolve(wtTop));
   });
 });
