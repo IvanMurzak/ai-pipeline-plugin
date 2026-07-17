@@ -61,7 +61,11 @@ jobs:
 
   pipeline-cli:
     name: Pipeline CLI (apps/pipeline-cli)
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: apps/pipeline-cli
