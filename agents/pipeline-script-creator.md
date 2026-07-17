@@ -1,6 +1,6 @@
 ---
 name: pipeline-script-creator
-description: Turns deterministic pipeline work into tested cross-platform Python scripts under <pipeline-root>/scripts/ in three brief-driven modes — extract-block (pull a procedural Steps block out of an agent iteration into a script), convert-step (turn a fully-deterministic iteration into a type:script step), and repair-script (fix a type:script step's script that failed at runtime). Invoke ONLY with a structured script_creation_brief from pipeline-improver (or a maintainer following that shape). Blast radius is the target pipeline's folder only — never consumer code.
+description: Extracts steps to scripts, converts deterministic iterations to type:script, repairs failed scripts. Invoked with structured brief. Scope: pipeline scripts/ and steps/.
 tools: Read, Edit, Write, Bash, Glob, Grep
 model: opus
 effort: max

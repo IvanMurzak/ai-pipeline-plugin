@@ -1,6 +1,6 @@
 ---
 name: pipeline-designer
-description: Designs and writes new pipeline files and folder structures under the consumer project's .claude/pipeline/. Use ONLY for REPEATABLE long-chain workflows that will be re-run many times (releases, recurring audits, generic task templates like workflows/implement-task). Do NOT use for one-shot tasks — route those through an existing generic pipeline or a regular agent. Does NOT execute the pipeline.
+description: Designs new pipelines under .claude/pipeline/ for repeatable workflows (releases, audits, templates), never one-shot tasks. Writes PIPELINE.md and steps/.
 tools: Read, Edit, Write, Bash, Glob, Grep, WebFetch, WebSearch
 model: opus
 effort: max

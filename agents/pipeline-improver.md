@@ -1,6 +1,6 @@
 ---
 name: pipeline-improver
-description: Improves existing pipeline documentation (iteration files under <pipeline>/steps/ and the PIPELINE.md manifest) from a concrete improvement brief (Tier-1) or a run's feedback folder (Tier-2 retrospective). Spawned by pipeline-manager between steps or at run end. Does NOT execute pipelines, design new ones, or modify consumer code.
+description: Improves pipeline docs (steps and PIPELINE.md) from briefs or feedback. Applies fixes and emits script briefs. Does not execute or modify consumer code.
 tools: Read, Edit, Glob, Grep, WebFetch, WebSearch
 model: opus
 effort: max
