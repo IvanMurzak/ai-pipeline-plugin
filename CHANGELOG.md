@@ -1,0 +1,77 @@
+# Changelog
+
+Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` CLI it ships
+(they live in one repo and release together; version numbers are independent — see below).
+This file starts here; earlier history is in `git log`.
+
+## Pipeline variables (`${PP_*}`)
+
+**Plugin `0.73.0 → 0.74.0`** (`.claude-plugin/plugin.json`) · **CLI `@baizor/pipeline` `0.1.1 → 0.2.0`**
+(`apps/pipeline-cli/package.json`)
+
+### Added
+
+- **`## Variables` manifest section.** Declare pipeline-scoped variables in `PIPELINE.md`:
+  `- PP_NAME (required) — description` or `- PP_NAME (default: value) — description`. Reference
+  one anywhere in iteration/manifest body text, or in a script step's `command:`/`script:`
+  frontmatter values and `## Params` `from:` templates, as `${PP_NAME}` — with an optional inline
+  fallback `${PP_NAME:-default}` (unset-or-empty) / `${PP_NAME-default}` (unset only, POSIX
+  semantics) and a `$$` escape for a literal token in prose.
+- **`--var NAME=value` (repeatable) and `--vars-file <path>` (dotenv format)** on `pipeline next`,
+  `pipeline drive`, and `pipeline step run`. Values resolve `--var`/`--vars-file` > the operator's
+  environment > the manifest `(default: ...)`, are validated fail-fast and aggregated (every
+  missing/unknown/malformed variable reported at once, never first-error-only), and are FROZEN
+  into the run's state at init on `next`/`drive` — a `--resume` reuses the frozen map verbatim and
+  supplying new values against an already-frozen run is a loud usage error (exit 2). `step run`
+  resolves the same way but never freezes or persists anything (dry-run only).
+- **Rendered per-run copies of agent iterations.** When a pipeline declares variables, `pipeline
+  next`/`drive` substitute `${PP_*}` tokens into a per-run rendered copy of each dispatched
+  iteration (and `PIPELINE.md`) under `.runtime/<run-id>/rendered/<pipeline-slug>/` — source files
+  are never mutated. The rest of the pipeline tree (sibling steps, `scripts/**`, fixtures) mirrors
+  into the same rendered tree so relative references between steps keep resolving; only an
+  **absolute** reference back to the source tree still sees raw `${PP_*}` placeholders.
+- **Script-step integration**: a resolved `PP_*` value substitutes into a script step's `command:`
+  argv (never into `argv[0]`, which is forbidden as a substitution surface outright) and `script:`
+  path, and every resolved variable also rides the child process environment alongside the
+  existing `PIPELINE_STEP_*` contract vars — existing scripts read `os.environ["PP_X"]` /
+  `process.env.PP_X` with zero changes to their own invocation. A substituted `script:`/`command:`
+  path is containment-checked against the project root, and a substituted value reaching a
+  `.bat`/`.cmd` target (or an authored `cmd`/`cmd.exe` command) is refused — those run through
+  `cmd.exe`, which re-parses its command line and is not argv-safe.
+- Full CLI-flag contract: `docs/cli.md`. Full script-step argv/env/Params contract: `docs/script-steps.md` §2.5.
+
+### Trust model (read before using)
+
+- `PP_*` variable values are **non-secret configuration by contract**: they are visible verbatim
+  in rendered files, params files, child-script environments, logs, events, and — for agent
+  steps — the step-executor's LLM context. Never design a variable to carry a secret; keep using
+  the existing secret channels (worktree env files, or a script reading real secrets straight from
+  the process environment). Secret-looking declared names are lint-warned.
+- A value substituted into an agent iteration is **untrusted data in that iteration's LLM
+  context**, not an authored instruction — the step-executor treats it as data even if its content
+  reads like an instruction.
+- **Environment-collision footgun**: no registry reserves the `PP_` namespace. A `PP_*` name
+  already set in the operator's shell/CI environment silently satisfies a declared variable with
+  no flag and no prompt. Check your environment (or pass an explicit `--var`, which always wins)
+  before running an unfamiliar pipeline.
+
+### Upgrade / downgrade caveat
+
+- **Do not downgrade the CLI mid-run on a pipeline using variables.** There is no state-format
+  version marker in `next.json`. A run started on this version (or newer) freezes its resolved
+  `PP_*` map into `next.json`; an OLDER CLI resuming that same run ignores the unknown `variables`
+  key entirely and hands the step-executor the **source** iteration file with raw, unsubstituted
+  `${PP_*}` placeholders in it instead of the rendered copy — the run will not fail loudly, it will
+  silently execute the wrong content. Finish (or abandon) a run on the CLI version it started on;
+  upgrading mid-run is safe (an old run with no `variables` key just keeps its pre-upgrade
+  behavior), downgrading a variable-using run is not.
+- Runs on pipelines with **no** `## Variables` section are entirely unaffected by this release —
+  zero behavior change, zero new files, zero new state keys (`E9`).
+
+### Compatibility
+
+- Fully backward compatible: pipelines without a `## Variables` section take the exact same code
+  paths as before (no rendering, identical `ActionStep.path`, identical argv, identical env).
+- The pre-existing `${steps.x.output.y}` / `${env.NAME}` / `${run.*}` / `${pipeline.root}` /
+  `${project.root}` / `${worktree.*}` Params bindings, the `{model}` drive-executor template, and
+  `--param` on `step run` are all unchanged and coexist with `${PP_*}`.
