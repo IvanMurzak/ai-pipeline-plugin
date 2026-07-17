@@ -154,6 +154,7 @@ Every script you write MUST follow these conventions. They exist so executors on
 - **No hardcoded `/tmp/`.** Use `tempfile.gettempdir()` or `tempfile.TemporaryDirectory()`.
 - **No assumed line endings.** Open text files with `encoding="utf-8"` explicitly. Never rely on the platform default.
 - **No assumed locale.** If the script invokes `gh`, `git`, or any tool whose output you parse, force a stable locale: pass `env={**os.environ, "LC_ALL": "C", "LANG": "C"}` and `--no-pager` where applicable.
+- **`PP_*` pipeline variables arrive via the environment.** On a pipeline that declares `## Variables`, the CLI exports every resolved `PP_*` value into the script's child environment (besides substituting `${PP_*}` tokens in `command:`/`script:` values and `## Params` templates). Read them as plain env vars — `os.environ.get("PP_SERVICE")` — instead of embedding a concrete value you saw in a run's rendered files or logs, and never re-implement `${PP_*}` token parsing inside a script (the CLI owns substitution).
 
 ### Self-containment
 

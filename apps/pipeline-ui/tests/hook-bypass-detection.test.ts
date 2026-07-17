@@ -217,6 +217,34 @@ describe("parseManagerSpawn / parseWorkerSpawn (pure parsers)", () => {
     }
   });
 
+  test("a rendered shadow-copy spawn path normalizes back to the SOURCE path (env-variables P4)", () => {
+    // On a PP_*-variable-declaring run the manager spawns the executor with
+    // the CLI-rendered copy under `<pipeline_root>/.runtime/<run>/rendered/
+    // <slug>/steps/…` while journal events carry the SOURCE path — the parser
+    // must key everything (ownership match, root, name) on the source.
+    const source = iterationPath("demo");
+    const rendered = join(
+      projectRoot,
+      ".claude",
+      "pipeline",
+      "demo",
+      ".runtime",
+      "run-42",
+      "rendered",
+      "demo",
+      "steps",
+      "03-do-the-thing.md",
+    );
+    const parsed = parseWorkerSpawn({
+      subagent_type: "step-executor",
+      prompt: `Execute pipeline iteration: ${rendered}`,
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed!.iterationPath).toBe(source);
+    expect(parsed!.pipelineName).toBe("demo");
+    expect(parsed!.pipelineRoot).toBe(join(projectRoot, ".claude", "pipeline", "demo"));
+  });
+
   test("a manager is NOT parsed as a worker, and vice versa", () => {
     const iter = iterationPath("demo");
     expect(

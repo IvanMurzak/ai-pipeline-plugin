@@ -355,6 +355,17 @@ const MANAGER_SUBAGENT_RE = /^(?:[a-z0-9_-]+:)?pipeline-manager$/;
 const WORKER_SUBAGENT_RE = /^(?:[a-z0-9_-]+:)?(?:step-executor|pipeline-executor(?:-(haiku|sonnet|opus))?)$/;
 const ITERATION_PATH_RE = /[A-Za-z]:[\\/](?:[^\s"`'<>|]+[\\/])?\.claude[\\/]pipeline[\\/](?:[^\s"`'<>|]+[\\/])?steps[\\/][^\s"`'<>|]+\.md|\/(?:[^\s"`'<>|]+\/)?\.claude\/pipeline\/(?:[^\s"`'<>|]+\/)?steps\/[^\s"`'<>|]+\.md/;
 
+// Rendered shadow copies (env-variables P4): on a PP_*-variable-declaring run
+// the manager spawns the step-executor with the CLI-rendered per-run copy at
+// `<pipeline_root>/.runtime/<run_id>/rendered/<pipeline-slug>/steps/…`, while
+// every journal event (pipeline.started first_iteration_path,
+// iteration.started iteration_path) carries the SOURCE path. Strip that shadow
+// infix from a parsed spawn path so ownership matching
+// (findChainControllerRunId), pipeline root/name derivation, and the mirror
+// binding all stay keyed on source paths. Non-rendered paths never contain a
+// `.runtime/<run>/rendered/<slug>/` segment, so this is a no-op for them.
+const RENDERED_INFIX_RE = /[\\/]\.runtime[\\/][^\\/]+[\\/]rendered[\\/][^\\/]+(?=[\\/])/;
+
 interface ParsedSpawn {
   iterationPath: string;
   pipelineRoot: string;
@@ -408,7 +419,9 @@ function parseSpawn(
   const pathMatch = ITERATION_PATH_RE.exec(prompt);
   if (!pathMatch) return null;
 
-  const iterationPath = pathMatch[0];
+  // Normalize a rendered shadow-copy path back to its SOURCE path (see
+  // RENDERED_INFIX_RE) — journal events are keyed on source paths.
+  const iterationPath = pathMatch[0].replace(RENDERED_INFIX_RE, "");
   // Walk upward from the iteration file's directory until we find a
   // folder literally named `steps`. The pipeline contract permits
   // nested step subfolders (e.g. `steps/phase-2/01-x.md`), so a single

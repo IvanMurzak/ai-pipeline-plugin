@@ -126,6 +126,24 @@ Individual iterations stay fully self-contained — they do not silently depend 
 
 **Optional frontmatter** (YAML, above the `# Pipeline:` line): `model:` (pipeline-level default — an alias `haiku|sonnet|opus|fable`, a canonical `claude-*` id, or `inherit`; see Authoring Principle 11) `execution: parallel|sequential` (default `sequential` — see Authoring Principle 12; set `parallel` ONLY for pipelines with genuinely independent, disjoint-footprint branches), `isolation: worktree|manual|external` (default `worktree`; `worktree`/`manual` are relevant ONLY in parallel mode — see Authoring Principle 12; `external` is a **run-level, sequential-only** consumer-provisioned-worktree mode — see Authoring Principle 14), `submodules: [a, b, c]` (only with `isolation: external` — see Authoring Principle 14), `base_branch: <branch>` (only with `isolation: external` — the branch the consumer's create hook forks the run worktree from; default `main`), `delete_branches: false` (only with `isolation: external` — opt OUT of the default where a COMPLETED run's destroy hook is told to delete the run branch via `PIPELINE_WT_DELETE_BRANCHES=1`; failed runs always preserve), `finalize: true` (only with `isolation: external` — opt into a MANDATORY terminal finalize hook that must succeed before the run may complete; see Authoring Principle 14), and `runner: manager|headless` (default `manager`; EXPERIMENTAL — `headless` runs the chain via the bundled `pipeline drive` CLI with no pipeline-manager subagent, trading the manager's token cost and context ceiling for v1 limitations: self-improvement actions are skipped and feedback is left for a manual retrospective). Omit these fields for an ordinary sequential pipeline.
 
+**Pipeline variables — optional `## Variables` section.** When the same pipeline must run against different targets (a service name, a version, a channel), parameterize with `PP_*` pipeline variables instead of hardcoding one target or cloning the pipeline. Declare them in an optional `## Variables` section of `PIPELINE.md`, one bullet per variable (this section is exempt from the 300-token cap and invisible to the matcher):
+
+````markdown
+## Variables
+- PP_SERVICE (required) — the service under release
+- PP_CHANNEL (default: #releases) — announcement channel
+- PP_DRY_RUN — optional; set to 1 to skip the publish step
+````
+
+Reference a variable as `${PP_SERVICE}` in iteration and manifest BODY text, in a script step's `command:`/`script:` frontmatter values, and in `## Params` `from:` templates. At run start the operator supplies values (`--var PP_SERVICE=payments` > environment > manifest `(default: …)`); the CLI validates everything up front, freezes the values for the whole run, and substitutes them into per-run rendered copies of the iterations (sources are never mutated). Rules:
+
+- Names match `PP_[A-Z0-9_]+` and MUST be declared — an undeclared `${PP_*}` occurrence is a plan error. `(required)` and `(default: …)` are mutually exclusive on one bullet.
+- An occurrence may carry its own fallback: `${PP_CHANNEL:-#releases}` (used when the variable is unset OR empty) or `${PP_CHANNEL-#releases}` (unset only). A required variable must be supplied by the operator — defaults never satisfy it, and the run refuses to start listing every unresolved variable.
+- Frontmatter values must NOT contain variables (plan error); the only exceptions are the `command:`/`script:` keys of a `type: script` step.
+- To show a literal token in prose, escape it: `$${PP_X}` renders as `${PP_X}`.
+- **Never design a variable to carry a secret** (tokens, passwords, keys): `PP_*` values appear verbatim in rendered files, params files, child-script environments, logs, events, and AI context. Secrets keep using their existing channels (scripts read them from the process environment directly). Secret-looking names are lint-warned.
+- Parameterize only what genuinely varies per run; prefer hardcoding stable facts — every variable adds operator burden at dispatch time.
+
 What goes in the manifest versus what stays in iterations:
 
 - Manifest: the **overall** goal, pipeline-wide invariants, shared project paths, cross-pipeline links.
