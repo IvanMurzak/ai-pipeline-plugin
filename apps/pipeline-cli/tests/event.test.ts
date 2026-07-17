@@ -321,11 +321,16 @@ describe('golden — worktree detection', () => {
       return;
     }
     created.push(wtPath);
-    const wtTop = gitTopLevel(wtPath);
     runTs(() => emitEvent('iteration.started', ['index=1', 'run_id=wt']), wtPath, controlledEnv(home));
     // Event lands in the MAIN repo's journal (worktree events route to main).
     const ev = JSON.parse(readFileSync(join(main, EVENTS_REL), 'utf-8').trim());
+    // project_root is read back from git's own gitdir/commondir FILE CONTENT
+    // (always git's long-canonical form) — compare against the git-resolved
+    // `main`. worktree is `resolve(process.cwd())` verbatim inside the lib
+    // (never touches git's own path resolution), so it stays in whatever form
+    // the caller's cwd was (here, the raw un-canonicalized wtPath) — compare
+    // against that directly rather than a git-canonicalized value.
     expect(resolve(ev.project_root as string)).toBe(resolve(main));
-    expect(resolve(ev.worktree as string)).toBe(resolve(wtTop));
+    expect(resolve(ev.worktree as string)).toBe(resolve(wtPath));
   });
 });
