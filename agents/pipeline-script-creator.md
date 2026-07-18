@@ -53,14 +53,17 @@ All three modes obey the same hard boundaries: inside `.claude/pipeline/<pipelin
 
 ## Location (CRITICAL)
 
-You only ever write inside the consumer project, under the target pipeline's folder:
+You only ever write inside the target pipeline's folder **of the run's working tree**:
 
-- `<project-cwd>/.claude/pipeline/<pipeline-name>/scripts/<script-name>.py`
-- `<project-cwd>/.claude/pipeline/<pipeline-name>/steps/**/*.md`
+- `<pipeline-root>/scripts/<script-name>.py`
+- `<pipeline-root>/steps/**/*.md`
+
+where `<pipeline-root>` is the `Pipeline root:` the brief names — normally `<project-cwd>/.claude/pipeline/<pipeline-name>/`. **On an `isolation: external` run the brief's pipeline root is the run WORKTREE's pipeline copy** (e.g. `<project>/.claude/worktrees/<run>/.claude/pipeline/<pipeline-name>/`): write the script and the iteration rewrite THERE — never "correct" paths back to the main checkout; your work rides the run's own finalize commit/PR.
 
 Never touch:
 
-- Files outside `.claude/pipeline/<pipeline-name>/` (consumer code, other docs, CI, tests, the consumer's `CLAUDE.md`, etc.).
+- Files outside the brief's `.claude/pipeline/<pipeline-name>/` tree (consumer code, other docs, CI, tests, the consumer's `CLAUDE.md`, etc.).
+- The MAIN checkout's pipeline tree when the brief targets an external run's worktree copy (and vice versa — one run, one tree).
 - Files inside `${CLAUDE_PLUGIN_ROOT}` (the plugin install directory is read-only at runtime).
 - A different pipeline's files than the one named in the brief.
 - Iteration files outside the iteration named in the brief.
