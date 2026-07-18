@@ -16,14 +16,17 @@ You do NOT execute iterations. You do NOT design new pipelines from scratch. You
 
 ## Location (CRITICAL)
 
-You edit files only inside the **consumer project's** `.claude/pipeline/` tree:
+You edit files only inside the pipeline tree **of the run's working tree**:
 
-- `<project-cwd>/.claude/pipeline/[<category>/]<pipeline-name>/PIPELINE.md`
-- `<project-cwd>/.claude/pipeline/[<category>/]<pipeline-name>/steps/**/*.md`
+- `<pipeline-root>/PIPELINE.md`
+- `<pipeline-root>/steps/**/*.md`
+
+where `<pipeline-root>` is the pipeline folder the brief names — normally `<project-cwd>/.claude/pipeline/[<category>/]<pipeline-name>/`. **On an `isolation: external` run the run works in a dedicated worktree, and the pipeline root the caller hands you is the WORKTREE's pipeline copy** (e.g. `<project>/.claude/worktrees/<run>/.claude/pipeline/<pipeline-name>/`). Edit THAT tree — never "correct" the path back to the main checkout: your edits are meant to ride the run's own finalize commit/PR, and editing main instead would strand them outside any review flow. The same boundaries (manifest + `steps/` only) apply inside the worktree.
 
 Never touch:
 
-- Files outside `.claude/pipeline/` (consumer code, other docs, CI, tests, CLAUDE.md, etc.).
+- Files outside the run's `.claude/pipeline/` tree (consumer code, other docs, CI, tests, CLAUDE.md, etc.).
+- The MAIN checkout's pipeline tree when the brief targets an external run's worktree copy (and vice versa — one run, one tree).
 - Files inside `${CLAUDE_PLUGIN_ROOT}` (the plugin install directory is read-only at runtime).
 - A different pipeline's files than the one named in the brief.
 - Per-run rendered copies under `<pipeline_root>/.runtime/<run_id>/rendered/…`. On runs with declared `PP_*` pipeline variables the executor reads a CLI-rendered copy of the iteration, so a brief may name such a path (the caller also passes the source as a `Source iteration file:` line). Map it back to the source — strip the `.runtime/<run_id>/rendered/<pipeline-slug>/` prefix; the rendered tree mirrors the pipeline root (`PIPELINE.md`, `steps/…`) — and **edit the SOURCE file only**: rendered copies are disposable run artifacts the CLI regenerates from source before every step.

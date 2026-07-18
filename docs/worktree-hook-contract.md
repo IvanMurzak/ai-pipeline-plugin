@@ -44,8 +44,18 @@ Prints `{"ok":true}` on a clean teardown, `{"ok":false,"detail":"<short>"}` + ex
 
 The hooks live at `<project>/.claude/pipeline/.hooks/` (sibling to the pipeline folders, shared by all pipelines; a pipeline may override the dir via `worktree_hook_dir` frontmatter).
 
+## Worktree-scoped pipeline I/O (default) and self-improvement edits
+
+By default (`PIPELINE_WORKTREE_SCOPED`, frozen per run at init; `0` restores the legacy main-scoped reads), an external-isolation run **reads its pipeline definition from — and self-improves into — the run worktree's pipeline copy**: the CLI computes the run plan from `<worktree>/<pipeline-root-rel>` right after the create hook returns, and the improver/script-creator/retrospective edit that tree. Consequences for hook authors:
+
+- **Improver edits ride finalize.** Whatever the run improved sits in the worktree as ordinary uncommitted changes when the finalize hook runs — a finalize hook that commits the worktree (`git add -A && git commit …`) lands them in the run's own commit/PR. Nothing ever dirties the main checkout.
+- **Run artifacts never ride finalize.** The CLI writes `.gitignore` stubs (`*`) for `.runtime/` and `.feedback/` inside the worktree's pipeline tree at provision, so a blanket `git add -A` cannot commit rendered copies, outputs, ledgers, or feedback files.
+- **Committed state only.** A worktree materializes commits — uncommitted pipeline edits in the main tree do NOT exist in the worktree. The CLI warns at run start when the main tree's pipeline dir is dirty; users must commit pipeline edits before an external run (or set `PIPELINE_WORKTREE_SCOPED=0`).
+- **Invalid plan after create → destroy with `PIPELINE_WT_OUTCOME=halted`.** If the worktree's pipeline definition fails plan lint, the CLI immediately runs the destroy hook (outcome `halted` — your preserve-on-halt cue applies) instead of leaking the slot.
+- **Detached-HEAD checkouts: branch creation is YOUR hook's responsibility.** A headless/cloud job checkout is a detached-HEAD, shallow fetch; commits on it are legal but garbage-collection bait until referenced, and a PR needs a remote branch. The consumer's create/finalize hook owns branch creation (`git switch -c <branch>` at create, or `git push origin HEAD:refs/heads/<branch>` at finalize) — the plugin never invents git pushes. Pushing from a depth-1 checkout is supported (git ≥ 1.9).
+
 ## Recommended patterns (observed in production deployments)
 
 - **Preserve-on-halt:** destroy hooks should tear the worktree down only on `PIPELINE_WT_OUTCOME=completed` and preserve it on `halted`/`depth-exhausted` for post-mortem and same-worktree resume. (The CLI already never calls destroy on `blocked-delegating`.)
-- **Edit-capture before removal:** a run's improver/retrospective may edit `.claude/pipeline/**` docs *inside* the ephemeral worktree; a destroy hook that lands those edits back onto the shared main checkout before removal (best-effort, never aborting teardown) prevents self-improvement work from being silently lost.
+- **Edit-capture before removal (optional belt-and-suspenders):** with worktree-scoped I/O the run's improver/retrospective edits live inside the worktree and ride the finalize commit — the old "land edits back onto the shared main checkout from the destroy hook" workaround is no longer needed. It remains a legitimate safety net for `PIPELINE_WORKTREE_SCOPED=0` (legacy) runs, or for hooks that want halted runs' unfinalized improvements captured before a manual cleanup; keep it best-effort and never abort teardown over it.
 - **Finalize as the "work is truly landed" gate:** use the finalize hook for terminal actions the run must not complete without (e.g. bumping submodule pointers to the published merged tip and landing that in one PR) — returning `{"ok":false}` halts the run with the worktree preserved.

@@ -4,6 +4,35 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## Worktree-scoped pipeline I/O (`isolation: external`) — UNRELEASED
+
+Version numbers land with the release task; behavior ships behind `PIPELINE_WORKTREE_SCOPED` (default ON).
+
+### Changed (behavior)
+
+- **External-isolation runs now execute the pipeline definition from the RUN WORKTREE — committed
+  state only.** `pipeline next` provisions the worktree at init (before plan computation) and plans
+  from `<worktree>/<pipeline-root-rel>`: a branch that modifies its own pipeline runs ITS version,
+  and dispatch paths, rendered copies, script executions, outputs, ledgers, and per-run feedback
+  all live under the worktree's pipeline tree. Because a worktree materializes commits only,
+  **uncommitted pipeline edits in the main tree no longer reach an external run** — the engine
+  emits a loud preflight warning when the main pipeline dir is dirty (commit first, or set
+  `PIPELINE_WORKTREE_SCOPED=0` for the legacy main-scoped reads, restored byte-identically).
+- **Self-improvement edits ride the run's finalize commit/PR instead of dirtying main.** The
+  improver/script-creator/retrospective targets are worktree paths; `.gitignore` stubs written in
+  the worktree pipeline tree (`.runtime/`, `.feedback/`) keep run artifacts out of the finalize
+  commit. On a halted run the preserved worktree keeps the edits for inspection.
+- **Run bookkeeping stays main-scoped**: `next.json` (crash/blocker resume survives teardown), the
+  events journal, `.stats`, and liveness remain under the main root; events/stats/UI are labeled
+  with the stable MAIN author paths via a `(worktree_prefix, main_prefix)` swap recorded in
+  `next.json`. The flag itself is FROZEN per run at init — a mid-run env flip can never mix path
+  models within one run.
+- **Init-failure teardown**: an invalid worktree pipeline plan right after provisioning runs the
+  destroy hook with `outcome: halted` (preserve-on-halt cue applies) — an invalid plan never
+  silently leaks a worktree.
+- Native-parallel and in-place (`manual`) isolation modes are UNCHANGED; composed child runs and
+  `--manual-hooks` runs stay main-scoped.
+
 ## Pipeline variables (`${PP_*}`)
 
 **Plugin `0.73.0 → 0.74.0`** (`.claude-plugin/plugin.json`) · **CLI `@baizor/pipeline` `0.1.1 → 0.2.0`**
