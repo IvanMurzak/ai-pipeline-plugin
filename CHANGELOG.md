@@ -4,9 +4,12 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
-## Headless self-improvement in `pipeline drive` — UNRELEASED
+## Headless self-improvement in `pipeline drive`
 
-Version numbers land with the release task; behavior ships behind `PIPELINE_DRIVE_SELF_IMPROVE`
+**Plugin `0.74.4 → 0.75.0`** (`.claude-plugin/plugin.json`) · **CLI `@baizor/pipeline` `0.2.2 → 0.3.0`**
+(`apps/pipeline-cli/package.json`)
+
+Behavior ships behind `PIPELINE_DRIVE_SELF_IMPROVE`
 (**default OFF this release** — owner decision; `0`/unset restores the v1 skip byte-identically).
 Requires **claude >= 2.1.205** for reliable `--json-schema` structured output (older versions fall
 back to conservative `applied:false`/`refused` records with a warning).
@@ -46,9 +49,12 @@ back to conservative `applied:false`/`refused` records with a warning).
   so executors journal where the worktree-scoped retrospective gate counts and improver edits ride
   the run's finalize commit by construction. Unscoped runs are unchanged.
 
-## Worktree-scoped pipeline I/O (`isolation: external`) — UNRELEASED
+## Worktree-scoped pipeline I/O (`isolation: external`)
 
-Version numbers land with the release task; behavior ships behind `PIPELINE_WORKTREE_SCOPED` (default ON).
+**Plugin `0.74.4 → 0.75.0`** (`.claude-plugin/plugin.json`) · **CLI `@baizor/pipeline` `0.2.2 → 0.3.0`**
+(`apps/pipeline-cli/package.json`)
+
+Behavior ships behind `PIPELINE_WORKTREE_SCOPED` (default ON).
 
 ### Changed (behavior)
 
@@ -74,6 +80,98 @@ Version numbers land with the release task; behavior ships behind `PIPELINE_WORK
   silently leaks a worktree.
 - Native-parallel and in-place (`manual`) isolation modes are UNCHANGED; composed child runs and
   `--manual-hooks` runs stay main-scoped.
+
+## Bounded agent-step retries (`retries:` on `type: agent` steps)
+
+**Plugin `0.74.4 → 0.75.0`** (`.claude-plugin/plugin.json`) · **CLI `@baizor/pipeline` `0.2.2 → 0.3.0`**
+(`apps/pipeline-cli/package.json`)
+
+### Added
+
+- **`retries:` frontmatter is now honored on `type: agent` steps** (previously script-step-only):
+  a transiently-halted agent step — an executor failure, not a domain `blocked-delegating` or
+  depth-ceiling outcome — re-dispatches in a **fresh executor** (a brand-new spawn with its own
+  context, not a resume) up to `retries:` times before the run actually halts. Default `0` (omit
+  the key ⇒ today's behavior, byte-identical: halt on the first failure). Retry re-dispatches
+  carry an additive `retry: n` tag on `iteration.started`; an intermediate halted attempt never
+  feeds graph route counters — only the final outcome routes. A mid-retry crash resumes with the
+  same retry tag intact (`resumeRun` gained a crash twin beside `pending_fallback`).
+- **Sequential steps only in v1** — `retries:` parses harmlessly on a parallel-layer member but is
+  structurally never consulted there (layer results arrive as a single `{kind:'layer'}` record,
+  never through the per-step retry seam); give the step a `depends-on` fan-in to move it to a
+  sequential layer if it needs bounded retries.
+- **New plan-time lint (08.5)**: warns when a parallel-layer member's iteration body mentions
+  needs-input phrasing, since every layer dispatch runs with `allowInput:false` regardless of
+  layer size (companion to the a3 designer self-contained-parallel-steps rule).
+
+### Changed (behavior)
+
+- The script-only ignored-frontmatter warning on agent steps (`script`, `command`, `timeout`,
+  `on-failure`) no longer lists `retries` — it now has its own, distinct agent-step meaning and is
+  honored on both step kinds.
+
+## `pipeline drive`: correlatable park IDs, provider-limit detection, executor retry env
+
+**Plugin `0.74.4 → 0.75.0`** (`.claude-plugin/plugin.json`) · **CLI `@baizor/pipeline` `0.2.2 → 0.3.0`**
+(`apps/pipeline-cli/package.json`)
+
+### Added
+
+- **Top-level `question_id` in the exit-4 (awaiting-input) JSON and persisted session state** —
+  minted at park time (06.2.1) so a cloud dispatcher can correlate a parked question across
+  restarts without inferring one from nested fields; `--resume --answer` delivers against the SAME
+  id.
+- **`provider_limit` in the exit-1 (halted) JSON** when the executor envelope indicates a
+  provider-side rate-limit or overload (`error_rate_limited` / `error_overloaded`) — shape
+  `{reason: "rate_limit_exceeded" | "overloaded", retry_after_ms?}` — so a retry policy can tell
+  "the model provider throttled us" apart from every other halt cause (06.7).
+- **Executor retry environment (08.4)**: `drive` now sets `CLAUDE_CODE_RETRY_WATCHDOG=1` and
+  `CLAUDE_CODE_MAX_RETRIES=15` on every spawned executor (the documented unattended-session
+  mechanism, Claude Code 2.1.199+), lifting the transient-retry cap so a flaky provider blip
+  doesn't halt the run. Both are overridable: set either env var before invoking `drive` and your
+  value wins.
+
+## `pipeline hash` — cloud-equivalent pipeline content hash
+
+**Plugin `0.74.4 → 0.75.0`** (`.claude-plugin/plugin.json`) · **CLI `@baizor/pipeline` `0.2.2 → 0.3.0`**
+(`apps/pipeline-cli/package.json`)
+
+### Added
+
+- **New command**: `pipeline hash --root <pipeline_root> [--json]` computes the deterministic
+  SHA-256 content hash of a pipeline (`PIPELINE.md` + every file under `steps/**` and
+  `scripts/**`) — order-independent (files sorted by POSIX-relative path), rename-sensitive, and
+  OS-stable (CRLF→LF normalized by default). Output: `sha256:<hex>` (plain) or
+  `{"content_hash":"sha256:<hex>"}` (`--json`). Exit `0` success, `2` on a missing/invalid root.
+- This is the SAME identity the cloud registry uses (`registry/hash.ts`, D9) — the runner (c4
+  task) shells this exact CLI to verify a lease's content hash before executing. Golden-vector
+  tests prove byte-exact equivalence with the cloud registry hash.
+- `hashFileSet` (the underlying hashing primitive) is now library-exported for embedding.
+
+## CI, `pipeline gc`, and release-tooling fixes
+
+**Plugin `0.74.4 → 0.75.0`** (`.claude-plugin/plugin.json`) · **CLI `@baizor/pipeline` `0.2.2 → 0.3.0`**
+(`apps/pipeline-cli/package.json`)
+
+### Fixed
+
+- **`pipeline gc` silently found nothing to collect on Windows CI (8.3 short-path bug, 06.6).**
+  `gc`'s worktree-under-root check compared a Windows 8.3 short-name path segment (`RUNNER~1` —
+  what `realpathSync` returns on GitHub's `windows-latest` runner image) against git's own
+  long-canonical path output, matching nothing: `report.worktrees` / `removed_worktrees` came back
+  empty for both the superproject and submodule scans. Fixed by re-anchoring `gc`'s root on `git
+  rev-parse --show-toplevel` (the same resolution `git worktree list` / `prune` already use),
+  falling back to `realpathSync` only when git can't answer. pipeline-cli's CI job now runs on
+  `windows-latest` in addition to `ubuntu-latest` to catch this class of bug pre-release; the
+  `submodule-orphan` / `submodule-modes` / `event` tests are marked `@serial` (flaky under N-way
+  local parallel-test contention, not under CI's already-sequential run) so the local test runner
+  holds them out of its worker pool. Release workflows are untouched — release stays
+  `ubuntu-only`.
+- **`pipeline release`'s printed checklist referenced a nonexistent step.** It told users to bump
+  a "marketplace.json version" field that doesn't exist — this repo self-distributes via
+  `.claude-plugin/marketplace.json`'s `source: "./"`, which carries no per-plugin version to
+  drift. Removed; the submodule-pointer-bump step (for the parent marketplace repo) is kept.
+  Shipped in plugin `0.74.2`; recorded here since it was undocumented until now.
 
 ## Pipeline variables (`${PP_*}`)
 
