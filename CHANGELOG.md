@@ -4,6 +4,72 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## Drive record contract on Claude Code >= 2.1.21x + parked-run journaling (e7 kill-drill DEFECT-1 / DEFECT-3)
+
+**UNRELEASED** — no `plugin.json` / package version bump yet; the patch release rides the next
+owner-gated release. Both defects surfaced in the fix-fundamental-issues e7 kill-drill and
+blocked the design's prod GO.
+
+### Fixed
+
+- **DEFECT-1 (BLOCKER): `pipeline drive`'s executor record contract was dead on current Claude
+  Code.** Empirically verified on 2.1.214: (a) a `-p --agent <name>` run returns NO
+  `structured_output` — `--json-schema` is silently ignored for subagent runs (upstream
+  claude-code#20625); (b) headless `--permission-mode acceptEdits` auto-DENIES every Write under
+  `.claude/` as a sensitive path, and NO `--allowedTools`/`permissions.allow` rule overrides it
+  (claude-code#66525 — "not planned"), so the canonical
+  `.runtime/<run>/records/` file never landed either. Net effect: every agent step did its work,
+  then drive halted with "no valid step record (executor exit 0)". The fix keeps the security
+  posture (no permission-mode weakening, no bypass) and restores the record through a
+  **belt-and-braces channel ladder**:
+  1. `structured_output` (authoritative where `--json-schema` still works — <= 2.1.205 behavior
+     unchanged);
+  2. a per-run tmp **record DROP file** the prompt now names
+     (`<os-tmpdir>/pipeline-drive/<rootHash8>-<run>/records/<step>.json`), granted to the claude
+     sandbox via the new `--add-dir {record_dir}` template token — the narrowest grant that is
+     empirically writable under headless acceptEdits (probed: allow rules and `--add-dir` into
+     `.claude/` are both refused; an added tmp dir is accepted);
+  3. the legacy canonical record file (custom templates / sessions parked under an older CLI);
+  4. the final-response text parsed as a JSON object (`lib/envelope.ts parseResultObject`;
+     the hardened headless prompt demands the exact record object as the final response).
+  Whichever channel wins, drive persists the canonical `.runtime/<run>/records/` copy ITSELF, so
+  every downstream consumer path is unchanged. Templates without `{record_dir}` get the
+  `--add-dir` pair appended for step spawns (the `{session}` convention). Headless
+  improver/script-creator sessions gain the same result-text recovery (they were taking the
+  conservative `applied:false`/`refused` fallback on EVERY run on 2.1.21x).
+- **DEFECT-1 DoD — denied-write triage:** the envelope's `permission_denials` are parsed
+  (`lib/envelope.ts`), and a no-record halt whose denials name a record path now says
+  "record write DENIED by the claude permission gate (<path>)" (plus a live
+  `step.record_write_denied` progress event) — distinguishable from "the executor produced no
+  record" in logs and stats.
+- **DEFECT-3: `pipeline drive` never journalled the `awaiting_input` event**, so a parked
+  cloud-dispatched run looked `running` server-side — the sweeper's HOLD disposition was
+  unreachable and a parked run would be re-dispatched on lease death (design-forbidden). Drive
+  now journals `awaiting_input` at EVERY exit-4 park (agent-step questions AND approval gates,
+  first parks AND repeat re-entries) with the exact `@baizor/pipeline-protocol`
+  `AwaitingInputData` shape the control plane's runs-ingest consumes
+  (`{run_id, iteration, question_id, question}` + additive `step_id`/`iteration_path`), and the
+  `--resume` re-entry's re-issued `iteration.started` carries the additive `resumed: true`
+  (protocol v5 G5) — the ingest's un-park/next-attempt signal. Gate parks gain a STABLE
+  deterministic `question_id` (`gate:<run_id>:<step_id>`), now also present in the gate's exit-4
+  JSON. New `lib/event.ts emitEventJson` writes structured (nested-object) journal payloads the
+  kv interface cannot carry; the journal envelope stays byte-identical (schema stays 4 —
+  values-only addition; see `apps/pipeline-ui/EVENTS.md`).
+
+### Tests
+
+- Fake-runner matrix for the ladder (`tests/drive.test.ts`): `{record_dir}` argv handling,
+  result-text + fenced recovery, structured-vs-text precedence, legacy-file compat, denied-write
+  triage; park/resume journal contents (order, repeat-park re-emission, resumed tagging).
+- `tests/awaiting-input-contract.test.ts` — the cloud-consumed `awaiting_input` shape, with the
+  consumer's parsing expectations copied in (provenance: protocol `AwaitingInputData` +
+  `QuestionSchema` + envelope, cloud `runs/ingest.ts` `awaiting_input` case, runner shipper
+  privacy allowlist).
+- `tests/drive-claude-smoke.test.ts` — @serial REAL end-to-end smoke against the installed
+  claude binary (a one-step `.claude/`-rooted pipeline through the DEFAULT template on haiku):
+  proves a record lands under the fixed contract. Skipped on CI / when claude is absent /
+  `PIPELINE_SKIP_CLAUDE_SMOKE=1`.
+
 ## Headless self-improvement in `pipeline drive`
 
 **Plugin `0.74.4 → 0.75.0`** (`.claude-plugin/plugin.json`) · **CLI `@baizor/pipeline` `0.2.2 → 0.3.0`**

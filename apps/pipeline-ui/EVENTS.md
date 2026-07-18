@@ -48,6 +48,7 @@ The daemon parses v1, v2, v3, and v4 events. v1 events lack the `terminal` field
 | `worktree.destroyed` | `pipeline next` after executing the consumer's destroy hook in-process (external isolation, run end) | `{ worktree_path \| null, ok: bool, outcome, detail \| null }` |
 | `tool.called` | PostToolUse hook after every tool call | `{ tool_name, success, agent_spawn, tool_use_id }` |
 | `turn.usage` | Stop hook (one per assistant Stop event, summed across new transcript turns) | `{ assistant_turns, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens }` |
+| `awaiting_input` | `pipeline drive` at EVERY needs-input park (agent-step question AND approval gate; repeat parks re-emit) | `{ run_id, iteration, question_id, question: { text, context \| null, options \| null, question_id?, approval?: { required_role } }, step_id?, iteration_path? }` |
 
 ### Envelope-level kv overrides on `pipeline event`
 
@@ -166,6 +167,46 @@ bag); `web/src/types.ts` mirrors the value literals (`STEP_TYPE_SCRIPT`,
 `FailureClass`. The `pipeline logs` tail renders a `[script]` tag and the
 failure class; the per-run stats fold counts the untagged `step.started` lines
 as `llm_steps` and finalizes a zero-`llm_steps` run's tokens as true zeros.
+
+### `awaiting_input` + `iteration.started.resumed` (e7 remediation — additive, schema stays 4)
+
+Two additive changes closing the parked-run observability gap (e7 DEFECT-3 —
+before this, a `pipeline drive` needs-input park left NO journal signal at all
+and a cloud-dispatched parked run looked `running` server-side):
+
+- **New event `awaiting_input`** — journalled by `pipeline drive` at EVERY
+  exit-4 park: an agent step reporting `outcome: "needs-input"` AND a
+  deterministic approval gate (`type: gate`), including repeat parks (a
+  `--resume` re-entry without `--answer` re-emits it, restoring the parked
+  state after the re-entry's `iteration.started` un-parked it server-side).
+  `data` shape is the `@baizor/pipeline-protocol` `AwaitingInputData` contract
+  the control plane's runs-ingest consumes to set the run's parked status:
+  `{ run_id, iteration, question_id, question: {text, context, options,
+  question_id?, approval?} }` — REQUIRED fields exactly as listed (the
+  runner's metadata-tier privacy filter allowlists precisely those four, and
+  the ingest's strict parse rejects a missing `question_id`/`question.text`).
+  `iteration` is the parked dispatch's `iteration.started.index`. `step_id` +
+  `iteration_path` ride along additively. Gate parks use the deterministic
+  `question_id` `gate:<run_id>:<step_id>` (no claude session exists to pin
+  one to; stable across re-entries so answer correlation never breaks);
+  agent parks mint a UUID at park time and persist it in the step's session
+  file. The envelope `session_id` is the parked executor session (null for
+  gates). Emitted via the structured-data journal writer
+  (`lib/event.ts emitEventJson` — the kv interface cannot carry the nested
+  `question` object). Contract suite:
+  `apps/pipeline-cli/tests/awaiting-input-contract.test.ts`.
+- **`resumed: true` on `iteration.started`** (optional, absent = fresh) — set
+  by the `pipeline next` CLI when a `--resume`/auto-resume re-entry RE-ISSUES
+  the step the run was parked on (needs-input answer delivery, crash
+  re-spawn, blocked resume). Protocol v5 G5: it is what lets the cloud ingest
+  distinguish a resume (settle the parked attempt, open the next) from a
+  fresh first dispatch — and its arrival is the un-park signal. A fresh step
+  dispatched later in the same re-entered process is never tagged.
+
+Values-only addition — NOT a `SCHEMA_VERSION` bump (same precedent as v4
+`step_id` / 0.69 `resolved_effort` / 0.71 `step_type`): one new event type old
+consumers ignore (the daemon tolerates unknown types) plus one optional `data`
+field. Journals from older emitters parse identically.
 
 ### `manager.stopped` (Phase 2 — agent-lifecycle liveness)
 

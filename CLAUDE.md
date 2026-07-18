@@ -23,7 +23,7 @@ skills/
 apps/
   pipeline-cli/                     # Unified local TypeScript CLI (`pipeline <command>`), run with Bun — deterministic, LLM-free work the agents shell out to
     src/cli.ts                      #   entry; subcommands: `plan`, `match`, `event`, `route`, `next`, `drive`, `step`, `gc`, `ci-wait`, `stats`, `ui`, `logs`, `submodule`, `release`
-    src/commands/drive.ts           #   `pipeline drive` — EXPERIMENTAL interactive headless runner (JSON-envelope step records, pinned sessions + needs-input answer resume + crash-resume, per-step permission modes; see docs/cli.md)
+    src/commands/drive.ts           #   `pipeline drive` — EXPERIMENTAL interactive headless runner (belt-and-braces step-record recovery: structured_output → tmp drop file (--add-dir grant; .claude/ writes are sensitive-denied headless on claude >= 2.1.21x) → legacy file → result-text; pinned sessions + needs-input answer resume + crash-resume, awaiting_input park journaling, per-step permission modes; see docs/cli.md)
     src/commands/submodule.ts       #   `pipeline submodule bump` — guarded submodule-pointer bump (Phase-1 guarded git primitive; replaces AI-improvised land recipes)
     src/commands/step-run.ts        #   `pipeline step run` — dry-run one `type: script` step, no run state (resolves params, executes, prints result + would-be record; never touches records/ledger/outputs)
     src/lib/git.ts                  #   injectable git (+gh) subprocess core: stableEnv/realGit/realGh + read-only probes (gitlink/ancestry/drift/worktree); GitRunner/GhRunner injection seams for tests
