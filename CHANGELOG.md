@@ -4,6 +4,48 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## Headless self-improvement in `pipeline drive` — UNRELEASED
+
+Version numbers land with the release task; behavior ships behind `PIPELINE_DRIVE_SELF_IMPROVE`
+(**default OFF this release** — owner decision; `0`/unset restores the v1 skip byte-identically).
+Requires **claude >= 2.1.205** for reliable `--json-schema` structured output (older versions fall
+back to conservative `applied:false`/`refused` records with a warning).
+
+### Added
+
+- **`pipeline drive` now runs real self-improvement instead of the v1 skips** (closing the C1 gap —
+  cloud/headless runs never self-improved). `run-improver` / `run-script-creator` spawn pinned
+  headless `pipeline:pipeline-improver` / `pipeline:pipeline-script-creator` sessions through the
+  same session + crash-resume machinery as steps (session files `sessions/improver-<n>.json` /
+  `script-<n>.json`, shared crash budget, usage/cost folded into `usage.json` and the terminal
+  `.stats` enrichment; a failed session never halts the chain). Command templates overridable via
+  `PIPELINE_DRIVE_IMPROVER_CMD` / `PIPELINE_DRIVE_SCRIPT_CREATOR_CMD`.
+- **Mechanical end-of-run retrospective.** Drive partitions `.feedback/<run-id>/*.md` by
+  frontmatter `category` itself: doc-actionable (`doc-flaw`/`ambiguity`/`script-candidate`/
+  `script-failure`) feed ONE batch improver session + strictly-sequential script-creators;
+  human-only (`project-issue`/`env`/`friction`) become one-line summaries in the final JSON's
+  `retrospective` field; unknown/unparseable files are counted `skipped` (never a halt). Feedback
+  is deleted on success and preserved when the improver session failed — and always preserved on
+  blocked/awaiting parks (manager parity).
+- **New events**: `improvement.applied` and `run.retrospective` — payloads carry paths + one-line
+  summaries ONLY, never file content. Retro-internal `improver.*`/`script_creator.*` events are
+  drive-emitted (manager parity).
+- **`preserve_workspace: true`** (+ reason) in the terminal JSON when improvements were applied but
+  no finalize hook landed them — an ephemeral cloud job checkout must not be torn down with
+  unshipped improvements inside (design 05 §Cloud interplay).
+- **New `lib/improver-schema.ts`** — the improver/script-creator record JSON Schemas
+  (`{applied, script_creation_briefs[], summary}` / `{outcome, script_path, summary}`), single
+  source for the headless sessions' `--json-schema` and the engine's ScriptRecord vocabulary.
+- **Step-record schema carries `improvement_brief`** (additive, optional) so the structured-output
+  path delivers the Tier-1 brief to the driver — the record-FILE protocol already had it.
+
+### Changed (behavior)
+
+- On a worktree-scoped external run, drive's step prompts now derive `pipeline_root` (and the
+  Tier-2 feedback dir) from the surfaced `worktree_pipeline_root` — matching the manager contract,
+  so executors journal where the worktree-scoped retrospective gate counts and improver edits ride
+  the run's finalize commit by construction. Unscoped runs are unchanged.
+
 ## Worktree-scoped pipeline I/O (`isolation: external`) — UNRELEASED
 
 Version numbers land with the release task; behavior ships behind `PIPELINE_WORKTREE_SCOPED` (default ON).
