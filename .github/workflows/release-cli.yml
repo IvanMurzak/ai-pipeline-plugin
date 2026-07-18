@@ -30,6 +30,12 @@ permissions:
 
 jobs:
   publish:
+    # Guard: this repo cuts two independently-versioned release types — CLI
+    # releases tagged `cli-v*` and plugin releases tagged `v*`. Only cli-v*
+    # releases may publish the CLI; a plugin-only release must not fire an
+    # npm publish attempt (it would fail red on the already-published
+    # version). Manual workflow_dispatch stays allowed (no tag to check).
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'cli-v')
     runs-on: ubuntu-latest
     defaults:
       run:
