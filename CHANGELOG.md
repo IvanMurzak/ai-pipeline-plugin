@@ -6,9 +6,9 @@ This file starts here; earlier history is in `git log`.
 
 ## Drive record contract on Claude Code >= 2.1.21x + parked-run journaling (e7 kill-drill DEFECT-1 / DEFECT-3)
 
-**UNRELEASED** — no `plugin.json` / package version bump yet; the patch release rides the next
-owner-gated release. Both defects surfaced in the fix-fundamental-issues e7 kill-drill and
-blocked the design's prod GO.
+**CLI 0.3.1** (owner-approved patch release; plugin version unchanged at 0.75.0). Both defects
+surfaced in the fix-fundamental-issues e7 kill-drill and blocked the design's prod GO; the
+fixes were re-drill-verified end-to-end (all four drill defects dead) before this release.
 
 ### Fixed
 
