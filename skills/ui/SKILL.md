@@ -66,6 +66,7 @@ locates the daemon by walking up from the CLI's own directory.
 
 ## Notes
 
+- The UI/analytics system is **on by default** — no setup needed. A user can opt out with `PIPELINE_UI_ENABLED=0` (or `false`/`no`/`off`); when opted out, `pipeline ui` prints an opt-out notice (with how to re-enable) instead of starting the daemon, and `pipeline logs -f` still tails events in the terminal with no daemon. The enable default does NOT affect the host/token binding: the daemon always binds 127.0.0.1 only unless `PIPELINE_UI_HOST` + a mandatory `PIPELINE_UI_TOKEN` are set.
 - The daemon binds to **127.0.0.1 only** and picks a high random-ish port in the IANA ephemeral range (49152–65535). It is not network-exposed.
 - The daemon serves **all projects on this machine** — opening the UI from one project automatically shows the others. The project picker in the top bar switches between them.
 - The daemon auto-shuts-down after 60 minutes of no events and no browser clients (configurable via `PIPELINE_UI_IDLE_MINUTES`).

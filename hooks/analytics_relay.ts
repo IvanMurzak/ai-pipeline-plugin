@@ -93,16 +93,15 @@ import { basename, dirname, join, resolve } from "node:path";
 const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
 const log = (msg: string) => DEBUG && console.error(`[analytics_relay] ${msg}`);
 
-/** Master enable switch. The UI/analytics system is OFF BY DEFAULT — this hook
- *  no-ops at entry UNLESS PIPELINE_UI_ENABLED is set to a non-empty, non-falsy
- *  value (anything other than 0/false/no/off opts in). No event emission, no
- *  mirror bindings, no filesystem walks when disabled. The Bun process still
- *  spawns (the registration lives in hooks.json), but it exits immediately, so
- *  the system imposes ~zero work per hook call until you opt in. To eliminate
- *  the spawn entirely, disable the plugin. */
+/** Master enable switch. The UI/analytics system is ON BY DEFAULT — this hook
+ *  runs UNLESS the user has explicitly opted OUT by setting PIPELINE_UI_ENABLED
+ *  to a falsy value (0/false/no/off); unset/empty (and any other value) leaves
+ *  it enabled. When opted out: no event emission, no mirror bindings, no
+ *  filesystem walks. The Bun process still spawns (the registration lives in
+ *  hooks.json), but it exits immediately, so an explicit opt-out drops the cost
+ *  per hook call to ~zero. To eliminate the spawn entirely, disable the plugin. */
 function pipelineUiEnabled(): boolean {
   const v = (process.env.PIPELINE_UI_ENABLED ?? "").trim().toLowerCase();
-  if (v === "") return false;
   return v !== "0" && v !== "false" && v !== "no" && v !== "off";
 }
 
@@ -1554,7 +1553,7 @@ function handleSubagentStop(payload: Record<string, unknown>, projectRoot: strin
 
 async function main(): Promise<void> {
   if (!pipelineUiEnabled()) {
-    log("PIPELINE_UI_ENABLED not set — no-op (UI disabled by default)");
+    log("PIPELINE_UI_ENABLED explicitly opted out (0/false/no/off) — no-op");
     return;
   }
   const cwd = process.cwd();

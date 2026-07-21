@@ -16,8 +16,10 @@
  *   • otherwise (0 candidates, or ratio < 2.0)       → silent
  *
  * Gated: no-ops at entry unless PIPELINE_PROMPT_MATCH_ENABLED is set to a
- * non-empty, non-falsy value (same semantics as PIPELINE_UI_ENABLED — OFF
- * BY DEFAULT). Also skips silently when the prompt is a slash command,
+ * non-empty, non-falsy value — prompt matching is OFF BY DEFAULT (its own
+ * opt-in switch, distinct from the now-on-by-default PIPELINE_UI_ENABLED; only
+ * the non-falsy value parsing is shared). Also skips silently when the prompt
+ * is a slash command,
  * shorter than 20 chars, or no `.claude/pipeline/` dir exists walking up
  * from cwd to the project root.
  *
@@ -51,10 +53,12 @@ const log = (msg: string) => DEBUG && console.error(`[prompt_match_relay] ${msg}
 /** Master enable switch. Prompt matching is OFF BY DEFAULT — this hook
  *  no-ops at entry UNLESS PIPELINE_PROMPT_MATCH_ENABLED is set to a
  *  non-empty, non-falsy value (anything other than 0/false/no/off opts in).
- *  Same semantics as PIPELINE_UI_ENABLED in analytics_relay.ts. The Bun
- *  process still spawns (the registration lives in hooks.json), but it
- *  exits immediately, so the hook imposes ~zero work per prompt until you
- *  opt in. To eliminate the spawn entirely, disable the plugin. */
+ *  Shares the non-falsy value parsing with PIPELINE_UI_ENABLED but keeps its
+ *  OWN default: prompt matching stays OFF unless explicitly enabled (unlike the
+ *  UI/analytics system, which is on by default). The Bun process still spawns
+ *  (the registration lives in hooks.json), but it exits immediately, so the
+ *  hook imposes ~zero work per prompt until you opt in. To eliminate the spawn
+ *  entirely, disable the plugin. */
 export function promptMatchEnabled(): boolean {
   const v = (process.env.PIPELINE_PROMPT_MATCH_ENABLED ?? "").trim().toLowerCase();
   if (v === "") return false;

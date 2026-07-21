@@ -36,16 +36,16 @@ import { createHash } from "node:crypto";
 const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
 const log = (msg: string) => DEBUG && console.error(`[pipeline-ui-relay] ${msg}`);
 
-/** Master enable switch. The UI/analytics system is OFF BY DEFAULT — this hook
- *  no-ops at entry UNLESS PIPELINE_UI_ENABLED is set to a non-empty, non-falsy
- *  value (anything other than 0/false/no/off opts in). When disabled it never
- *  spawns/reconciles the daemon, registers the project, or writes
- *  session.opened. (The Bun process still launches because the registration
- *  lives in hooks.json, but it exits immediately. To remove the spawn entirely,
- *  disable the plugin.) Mirrors hooks/analytics_relay.ts. */
+/** Master enable switch. The UI/analytics system is ON BY DEFAULT — this hook
+ *  runs UNLESS the user has explicitly opted OUT by setting PIPELINE_UI_ENABLED
+ *  to a falsy value (0/false/no/off); unset/empty (and any other value) leaves
+ *  it enabled. When opted out it never spawns/reconciles the daemon, registers
+ *  the project, or writes session.opened. (The Bun process still launches
+ *  because the registration lives in hooks.json, but it exits immediately. To
+ *  remove the spawn entirely, disable the plugin.) Mirrors
+ *  hooks/analytics_relay.ts. */
 function pipelineUiEnabled(): boolean {
   const v = (process.env.PIPELINE_UI_ENABLED ?? "").trim().toLowerCase();
-  if (v === "") return false;
   return v !== "0" && v !== "false" && v !== "no" && v !== "off";
 }
 
@@ -451,7 +451,7 @@ function appendSessionOpened(projectRoot: string, worktree: string | null): void
 
 async function main(): Promise<void> {
   if (!pipelineUiEnabled()) {
-    log("PIPELINE_UI_ENABLED not set — not launching daemon or registering (UI disabled by default)");
+    log("PIPELINE_UI_ENABLED explicitly opted out (0/false/no/off) — not launching daemon or registering");
     return;
   }
   // Read hook payload from stdin (Claude Code hook protocol).
