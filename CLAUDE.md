@@ -29,7 +29,7 @@ apps/
     src/lib/git.ts                  #   injectable git (+gh) subprocess core: stableEnv/realGit/realGh + read-only probes (gitlink/ancestry/drift/worktree); GitRunner/GhRunner injection seams for tests
     src/lib/land.ts                 #   landToMain() — isolation-safe throwaway-worktree land (fetch→worktree add off origin/<base>→cacheinfo→commit→push→PR→squash-merge→ff-only reconcile w/ bounded retry + pre-flight orphan self-clean)
     src/lib/drift.ts                #   classifyDrift() — submodule-pointer drift + the fork-diff/conflict/reachability guards (#132 fix applied to POINTERS)
-    src/commands/logs.ts            #   `pipeline logs [-f]` — read-only terminal tail of .runtime/events.jsonl (pretty one-liners); daemon-free, works regardless of PIPELINE_UI_ENABLED (UI off by default)
+    src/commands/logs.ts            #   `pipeline logs [-f]` — read-only terminal tail of .runtime/events.jsonl (pretty one-liners); daemon-free, works regardless of PIPELINE_UI_ENABLED (even when the UI is opted out; UI on by default)
     src/lib/plan.ts                 #   computePlan() — PIPELINE.md + steps frontmatter → execution-plan JSON (mode/isolation/steps+models/DAG layers/validation/graph)
     src/lib/match.ts                #   matchPipelines() — BM25 pipeline matcher (the runtime matching engine)
     src/lib/event.ts                #   emitEvent()/writeLiveness()/etc. — runtime UI event writer

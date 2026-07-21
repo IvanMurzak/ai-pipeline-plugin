@@ -534,7 +534,7 @@ The plugin never writes inside itself. Every pipeline file, every code edit perf
 
 The plugin ships a browser-based dashboard: watch pipelines run in real time, **launch runs**, answer their questions, and **edit pipeline files** — from a desktop or a phone (the layout is fully responsive; below the desktop breakpoint it becomes a single-pane app with bottom navigation).
 
-> **The UI/analytics system is OFF BY DEFAULT.** Enable it by setting `PIPELINE_UI_ENABLED=1` (see [Enabling the UI/analytics system](#enabling-the-uianalytics-system--pipeline_ui_enabled) below) — otherwise the hooks no-op and the daemon never starts. Prefer the terminal? `pipeline logs -f` works with no daemon at all.
+> **The UI/analytics system is ON BY DEFAULT** — the dashboard, daemon, and analytics hooks work out of the box, no setup required. To turn it off, explicitly opt out with `PIPELINE_UI_ENABLED=0` (see [The UI/analytics master switch](#the-uianalytics-master-switch--pipeline_ui_enabled) below). Prefer the terminal? `pipeline logs -f` works with no daemon at all.
 
 ### Launching runs from the browser
 
@@ -570,7 +570,7 @@ The **Pipelines** tab shows the project's pipelines as a **folder tree** mirrori
 
 The daemon binds `127.0.0.1` only by default. To open it from a phone on your network, set `PIPELINE_UI_HOST=0.0.0.0` **and** `PIPELINE_UI_TOKEN=<secret>` (mandatory — the UI can launch runs and edit files), then open `http://<machine-ip>:<port>/?token=<secret>` once; a cookie keeps the session signed in. Without a token the daemon refuses the wide bind and falls back to loopback. A VPN/tunnel (Tailscale etc.) works the same way and is preferable on untrusted networks.
 
-Once enabled, open it with:
+Open it with:
 
 ```
 /pipeline:ui
@@ -631,22 +631,24 @@ bun "<plugin>/apps/pipeline-cli/src/cli.ts" logs --follow
 
 Flags: `-f`/`--follow` to stream live, `--tail <n>` (default 20) for the initial backlog, `--all` for the whole journal, `--json` for raw JSON lines, `--no-color`, and `--project <path>` to point at a project other than the cwd. It is **read-only** — it never starts the daemon or writes anything — so it works whether or not the dashboard is enabled. Stop it with Ctrl-C.
 
-### Enabling the UI/analytics system — `PIPELINE_UI_ENABLED`
+### The UI/analytics master switch — `PIPELINE_UI_ENABLED`
 
-**The dashboard, the daemon, and the analytics hooks are OFF BY DEFAULT.** They turn on only when you set the environment variable `PIPELINE_UI_ENABLED` to a non-empty, non-falsy value (`1`, `true`, `yes`, `on`, or really any value other than `0`/`false`/`no`/`off`):
+**The dashboard, the daemon, and the analytics hooks are ON BY DEFAULT** — they work out of the box, with no setup. To turn the whole system off, explicitly opt out by setting the environment variable `PIPELINE_UI_ENABLED` to a falsy value (`0`, `false`, `no`, or `off`):
 
 ```jsonc
 // .claude/settings.json  (per project — hooks inherit the session env)
-{ "env": { "PIPELINE_UI_ENABLED": "1" } }
+{ "env": { "PIPELINE_UI_ENABLED": "0" } }
 ```
 
-When it is **unset** (the default):
+While it is **unset** (the default), or set to any non-falsy value, the system is on:
 
-- the `SessionStart` hook does not launch/register the daemon or write `session.opened`,
-- the analytics hooks (`PreToolUse`/`PostToolUse`/`SubagentStop`/`Stop`) emit nothing and do no filesystem work,
-- `/pipeline:ui` prints how to enable instead of starting the dashboard.
+- the `SessionStart` hook launches/registers the daemon and writes `session.opened`,
+- the analytics hooks (`PreToolUse`/`PostToolUse`/`SubagentStop`/`Stop`) emit events and mirror bindings,
+- `/pipeline:ui` starts the dashboard and prints its URL.
 
-When you set it, all of the above turn on. Either way your pipelines run identically — the variable only controls the observability layer. You can also set it in your shell or OS environment before launching Claude Code. Because the hook *registrations* live in the plugin, Claude Code still launches each hook's (instantly-exiting) process even when disabled; to remove even that, disable the plugin. Your core run lifecycle is always journaled by `/pipeline:run`, so `pipeline logs` works as a lightweight terminal view regardless of this setting.
+When you opt out (`0`/`false`/`no`/`off`): the `SessionStart` hook does not launch/register the daemon or write `session.opened`, the analytics hooks emit nothing and do no filesystem work, and `/pipeline:ui` prints that it was opted out (with how to re-enable) instead of starting the dashboard. Either way your pipelines run identically — the variable only controls the observability layer. You can also set it in your shell or OS environment before launching Claude Code. Because the hook *registrations* live in the plugin, Claude Code still launches each hook's (instantly-exiting) process even when opted out; to remove even that, disable the plugin. Your core run lifecycle is always journaled by `/pipeline:run`, so `pipeline logs` works as a lightweight terminal view regardless of this setting.
+
+> **Opting out never changes the network binding.** This flag toggles only the enable default — the daemon still binds `127.0.0.1` only, and exposing it on the network still requires the explicit `PIPELINE_UI_HOST=0.0.0.0` **plus** a mandatory `PIPELINE_UI_TOKEN` (see [Phone access](#phone-access) above).
 
 > Performance note: even with the UI enabled, `SubagentStop` only fires the hook for the `pipeline-manager` subagent (via a `matcher`), so the dozens of other subagent stops in a run no longer spawn a hook process.
 
@@ -654,7 +656,7 @@ When you set it, all of the above turn on. Either way your pipelines run identic
 
 The plugin also ships a `UserPromptSubmit` hook that surfaces a matching pipeline for whatever you just typed — deterministic auto-discovery with **zero always-loaded context**. It runs the same BM25 matcher `/pipeline:find` and `/pipeline:dispatch` use against your prompt, and **only on a confident single match** (exactly one candidate, or the top score at least 2× the runner-up — the same ambiguity threshold `/pipeline:dispatch` uses) injects one line of context suggesting `/pipeline:run <first-iteration>` or `/pipeline:dispatch`. On no match or an ambiguous match it stays completely silent; it never blocks or modifies your prompt.
 
-Like the UI hooks, it is **OFF BY DEFAULT** and gated by its own environment variable (same non-falsy semantics as `PIPELINE_UI_ENABLED`):
+Unlike the UI/analytics system (on by default), this hook is **OFF BY DEFAULT** and gated by its own environment variable (same non-falsy value parsing as `PIPELINE_UI_ENABLED`, but its own opt-in default):
 
 ```jsonc
 // .claude/settings.json  (per project — hooks inherit the session env)
@@ -671,7 +673,7 @@ Everything the plugin reads from the environment, in one place. Set the per-proj
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PIPELINE_UI_ENABLED` | off | Master opt-in for the whole UI/analytics system (dashboard daemon + analytics hooks). Non-falsy value enables; unset/`0`/`false`/`no`/`off` disables. |
+| `PIPELINE_UI_ENABLED` | **on** | Master opt-OUT for the whole UI/analytics system (dashboard daemon + analytics hooks). Enabled unless explicitly set to a falsy value; `0`/`false`/`no`/`off` disables, unset/empty/any other value enables. Does NOT affect the `PIPELINE_UI_HOST`/`PIPELINE_UI_TOKEN` binding security. |
 | `PIPELINE_STATS_ENABLED` | **on** | Per-run measurement files under `.claude/pipeline/.stats/` (durations, per-step timings, outcomes, tokens, tool failures — see "Measuring every run" above). Set `0`/`false`/`no`/`off` to disable. Independent of `PIPELINE_UI_ENABLED`. |
 | `PIPELINE_PROMPT_MATCH_ENABLED` | off | Opt-in for the `UserPromptSubmit` pipeline-match hook (section above). Same non-falsy semantics. |
 | `PIPELINE_UI_IDLE_MINUTES` | `60` | Minutes of inactivity before the dashboard daemon auto-exits. |

@@ -17,8 +17,9 @@
  * failing pipelines without re-reading transcripts.
  *
  * Gating: PIPELINE_STATS_ENABLED (default ON — set 0/false/off/no to disable;
- * NOTE this is deliberately independent of PIPELINE_UI_ENABLED, which is off
- * by default). Also a no-op when the cwd has no `.claude/pipeline/.stats/`.
+ * NOTE this is deliberately independent of PIPELINE_UI_ENABLED — stats keep
+ * their own gate even when the UI/analytics system is opted out). Also a no-op
+ * when the cwd has no `.claude/pipeline/.stats/`.
  *
  * Attribution: each tokens-null run recorded in the last 48h is folded with
  * ITS OWN [started_at, ended_at] window over this session's transcript — the
