@@ -284,6 +284,18 @@ export interface LaunchCatalogStep {
 export const EFFORT_KEYS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type EffortKey = (typeof EFFORT_KEYS)[number];
 
+/** A pipeline's declared `${PP_*}` variable — the launch form renders one
+ *  input per entry, prefilled with its default. PP_* values are non-secret by
+ *  contract, so all are safe to render. Absent on pre-variable daemons. */
+export interface LaunchCatalogVariable {
+  name: string;
+  description: string;
+  required: boolean;
+  /** `(default: ...)` value, or null when none is declared. "" is a real
+   *  (empty) default, distinct from null. */
+  default: string | null;
+}
+
 export interface LaunchCatalogPipeline {
   name: string;
   pipeline_root: string;
@@ -295,6 +307,9 @@ export interface LaunchCatalogPipeline {
   default_effort?: string | null;
   has_targets: boolean;
   steps: LaunchCatalogStep[];
+  /** Declared `${PP_*}` variables. Absent on pre-variable daemons — read
+   *  defensively (`?? []`). */
+  variables?: LaunchCatalogVariable[];
   errors: string[];
   warnings: string[];
 }

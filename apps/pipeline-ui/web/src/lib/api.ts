@@ -35,6 +35,8 @@ export interface LaunchRequest {
   model_overrides?: Record<string, string>;
   default_effort?: string;
   effort_overrides?: Record<string, string>;
+  /** Declared `${PP_*}` values (name → value). Omit for a defaults-only run. */
+  vars?: Record<string, string>;
 }
 
 /** Launch a headless run (`pipeline drive`). Resolves with the minted run_id;

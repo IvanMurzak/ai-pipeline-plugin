@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import type { Subprocess } from "bun";
-import { isInsidePipelinesDir, parseDriveFinal } from "../launcher";
+import { buildDriveVarArgs, isInsidePipelinesDir, parseDriveFinal } from "../launcher";
 import { checkAuth, maybeSetTokenCookie, resolveHostConfig } from "../auth";
 
 const TEST_HOME = mkdtempSync(join(tmpdir(), "pui-launch-home-"));
@@ -27,6 +27,7 @@ let projectRoot = "";
 let projectId = "";
 let demoRoot = "";
 let askRoot = "";
+let varsRoot = "";
 
 // Same canned-envelope fake as pipeline-cli's drive tests: reads the spawn
 // prompt on stdin, logs the call + argv, prints a prescribed claude JSON
@@ -135,6 +136,24 @@ beforeAll(async () => {
   writeFileSync(join(askRoot, "PIPELINE.md"), "# P: ask\n\n## End State\nQuestion answered.\n", "utf8");
   writeFileSync(join(askRoot, "steps", "01-ask.md"), "# 01 ask\n", "utf8");
 
+  // vars: one step that references two declared ${PP_*} variables — a required
+  // one (must be supplied at launch) and one with a default.
+  varsRoot = join(pipeBase, "vars");
+  mkdirSync(join(varsRoot, "steps"), { recursive: true });
+  writeFileSync(
+    join(varsRoot, "PIPELINE.md"),
+    "# P: vars\n\n## End State\nQuestion answered.\n\n" +
+      "## Variables\n" +
+      "- PP_UI_TEST_Q (required) — the support question\n" +
+      "- PP_UI_TEST_DIR (default: ./docs) — where to look\n",
+    "utf8",
+  );
+  writeFileSync(
+    join(varsRoot, "steps", "01-answer.md"),
+    "# 01 answer\n\nAnswer ${PP_UI_TEST_Q} using ${PP_UI_TEST_DIR}\n",
+    "utf8",
+  );
+
   // The fake executor lives OUTSIDE the pipelines dir (it must not show up in
   // the catalog walk).
   const execPath = join(projectRoot, "envelope-executor.ts");
@@ -192,6 +211,49 @@ describe("launcher", () => {
     expect(demo!.steps[0].rel).toBe("01-build.md");
     expect(demo!.first_iteration.endsWith("01-build.md")).toBe(true);
     expect(j.pipelines.some((p) => p.name === "ask")).toBe(true);
+
+    // A pipeline that declares no variables exposes an empty array (not
+    // undefined) — the web reads it defensively either way.
+    expect(demo!.variables).toEqual([]);
+
+    // The `vars` pipeline surfaces its declared ${PP_*} variables (name,
+    // description, required flag, default) so the launch form can render them.
+    const varsP = j.pipelines.find((p) => p.name === "vars");
+    expect(varsP).toBeDefined();
+    expect(varsP!.variables).toEqual([
+      { name: "PP_UI_TEST_Q", description: "the support question", required: true, default: null },
+      { name: "PP_UI_TEST_DIR", description: "where to look", required: false, default: "./docs" },
+    ]);
+  });
+
+  test("buildDriveVarArgs: declared vars → `--var NAME=value` argv elements; spaces preserved; unknowns collected", () => {
+    const declared = new Set(["PP_QUESTION", "PP_DOCS_DIR"]);
+
+    // Absent/empty → NO --var (a launch with no vars is byte-identical to today).
+    expect(buildDriveVarArgs(undefined, declared)).toEqual({ varArgs: [], unknown: [] });
+    expect(buildDriveVarArgs({}, declared)).toEqual({ varArgs: [], unknown: [] });
+
+    // Declared vars become DISCRETE argv elements; a value with spaces stays
+    // ONE element (no shell tokenizing) and may itself contain '='.
+    const { varArgs, unknown } = buildDriveVarArgs(
+      { PP_QUESTION: "How do I reset it, exactly?", PP_DOCS_DIR: "a=b c" },
+      declared,
+    );
+    expect(unknown).toEqual([]);
+    expect(varArgs).toEqual([
+      "--var",
+      "PP_QUESTION=How do I reset it, exactly?",
+      "--var",
+      "PP_DOCS_DIR=a=b c",
+    ]);
+    // The spaced value is exactly the single argv element after its `--var`.
+    expect(varArgs[varArgs.indexOf("--var") + 1]).toBe("PP_QUESTION=How do I reset it, exactly?");
+
+    // Undeclared names (incl. a wrong-case one) are NOT forwarded — collected
+    // for the caller's 400.
+    const r = buildDriveVarArgs({ PP_QUESTION: "ok", NOPE: "y", pp_question: "case" }, declared);
+    expect(r.varArgs).toEqual(["--var", "PP_QUESTION=ok"]);
+    expect(r.unknown.sort()).toEqual(["NOPE", "pp_question"]);
   });
 
   test("launch → drive runs to completion; task + model override delivered", async () => {
@@ -246,6 +308,52 @@ describe("launcher", () => {
     expect(sj.input_tokens).toBe(2);
     expect(sj.output_tokens).toBe(4);
     expect(sj.cost_usd).toBeCloseTo(0.02);
+  }, 60_000);
+
+  test("launch forwards declared vars end-to-end: supplied → completes, omitted required → halts, unknown → 400", async () => {
+    canned(varsRoot, "01-answer.envelope.json", { outcome: "completed", next_iteration: "PIPELINE_COMPLETE" });
+
+    // Supplying the required var (with spaces + a custom optional one) lets the
+    // run pass drive's variable-resolution init and complete.
+    const ok = await fetch(`${baseUrl}/api/runs/launch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: projectId,
+        pipeline_root: varsRoot,
+        vars: { PP_UI_TEST_Q: "How do I reset it, exactly?", PP_UI_TEST_DIR: "C:/kb docs" },
+      }),
+    });
+    expect(ok.status).toBe(202);
+    const okRun = (await ok.json()) as { run_id: string };
+    const done = await pollRun(okRun.run_id, (x) => x.status !== "running");
+    expect(done.status).toBe("completed");
+
+    // Omitting the required var → drive halts at init (the var machinery is
+    // live, and it's the launch payload's `vars` that made the difference).
+    const bare = await fetch(`${baseUrl}/api/runs/launch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: projectId, pipeline_root: varsRoot }),
+    });
+    expect(bare.status).toBe(202);
+    const bareRun = (await bare.json()) as { run_id: string };
+    const halted = await pollRun(bareRun.run_id, (x) => x.status !== "running");
+    expect(halted.status).not.toBe("completed");
+
+    // A name the pipeline doesn't declare is rejected BEFORE spawning (400) —
+    // never silently forwarded (would doom the run at drive init).
+    const bad = await fetch(`${baseUrl}/api/runs/launch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: projectId,
+        pipeline_root: varsRoot,
+        vars: { PP_UI_TEST_Q: "x", PP_NOT_DECLARED: "y" },
+      }),
+    });
+    expect(bad.status).toBe(400);
+    expect(await bad.text()).toContain("PP_NOT_DECLARED");
   }, 60_000);
 
   test("needs-input parks the run with the question; /api/runs/answer resumes the SAME session", async () => {
