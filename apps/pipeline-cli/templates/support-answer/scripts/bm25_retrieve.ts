@@ -5,7 +5,13 @@
 // Okapi BM25 (pure stdlib — no pip/npm installs, no network, no LLM) and prints
 // the top-K candidates as a JSON object on stdout:
 //
-//   { "candidates": [ { "file": "<rel-path>", "score": <number>, "snippet": "<text>" }, ... ] }
+//   {
+//     "docs_dir": "<absolute path the docs were read from>",
+//     "candidates": [ { "file": "<path relative to docs_dir>", "score": <number>, "snippet": "<text>" }, ... ]
+//   }
+//
+// `file` is relative to `docs_dir`, so a consumer resolves the real file as
+// `<docs_dir>/<file>` with no cwd ambiguity.
 //
 // It is READ-ONLY: it reads the docs directory and writes nothing anywhere.
 //
@@ -273,7 +279,10 @@ function main(): void {
 
   const corpus = loadCorpus(docsDir);
   const candidates = bm25Rank(corpus, args.question, args.topK);
-  process.stdout.write(`${JSON.stringify({ candidates }, null, 2)}\n`);
+  // Emit the RESOLVED absolute docs_dir alongside the candidates so a consumer
+  // reads each file as `<docs_dir>/<file>` — no dependence on the reader's cwd
+  // or on re-deriving where a relative --docs pointed.
+  process.stdout.write(`${JSON.stringify({ docs_dir: docsDir, candidates }, null, 2)}\n`);
 }
 
 if (import.meta.main) main();
