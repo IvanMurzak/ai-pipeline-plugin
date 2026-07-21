@@ -105,6 +105,22 @@ function pipelineUiEnabled(): boolean {
   return v !== "0" && v !== "false" && v !== "no" && v !== "off";
 }
 
+/** Transcript opt-out switch (PIPELINE_UI_TRANSCRIPTS, default ON) — gates
+ *  ONLY the privacy-sensitive transcript work this hook does: the Stop-handler
+ *  token tail (which OPENS + reads the session transcript to sum tokens) and
+ *  the transcript_path carried on the mirror bindings (which is what tells the
+ *  daemon to copy this session's transcript into the UI chat panel). When it is
+ *  opted OUT the hook still emits every BASIC lifecycle event — pipeline.*,
+ *  tool.called, manager.stopped — and still writes mirror bindings for run
+ *  correlation, just with transcript_path nulled. Same falsy parse + default-ON
+ *  as pipelineUiEnabled; independent of it (this hook is a standalone Bun
+ *  process, so — like pipelineUiEnabled — the reader is duplicated here rather
+ *  than imported from a sibling). Orthogonal to PIPELINE_STATS_ENABLED. */
+function pipelineUiTranscriptsEnabled(): boolean {
+  const v = (process.env.PIPELINE_UI_TRANSCRIPTS ?? "").trim().toLowerCase();
+  return v !== "0" && v !== "false" && v !== "no" && v !== "off";
+}
+
 // Keep in sync with apps/pipeline-cli/src/lib/event.ts and server.ts. v3 adds
 // `default_model` on pipeline.started and `resolved_model` on
 // iteration.started; analytics_relay populates both when it synthesizes
@@ -795,9 +811,17 @@ interface MirrorBinding {
 
 function appendMirrorBinding(binding: MirrorBinding): void {
   try {
+    // PIPELINE_UI_TRANSCRIPTS off: withhold the transcript pointer so the
+    // daemon never mirrors this session's transcript into the chat panel,
+    // while KEEPING the binding (run_id + session_id) so the basic lifecycle
+    // events still correlate to the run (source #3 of run-correlation). The
+    // daemon already treats a transcript_path:null binding as non-mirrorable.
+    const rec = pipelineUiTranscriptsEnabled()
+      ? binding
+      : { ...binding, transcript_path: null };
     const path = mirrorBindingsPath();
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(binding) + "\n", "utf-8");
+    appendFileSync(path, JSON.stringify(rec) + "\n", "utf-8");
   } catch (e) {
     log(`mirror binding append failed: ${e}`);
   }
@@ -1380,6 +1404,16 @@ function readTail(path: string, fromOffset: number, toOffset: number): string {
 }
 
 function handleStop(payload: Record<string, unknown>, projectRoot: string, worktree: string | null): void {
+  // The Stop handler's ONLY job is to OPEN + tail the session transcript to sum
+  // token usage. That is transcript-derived analytics, so the transcript
+  // opt-out governs it: when off we never touch the transcript file and emit no
+  // turn.usage. Basic lifecycle events (emitted by the other handlers) are
+  // unaffected. Note run-stats prefers the daemon's transcript fold over these
+  // turn.usage events anyway, so this is the secondary token source.
+  if (!pipelineUiTranscriptsEnabled()) {
+    log("PIPELINE_UI_TRANSCRIPTS off — skipping Stop transcript token tail");
+    return;
+  }
   const transcriptPath = String(payload.transcript_path ?? "");
   const sessionId = String(payload.session_id ?? "");
   if (!transcriptPath || !existsSync(transcriptPath)) {
@@ -1618,6 +1652,8 @@ export {
   resolveRunIdFromEnvOrSession,
   collectTerminatedRunIds,
   pathsMatch,
+  pipelineUiEnabled,
+  pipelineUiTranscriptsEnabled,
   MIRROR_BINDING_SCHEMA,
   SCHEMA_VERSION,
   BINDING_MAX_AGE_MS,

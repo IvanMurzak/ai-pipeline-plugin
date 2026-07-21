@@ -37,6 +37,7 @@ import {
   streamJournalLines,
   summarizeRuns,
   summarizeRunsFromShards,
+  pipelineUiTranscriptsEnabled,
   type JournalEvent,
   type PipelineInfo,
   type RunSummary,
@@ -240,6 +241,16 @@ function resolveRunTranscript(
   const cacheKey = `${entry.project_root}|${runId}`;
   const summary = allRunSummaries(entry).find((r) => r.run_id === runId) ?? null;
   const terminal = summary?.status === "completed" || summary?.status === "halted";
+  if (!TRANSCRIPTS_ENABLED) {
+    // PIPELINE_UI_TRANSCRIPTS off — never read a Claude Code transcript for
+    // analytics. Resolve NO transcript (and skip the run_id-mention scan) so
+    // run-stats/-failures/-breakdown fold nothing; the window is still returned
+    // for callers that want it. The UI degrades to basic events (+ drive-
+    // envelope usage for headless runs), exactly as a run with no transcript.
+    const startIso = summary?.started_at ?? null;
+    const endIso = terminal ? (summary?.last_event_at ?? null) : null;
+    return { transcriptPath: null, startIso, endIso, terminal };
+  }
   const ref = bindingsIndex(entry.project_root, runId).get(runId);
   // Window: the run's lifecycle span. Use the event-derived start when present,
   // else the binding's start_ts. End is open (null) for a live run so its
@@ -450,6 +461,15 @@ function computeRunSteps(entry: ProjectEntry, runId: string): RunStepsResponse {
 const SCHEMA_VERSION = 4;
 const IDLE_MINUTES = Number(process.env.PIPELINE_UI_IDLE_MINUTES ?? 60);
 const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
+// Transcript mirroring/fold opt-out (PIPELINE_UI_TRANSCRIPTS, default ON).
+// Snapshotted once at boot — a daemon is a long-lived shared process, so
+// changing this takes effect on the next daemon start (same as every other
+// daemon env knob above). When OFF: the MirrorService never tails a transcript
+// into a chat panel, and the per-run transcript-folded token/tool analytics
+// (/api/run-stats|-failures|-breakdown) resolve no transcript and return empty
+// — the UI + basic lifecycle events keep working. Orthogonal to
+// PIPELINE_UI_ENABLED (the master switch) and PIPELINE_STATS_ENABLED.
+const TRANSCRIPTS_ENABLED = pipelineUiTranscriptsEnabled(process.env);
 // Host + token come from PIPELINE_UI_HOST / PIPELINE_UI_TOKEN. Default stays
 // loopback-only; a wider bind (phone access) REQUIRES a token — the UI can
 // launch runs and edit pipelines, so exposing it unauthenticated would hand
@@ -3347,11 +3367,15 @@ async function bootDaemon(): Promise<void> {
   // transcript that didn't get explicitly bound by the PostToolUse
   // hook (or by recursive subagent discovery from a bound transcript).
   mirrorService = new MirrorService({
+    enabled: TRANSCRIPTS_ENABLED,
     appendChat: (projectRoot, runId, msg, opts) => {
       appendChatMessagePart(projectRoot, runId, msg, opts);
     },
   });
   mirrorService.start();
+  if (!TRANSCRIPTS_ENABLED) {
+    log("PIPELINE_UI_TRANSCRIPTS off — transcript mirror + folded run-stats disabled");
+  }
 
   // A daemon restart kills any in-flight /api/chat SDK query, so chat-driven
   // runs still non-terminal in the journal are dead — retire them so they

@@ -7,6 +7,31 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, join, dirname, basename } from "node:path";
 
+/** Transcript opt-out switch (`PIPELINE_UI_TRANSCRIPTS`). ON BY DEFAULT.
+ *
+ *  Gates ONLY the privacy-sensitive transcript mirroring/fold: the daemon
+ *  copying Claude Code transcript CONTENT into a run's chat panel
+ *  (`mirror.ts`) and folding the RAW transcripts for the per-run token/tool
+ *  analytics (`/api/run-stats` / `-failures` / `-breakdown`), plus the Stop
+ *  hook's transcript token tail. It does NOT gate the UI daemon, the basic
+ *  pipeline-lifecycle events (`pipeline.*` / `iteration.*` / `tool.called` /
+ *  `manager.stopped`), or the mirror-binding's run-correlation.
+ *
+ *  Orthogonal to the two neighbouring switches: `PIPELINE_UI_ENABLED` (the
+ *  UI/analytics MASTER opt-out — off ⇒ everything off) and
+ *  `PIPELINE_STATS_ENABLED` (the separate `.claude/pipeline/.stats/`
+ *  measurement fold). Same falsy parse as `PIPELINE_UI_ENABLED`:
+ *  `0`/`false`/`no`/`off` (case-insensitive, trimmed) disable it;
+ *  unset/empty/any other value leaves it ON — so DEFAULT BEHAVIOUR IS
+ *  UNCHANGED. Reads from an injected env map so the daemon can snapshot it
+ *  once at boot and tests can vary it per case. */
+export function pipelineUiTranscriptsEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const v = (env.PIPELINE_UI_TRANSCRIPTS ?? "").trim().toLowerCase();
+  return v !== "0" && v !== "false" && v !== "no" && v !== "off";
+}
+
 export interface PipelineInfo {
   pipeline_name: string;
   pipeline_root: string;

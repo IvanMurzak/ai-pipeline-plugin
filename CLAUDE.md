@@ -64,7 +64,7 @@ apps/
 hooks/
   hooks.json                        # Registers Stop + SubagentStop (matcher: pipeline-manager) + SessionStart + PreToolUse + PostToolUse hooks (loaded by Claude Code from default plugin location)
   pipeline_ui_relay.ts              # SessionStart hook — launches pipeline-ui daemon if needed, registers project, emits session.opened
-  analytics_relay.ts                # Multi-event hook (PreToolUse + PostToolUse + SubagentStop + Stop) — mirror bindings, tool.called, run-level bypass synthesis, manager.stopped liveness, turn.usage
+  analytics_relay.ts                # Multi-event hook (PreToolUse + PostToolUse + SubagentStop + Stop) — mirror bindings, tool.called, run-level bypass synthesis, manager.stopped liveness, turn.usage. The transcript-sensitive bits (binding transcript_path + the Stop turn.usage tail) are separately gated by PIPELINE_UI_TRANSCRIPTS (default ON; off ⇒ null the pointer + skip the tail, basic events keep flowing) — orthogonal to the PIPELINE_UI_ENABLED master switch and to PIPELINE_STATS_ENABLED; see docs/ui-subsystem.md
   stats_relay.ts                    # SubagentStop (matcher: pipeline-manager) — token + tool-failure enrichment for .stats/ run records (transcript fold; per-tool fail counts + .log fail details); gated by PIPELINE_STATS_ENABLED (default ON, independent of PIPELINE_UI_ENABLED)
 docs/                               # On-demand reference docs split out of CLAUDE.md — read before editing the matching subsystem
   cli.md                            #   the `pipeline` CLI — commands & contracts (plan/match/event/route/next/ui/logs/submodule bump)
