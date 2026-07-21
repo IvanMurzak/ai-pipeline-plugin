@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, FileText, Keyboard, Loader2, Rocket, Search, TriangleAlert } from "lucide-react";
+import { ChevronDown, FileText, Keyboard, Loader2, Rocket, Search, TriangleAlert, Variable } from "lucide-react";
 import { fetchLaunchPipelines, launchRun } from "../lib/api";
 import { useSSE } from "../lib/sse";
 import { VoiceInput } from "./VoiceInput";
 import { appendDictation, modelPillClass, withInterim } from "../lib/format";
-import { filterPipelines } from "../lib/launch";
+import { collectLaunchVars, filterPipelines, initialVarValues, missingRequiredVars, pipelineVariables } from "../lib/launch";
 import { useClickOutside } from "../lib/useClickOutside";
 import { EFFORT_KEYS, MODEL_KEYS, type LaunchCatalogPipeline } from "../types";
 
@@ -39,6 +39,9 @@ export function LaunchPanel({ projectId, initialPipelineName, initialPipelineRoo
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [defaultEffort, setDefaultEffort] = useState<string>("inherit");
   const [effortOverrides, setEffortOverrides] = useState<Record<string, string>>({});
+  // Declared ${PP_*} values, keyed by name. Reset to each pipeline's defaults
+  // when the selection changes (the effect below).
+  const [vars, setVars] = useState<Record<string, string>>({});
   const [showSteps, setShowSteps] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
@@ -119,13 +122,15 @@ export function LaunchPanel({ projectId, initialPipelineName, initialPipelineRoo
     return null;
   }, [catalog, selectedName, selectedRoot]);
 
-  // Reset per-pipeline state when the pick changes.
+  // Reset per-pipeline state when the pick changes — variables prefill with
+  // the newly-selected pipeline's declared defaults.
   useEffect(() => {
     setOverrides({});
     setEffortOverrides({});
+    setVars(initialVarValues(selected));
     setShowSteps(false);
     setLaunchError(null);
-  }, [selected?.pipeline_root]);
+  }, [selected?.pipeline_root]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A same-project catalog refresh can change the selected pipeline's steps
   // in place (step renamed/removed on disk). Prune overrides for step_ids
@@ -143,13 +148,28 @@ export function LaunchPanel({ projectId, initialPipelineName, initialPipelineRoo
     };
     setOverrides(prune);
     setEffortOverrides(prune);
+    // Reconcile variables against the refreshed declarations: keep edited
+    // values, add newly-declared vars at their default, drop removed ones.
+    setVars((prev) => {
+      const next: Record<string, string> = {};
+      let changed = false;
+      for (const v of pipelineVariables(selected)) {
+        next[v.name] = Object.prototype.hasOwnProperty.call(prev, v.name) ? prev[v.name] : v.default ?? "";
+        if (next[v.name] !== prev[v.name]) changed = true;
+      }
+      if (Object.keys(prev).length !== Object.keys(next).length) changed = true;
+      return changed ? next : prev;
+    });
   }, [selected]);
+
+  const missingRequired = useMemo(() => missingRequiredVars(selected, vars), [selected, vars]);
 
   const canLaunch =
     !!selected &&
     !launching &&
     selected.errors.length === 0 &&
     selected.steps.length > 0 &&
+    missingRequired.length === 0 &&
     (taskMode === "text" || taskFile.trim() !== "");
 
   const doLaunch = async () => {
@@ -165,6 +185,7 @@ export function LaunchPanel({ projectId, initialPipelineName, initialPipelineRoo
       for (const [k, v] of Object.entries(effortOverrides)) {
         if (v && v !== "keep") effortOv[k] = v;
       }
+      const launchVars = collectLaunchVars(selected, vars);
       const res = await launchRun({
         project_id: projectId,
         pipeline_root: selected.pipeline_root,
@@ -174,6 +195,7 @@ export function LaunchPanel({ projectId, initialPipelineName, initialPipelineRoo
         ...(Object.keys(modelOverrides).length ? { model_overrides: modelOverrides } : {}),
         ...(defaultEffort !== "inherit" ? { default_effort: defaultEffort } : {}),
         ...(Object.keys(effortOv).length ? { effort_overrides: effortOv } : {}),
+        ...(launchVars ? { vars: launchVars } : {}),
       });
       onLaunched(res.run_id);
     } catch (e) {
@@ -281,6 +303,60 @@ export function LaunchPanel({ projectId, initialPipelineName, initialPipelineRoo
           placeholder="Absolute path to a task file (e.g. C:\\work\\issue-42.md)"
           className="mb-3 w-full border border-accent/30 bg-panel2 px-3 py-2.5 font-mono text-xs text-ink placeholder:text-muted/60 focus:border-accent focus:outline-none"
         />
+      )}
+
+      {/* Variables — declared ${PP_*} the run substitutes, prefilled with
+          their defaults. All PP_* values are non-secret by contract. */}
+      {selected && pipelineVariables(selected).length > 0 && (
+        <div className="mb-3">
+          <label className="mb-1 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
+            <Variable size={11} /> Variables
+          </label>
+          <div className="flex flex-col gap-2.5 border border-accent/20 bg-panel2/40 p-3">
+            {pipelineVariables(selected).map((v) => {
+              const value = vars[v.name] ?? "";
+              const isMissing = v.required && !value.trim();
+              return (
+                <div key={v.name} className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-mono text-[11px] text-ink">{v.name}</span>
+                    <span
+                      className={`shrink-0 font-mono text-[9px] uppercase tracking-wider ${
+                        v.required ? "text-accent2" : "text-muted/70"
+                      }`}
+                    >
+                      {v.required ? "required" : "optional"}
+                    </span>
+                  </div>
+                  {v.description && (
+                    <span className="font-mono text-[9.5px] leading-snug text-muted">{v.description}</span>
+                  )}
+                  <input
+                    value={value}
+                    onChange={(e) => setVars((prev) => ({ ...prev, [v.name]: e.target.value }))}
+                    placeholder={
+                      v.required
+                        ? `Set ${v.name}…`
+                        : v.default != null
+                          ? `default: ${v.default || "(empty)"}`
+                          : `Set ${v.name} (optional)…`
+                    }
+                    aria-label={v.name}
+                    aria-required={v.required}
+                    className={`w-full border bg-panel2 px-3 py-2 font-mono text-xs text-ink placeholder:text-muted/60 focus:outline-none ${
+                      isMissing ? "border-accent2/60 focus:border-accent2" : "border-accent/30 focus:border-accent"
+                    }`}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          {missingRequired.length > 0 && (
+            <p className="mt-1 font-mono text-[9.5px] text-accent2">
+              fill required variable{missingRequired.length > 1 ? "s" : ""}: {missingRequired.join(", ")}
+            </p>
+          )}
+        </div>
       )}
 
       {/* Models */}

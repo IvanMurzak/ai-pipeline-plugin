@@ -8,7 +8,8 @@
 //        offer per-step model overrides before launch.
 //   POST /api/runs/launch                — {project_id, pipeline_root, task_text?,
 //        task_file?, default_model?, model_overrides?, default_effort?,
-//        effort_overrides?, start?} → spawn
+//        effort_overrides?, vars?, start?} → spawn (vars = declared ${PP_*}
+//        values forwarded as `--var NAME=value`; undeclared names are 400'd)
 //        `pipeline drive` (cwd = project root, PIPELINE_UI_ENABLED inherited so
 //        per-iteration events light the dashboard up), track the child, 202
 //        {run_id}. Exit 4 (awaiting-input) surfaces the executor's question.
@@ -71,6 +72,23 @@ export interface CatalogStep {
   effort: string | null;
 }
 
+/** A pipeline's declared `${PP_*}` variable (from PIPELINE.md `## Variables`,
+ *  surfaced by computePlan as `plan.variables`) — the launch form renders one
+ *  input per entry so the operator can supply values at launch. PP_* values
+ *  are non-secret by contract (04 §2 / D14 bans secret-ish NAMES at plan
+ *  time), so every declared variable is safe to render + prefill. */
+export interface CatalogVariable {
+  name: string;
+  description: string;
+  /** `(required)` — the operator MUST supply a value (--var/env); a manifest
+   *  default is rejected at parse and an inline default is ignored (D1.2). */
+  required: boolean;
+  /** `(default: ...)` value, or null when none is declared. An EMPTY-STRING
+   *  default (`(default: )`) is preserved as "" — a resolved value distinct
+   *  from null. */
+  default: string | null;
+}
+
 export interface CatalogPipeline {
   name: string;
   pipeline_root: string;
@@ -82,6 +100,10 @@ export interface CatalogPipeline {
   default_effort: string | null;
   has_targets: boolean;
   steps: CatalogStep[];
+  /** Declared `${PP_*}` variables (empty when the pipeline declares none) —
+   *  the launch form renders + prefills these so a run's variables can be set
+   *  from the UI, not only the CLI. */
+  variables: CatalogVariable[];
   errors: string[];
   warnings: string[];
 }
@@ -233,6 +255,13 @@ export function buildCatalog(projectRoot: string): CatalogPipeline[] {
           model: s.model ?? null,
           effort: s.effort ?? null,
         })),
+        variables: plan.variables.map((v) => ({
+          name: v.name,
+          description: v.description,
+          required: v.required,
+          // `?? null` (not `|| null`) preserves an empty-string default.
+          default: v.default ?? null,
+        })),
         errors: plan.errors ?? [],
         warnings: plan.warnings ?? [],
       });
@@ -247,6 +276,7 @@ export function buildCatalog(projectRoot: string): CatalogPipeline[] {
         default_effort: null,
         has_targets: existsSync(join(root, "targets")),
         steps: [],
+        variables: [],
         errors: [`plan failed: ${e instanceof Error ? e.message : String(e)}`],
         warnings: [],
       });
@@ -423,6 +453,36 @@ function spawnDrive(run: DriveRun, args: string[], deps: LauncherDeps): void {
   })();
 }
 
+/** Build the repeated `--var NAME=value` argv elements for a launch, and
+ *  collect any supplied names the pipeline does NOT declare. Each value is
+ *  pushed as a DISCRETE argv element (`--var`, then `NAME=value`) — never a
+ *  shell string — so a value containing spaces (e.g. a support-answer
+ *  PP_QUESTION) is passed verbatim on every platform, including the
+ *  windows-latest CI runner. Unknown names are never forwarded: the caller
+ *  rejects the launch instead, so a mistyped/stale variable can never silently
+ *  no-op (mirrors the CLI's own L10 "unknown-cli-var" strictness). Names are
+ *  matched case-sensitively against the plan's declared variables. Passing
+ *  `vars: undefined` (the pre-existing shape) yields NO `--var` args — a launch
+ *  with no variables is byte-identical to today's, so declared defaults apply. */
+export function buildDriveVarArgs(
+  vars: Record<string, string> | undefined,
+  declaredNames: Set<string>,
+): { varArgs: string[]; unknown: string[] } {
+  const varArgs: string[] = [];
+  const unknown: string[] = [];
+  for (const [name, value] of Object.entries(vars ?? {})) {
+    if (!declaredNames.has(name)) {
+      unknown.push(name);
+      continue;
+    }
+    // String() guards against a non-string JSON value; the `=`-join matches
+    // the CLI's first-`=` split (parseVarAssignment), so a value may itself
+    // contain `=`.
+    varArgs.push("--var", `${name}=${String(value)}`);
+  }
+  return { varArgs, unknown };
+}
+
 export async function handleLaunchRun(req: Request, deps: LauncherDeps): Promise<Response> {
   let body: {
     project_id?: string;
@@ -434,6 +494,11 @@ export async function handleLaunchRun(req: Request, deps: LauncherDeps): Promise
     model_overrides?: Record<string, string>;
     default_effort?: string;
     effort_overrides?: Record<string, string>;
+    /** Declared `${PP_*}` values supplied by the launch form. Optional and
+     *  backward-compatible: absent ⇒ no `--var` flags ⇒ declared defaults
+     *  apply, exactly as before. Names not declared by the pipeline are
+     *  rejected (400) rather than forwarded. */
+    vars?: Record<string, string>;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -467,6 +532,18 @@ export async function handleLaunchRun(req: Request, deps: LauncherDeps): Promise
     return new Response(`task_file does not exist: ${body.task_file}`, { status: 400 });
   }
 
+  // PP_* variables from the launch form → repeated `--var NAME=value`. Reject
+  // (don't forward) any name the pipeline doesn't declare, so a doomed run
+  // never even starts — the same fail-loud stance drive takes at init (L10).
+  const declaredVarNames = new Set(plan.variables.map((v) => v.name));
+  const { varArgs, unknown: unknownVars } = buildDriveVarArgs(body.vars, declaredVarNames);
+  if (unknownVars.length) {
+    return Response.json(
+      { ok: false, error: `variable(s) not declared by this pipeline: ${unknownVars.join(", ")}` },
+      { status: 400 },
+    );
+  }
+
   const runId = mintId("drv");
   const args = ["--root", pipelineRoot, "--run-id", runId, "--start", start, "--json"];
   if (body.default_model) args.push("--default-model", body.default_model);
@@ -479,6 +556,9 @@ export async function handleLaunchRun(req: Request, deps: LauncherDeps): Promise
   }
   if (body.task_text && body.task_text.trim()) args.push("--task", body.task_text);
   else if (body.task_file) args.push("--task-file", body.task_file);
+  // --var flags belong to drive's init call (frozen into next.json). Order
+  // among flags is irrelevant to the CLI parser.
+  args.push(...varArgs);
 
   const run: DriveRun = {
     run_id: runId,
