@@ -51,7 +51,7 @@ import {
   normalizeTranscriptEntry,
   type NormalizeOptions,
 } from "./transcript-normalize.ts";
-import { isAgentSpawnTool } from "./lib.ts";
+import { isAgentSpawnTool, pipelineUiTranscriptsEnabled } from "./lib.ts";
 
 // --------------------------------------------------------------------
 // Types
@@ -325,6 +325,12 @@ interface MirrorServiceOpts {
    *  affect bindings (currently: pipeline.completed / pipeline.halted
    *  closes all bindings on that run_id). Server.ts forwards parsed
    *  journal events to this via `MirrorService.onJournalEvent`. */
+  /** Transcript mirroring switch (`PIPELINE_UI_TRANSCRIPTS`). Defaults to
+   *  the env read. When false the service binds NOTHING and tails NO
+   *  transcript — the privacy-sensitive chat mirror is fully off while the
+   *  rest of the daemon (basic lifecycle events, editor, launcher) keeps
+   *  running. Tests pass an explicit boolean. */
+  enabled?: boolean;
 }
 
 const POLL_INTERVAL_MS = 1000;
@@ -334,6 +340,9 @@ const STALE_BINDING_MS = 24 * 60 * 60 * 1000;
 export class MirrorService {
   private readonly bindingsFile: string;
   private readonly appendChat: AppendChatFn;
+  /** Snapshot of PIPELINE_UI_TRANSCRIPTS at construction. When false the
+   *  service is inert (no polling, no binding, no tailing). */
+  private readonly enabled: boolean;
   /** All currently-watched bindings, keyed by bindingKey(). */
   private readonly bindings = new Map<string, ActiveBinding>();
   /** Map of transcript path → list of binding keys referencing it.
@@ -350,9 +359,11 @@ export class MirrorService {
   constructor(opts: MirrorServiceOpts) {
     this.bindingsFile = opts.bindingsPath ?? defaultBindingsPath();
     this.appendChat = opts.appendChat;
+    this.enabled = opts.enabled ?? pipelineUiTranscriptsEnabled();
   }
 
   start(): void {
+    if (!this.enabled) return; // PIPELINE_UI_TRANSCRIPTS off — no mirroring.
     if (this.bindingsTimer) return;
     this.readBindingsIncremental();
     this.tickAll();
@@ -444,6 +455,7 @@ export class MirrorService {
   }
 
   private registerBinding(rec: MirrorBindingRecord): void {
+    if (!this.enabled) return; // PIPELINE_UI_TRANSCRIPTS off — bind nothing.
     const key = bindingKey(rec);
     if (this.bindings.has(key)) return; // idempotent
     if (!rec.transcript_path) {

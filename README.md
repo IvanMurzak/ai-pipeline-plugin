@@ -653,6 +653,31 @@ When you opt out (`0`/`false`/`no`/`off`): the `SessionStart` hook does not laun
 
 > Performance note: even with the UI enabled, `SubagentStop` only fires the hook for the `pipeline-manager` subagent (via a `matcher`), so the dozens of other subagent stops in a run no longer spawn a hook process.
 
+### Transcript-mirroring opt-out — `PIPELINE_UI_TRANSCRIPTS`
+
+Keep the dashboard on, but opt **out of the one privacy-sensitive part**: the reading and copying of your Claude Code **transcripts**. `PIPELINE_UI_TRANSCRIPTS` is **ON BY DEFAULT** and, unlike the master switch above, gates **only** the transcript mirroring/fold — nothing else. Set it to a falsy value (`0`, `false`, `no`, or `off`) to disable just that:
+
+```jsonc
+// .claude/settings.json
+{ "env": { "PIPELINE_UI_TRANSCRIPTS": "0" } }
+```
+
+What it gates (all OFF when opted out):
+
+- the daemon **copying transcript content** into a run's live **chat panel** (the message mirror),
+- the per-run **token/tool analytics** that are **folded from the raw transcripts** (`/api/run-stats`, `-failures`, `-breakdown` — the RUN_ANALYTICS panel),
+- the `Stop` hook's transcript **token tail** (`turn.usage`).
+
+What keeps working (the UI + basic events are untouched):
+
+- the dashboard, the daemon, and `/pipeline:ui`,
+- the basic pipeline-lifecycle events — `pipeline.*`, `iteration.*`, `tool.called`, `manager.stopped`, `session.opened` — and the run timeline/liveness they drive,
+- run correlation: the mirror **binding is still written** (so events still attribute to the right run), just **without the transcript pointer**.
+
+The dashboard **degrades gracefully**: a run shows its lifecycle, steps, and timeline as usual; the transcript-derived token/tool panels simply read empty (a headless `pipeline drive` run still surfaces its own envelope token/cost, which never comes from a transcript). No crash, no error state.
+
+This switch is **orthogonal** to the two neighbours: it is **not** the network binding (that is still `PIPELINE_UI_HOST` + a mandatory `PIPELINE_UI_TOKEN`), and it is **not** `PIPELINE_STATS_ENABLED` — the separate local `.claude/pipeline/.stats/` measurement fold keeps its own switch and its own default. Setting `PIPELINE_UI_ENABLED=0` (the master switch) already turns everything off, so `PIPELINE_UI_TRANSCRIPTS` only matters while the UI is on. The daemon snapshots this at boot, so change it before the daemon starts (or restart the daemon) for it to take effect.
+
 ### Prompt match hook (opt-in) — `PIPELINE_PROMPT_MATCH_ENABLED`
 
 The plugin also ships a `UserPromptSubmit` hook that surfaces a matching pipeline for whatever you just typed — deterministic auto-discovery with **zero always-loaded context**. It runs the same BM25 matcher `/pipeline:find` and `/pipeline:dispatch` use against your prompt, and **only on a confident single match** (exactly one candidate, or the top score at least 2× the runner-up — the same ambiguity threshold `/pipeline:dispatch` uses) injects one line of context suggesting `/pipeline:run <first-iteration>` or `/pipeline:dispatch`. On no match or an ambiguous match it stays completely silent; it never blocks or modifies your prompt.
@@ -675,7 +700,8 @@ Everything the plugin reads from the environment, in one place. Set the per-proj
 | Variable | Default | Purpose |
 |---|---|---|
 | `PIPELINE_UI_ENABLED` | **on** | Master opt-OUT for the whole UI/analytics system (dashboard daemon + analytics hooks). Enabled unless explicitly set to a falsy value; `0`/`false`/`no`/`off` disables, unset/empty/any other value enables. Does NOT affect the `PIPELINE_UI_HOST`/`PIPELINE_UI_TOKEN` binding security. |
-| `PIPELINE_STATS_ENABLED` | **on** | Per-run measurement files under `.claude/pipeline/.stats/` (durations, per-step timings, outcomes, tokens, tool failures — see "Measuring every run" above). Set `0`/`false`/`no`/`off` to disable. Independent of `PIPELINE_UI_ENABLED`. |
+| `PIPELINE_UI_TRANSCRIPTS` | **on** | Opt-OUT for **only** the transcript mirroring/fold: the chat-panel message mirror, the transcript-folded per-run token/tool analytics, and the `Stop` hook's token tail. `0`/`false`/`no`/`off` disables just that; the UI + basic lifecycle events keep working (the dashboard degrades gracefully). Orthogonal to `PIPELINE_UI_ENABLED`, `PIPELINE_STATS_ENABLED`, and the host/token binding. Snapshotted at daemon boot. |
+| `PIPELINE_STATS_ENABLED` | **on** | Per-run measurement files under `.claude/pipeline/.stats/` (durations, per-step timings, outcomes, tokens, tool failures — see "Measuring every run" above). Set `0`/`false`/`no`/`off` to disable. Independent of `PIPELINE_UI_ENABLED` and `PIPELINE_UI_TRANSCRIPTS`. |
 | `PIPELINE_PROMPT_MATCH_ENABLED` | off | Opt-in for the `UserPromptSubmit` pipeline-match hook (section above). Same non-falsy semantics. |
 | `PIPELINE_UI_IDLE_MINUTES` | `60` | Minutes of inactivity before the dashboard daemon auto-exits. |
 | `PIPELINE_UI_HOST` | `127.0.0.1` | Daemon bind address. Any non-loopback value (e.g. `0.0.0.0` for phone access) REQUIRES `PIPELINE_UI_TOKEN` — otherwise the daemon falls back to loopback with a warning. |
