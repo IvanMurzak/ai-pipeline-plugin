@@ -1665,10 +1665,26 @@ function handleNotification(
 // --------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  // Gate ORDER is load-bearing. The payload read and the cwd/pipeline gate are
-  // hoisted above the PIPELINE_UI_ENABLED early-return so the Notification
-  // branch can run with the UI opted out (D2) — every other branch keeps its
-  // previous behavior because the early-return still fires before them.
+  // Gate ORDER is load-bearing, in BOTH directions:
+  //  - the payload read is hoisted above the PIPELINE_UI_ENABLED early-return,
+  //    because the Notification branch must run with the UI opted out (D2);
+  //  - but the FILESYSTEM work (resolveProjectRoot + hasPipelineDirUpTo) stays
+  //    BELOW it for every other event, because pipelineUiEnabled() promises an
+  //    opt-out costs ~zero per hook call — and this hook fires twice per tool
+  //    call. Reading stdin is cheap; walking the tree is not.
+  const payload = (await readStdinJson()) ?? {};
+  const eventName = String(payload.hook_event_name ?? payload.event ?? "").trim();
+
+  const isNotification = eventName === "Notification";
+  if (isNotification && !awaitingInputEnabled()) {
+    log("PIPELINE_AWAITING_INPUT_ENABLED explicitly opted out — no-op");
+    return;
+  }
+  if (!isNotification && !pipelineUiEnabled()) {
+    log("PIPELINE_UI_ENABLED explicitly opted out (0/false/no/off) — no-op");
+    return;
+  }
+
   const cwd = process.cwd();
   // Resolve the project root FIRST (this also maps a git worktree to its
   // MAIN repo + records the worktree tag), then gate by walking up from
@@ -1686,21 +1702,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const payload = (await readStdinJson()) ?? {};
-  const eventName = String(payload.hook_event_name ?? payload.event ?? "").trim();
-
-  // BEFORE the UI gate — see the ordering note at the top of main().
-  if (eventName === "Notification") {
-    if (!awaitingInputEnabled()) {
-      log("PIPELINE_AWAITING_INPUT_ENABLED explicitly opted out — no-op");
-      return;
-    }
+  if (isNotification) {
     handleNotification(payload, project_root, worktree);
-    return;
-  }
-
-  if (!pipelineUiEnabled()) {
-    log("PIPELINE_UI_ENABLED explicitly opted out (0/false/no/off) — no-op");
     return;
   }
 
