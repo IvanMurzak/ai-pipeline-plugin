@@ -38,6 +38,7 @@ const ICON: Record<string, LucideIcon> = {
   "pipeline.completed": CheckCircle2,
   "pipeline.halted": XCircle,
   "session.opened": Radio,
+  "run.awaiting_input": PauseCircle,
 };
 
 const FALLBACK = PauseCircle;
@@ -48,6 +49,7 @@ const TONE: Record<string, string> = {
   "pipeline.halted": "text-bad",
   "blocker.delegated": "text-warn",
   "blocker.polling": "text-warn",
+  "run.awaiting_input": "text-warn",
 };
 
 function formatLine(e: PipelineEvent): string {
@@ -55,6 +57,10 @@ function formatLine(e: PipelineEvent): string {
   switch (e.type) {
     case "pipeline.started":
       return `▶ Started ${d.pipeline_name ?? "pipeline"}`;
+    case "run.awaiting_input": {
+      const excerpt = typeof d.message_excerpt === "string" ? d.message_excerpt : "";
+      return `⏸ Awaiting ${d.kind === "permission" ? "permission" : "input"}${excerpt ? ` — ${excerpt}` : ""}`;
+    }
     case "iteration.started":
     case "iteration.resumed": {
       const idx =

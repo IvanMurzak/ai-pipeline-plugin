@@ -14,10 +14,30 @@ const META: Record<
   unknown:           { label: "UNKNOWN",   dot: "bg-muted",   text: "text-muted",   border: "border-muted/60"   },
 };
 
-export function StatusBadge({ status, animate = true }: { status: RunStatus; animate?: boolean }) {
-  const m = META[status];
+/** Display-only overlay (design 05): a run blocked on a permission prompt or an
+ *  input request. Layered OVER the real status — the run is still running, so
+ *  the underlying state is untouched and the dot stops pulsing to show that
+ *  nothing is progressing until a human answers. */
+const AWAITING_META = {
+  label: "WAITING",
+  dot: "bg-warn",
+  text: "text-warn",
+  border: "border-warn/60",
+} as const;
+
+export function StatusBadge({
+  status,
+  awaiting = false,
+  animate = true,
+}: {
+  status: RunStatus;
+  awaiting?: boolean;
+  animate?: boolean;
+}) {
+  const m = awaiting ? AWAITING_META : META[status];
   const active =
-    status === "running" || status === "improving" || status === "scripting" || status === "polling-blocker";
+    !awaiting &&
+    (status === "running" || status === "improving" || status === "scripting" || status === "polling-blocker");
   return (
     <motion.span
       layout

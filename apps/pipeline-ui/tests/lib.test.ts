@@ -658,3 +658,38 @@ describe("shorthandFromAny", () => {
     expect(shorthandFromAny(undefined)).toBeNull();
   });
 });
+
+describe("RunSummaryFolder — derived WAITING (design 05)", () => {
+  // Mirror of the client-side test in web/src/lib/__tests__/runs.test.ts. The
+  // two folds MUST agree: /api/runs and the SSE-derived forest render the same
+  // badge, and a disagreement would show a run as waiting in one surface and
+  // running in the other.
+  const at = (s: number) => `2026-01-01T00:00:${String(s).padStart(2, "0")}Z`;
+
+  test("the event raises the flag; status and terminal logic stay untouched", () => {
+    const f = new RunSummaryFolder();
+    f.addEvent({ ts: at(0), type: "pipeline.started", run_id: "r1", data: { pipeline_name: "x" } });
+    f.addEvent({ ts: at(5), type: "run.awaiting_input", run_id: "r1", data: { kind: "permission" } });
+    const [s] = f.toSummaries();
+    expect(s!.awaiting_input).toBe(true);
+    expect(s!.awaiting_input_kind).toBe("permission");
+    expect(s!.status).toBe("running");
+  });
+
+  test("any later event clears it, and the run still reaches completed", () => {
+    const f = new RunSummaryFolder();
+    f.addEvent({ ts: at(0), type: "pipeline.started", run_id: "r1", data: { pipeline_name: "x" } });
+    f.addEvent({ ts: at(5), type: "run.awaiting_input", run_id: "r1", data: { kind: "input" } });
+    f.addEvent({ ts: at(9), type: "pipeline.completed", run_id: "r1", data: {} });
+    const [s] = f.toSummaries();
+    expect(s!.awaiting_input).toBe(false);
+    expect(s!.awaiting_input_kind).toBeNull();
+    expect(s!.status).toBe("completed");
+  });
+
+  test("an ambient event (no run_id) creates no summary", () => {
+    const f = new RunSummaryFolder();
+    f.addEvent({ ts: at(0), type: "run.awaiting_input", run_id: null, data: { kind: "input" } });
+    expect(f.toSummaries()).toHaveLength(0);
+  });
+});

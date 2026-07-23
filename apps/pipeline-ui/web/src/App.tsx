@@ -113,6 +113,9 @@ export function App() {
       // override set" until the live event window picks them up.
       default_model: null,
       current_resolved_model: null,
+      // Present on a current daemon, absent on an older one ⇒ not waiting.
+      awaiting_input: s.awaiting_input ?? false,
+      awaiting_input_kind: s.awaiting_input_kind ?? null,
       stats: {
         tools_called: 0,
         tools_failed: 0,

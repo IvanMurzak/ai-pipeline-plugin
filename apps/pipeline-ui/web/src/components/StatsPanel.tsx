@@ -144,7 +144,7 @@ export function StatsPanel({ run, statsOverride, onShowFailures, onShowBreakdown
             ▌ RUN_ANALYTICS
           </p>
         </span>
-        <StatusBadge status={run.status} />
+        <StatusBadge status={run.status} awaiting={run.awaiting_input} />
         <LiveElapsed run={run} live={live} />
         <span className="font-mono text-[10px] uppercase tracking-wider text-muted">
           started {relativeTime(run.started_at)}

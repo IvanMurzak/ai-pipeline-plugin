@@ -640,3 +640,69 @@ describe("aggregateRunsForPipeline", () => {
     });
   });
 });
+
+/**
+ * Derived WAITING (design 05). The flag is a display state layered over the
+ * real status: `run.awaiting_input` raises it, and — because no "the user
+ * answered" hook signal exists — ANY later event for the same run clears it.
+ */
+describe("run.awaiting_input fold", () => {
+  test("raises the flag with its kind, leaving status alone", () => {
+    const [run] = buildRunForest([
+      ev("pipeline.started", "r1", { pipeline_name: "demo" }),
+      ev("run.awaiting_input", "r1", { kind: "permission", message_excerpt: "needs permission" }),
+    ]);
+    expect(run!.awaiting_input).toBe(true);
+    expect(run!.awaiting_input_kind).toBe("permission");
+    expect(run!.status).toBe("running"); // untouched — it is still running
+  });
+
+  test("ANY later event for the run clears it", () => {
+    const [run] = buildRunForest([
+      ev("pipeline.started", "r1", { pipeline_name: "demo" }),
+      ev("run.awaiting_input", "r1", { kind: "input" }),
+      ev("tool.called", "r1", { tool_name: "Bash", success: true }),
+    ]);
+    expect(run!.awaiting_input).toBe(false);
+    expect(run!.awaiting_input_kind).toBeNull();
+  });
+
+  test("a terminal event clears it too, and the run still completes normally", () => {
+    const [run] = buildRunForest([
+      ev("pipeline.started", "r1", { pipeline_name: "demo" }),
+      ev("run.awaiting_input", "r1", { kind: "permission" }),
+      ev("pipeline.completed", "r1", { pipeline_name: "demo" }),
+    ]);
+    expect(run!.awaiting_input).toBe(false);
+    expect(run!.status).toBe("completed");
+  });
+
+  test("only the waiting run is flagged — a sibling run is untouched", () => {
+    const runs = buildRunForest([
+      ev("pipeline.started", "r1", { pipeline_name: "demo" }),
+      ev("pipeline.started", "r2", { pipeline_name: "demo" }),
+      ev("run.awaiting_input", "r1", { kind: "permission" }),
+    ]);
+    const byId = new Map(runs.map((r) => [r.run_id, r]));
+    expect(byId.get("r1")!.awaiting_input).toBe(true);
+    expect(byId.get("r2")!.awaiting_input).toBe(false);
+  });
+
+  test("an ambient event (no run_id) flags nothing", () => {
+    const runs = buildRunForest([
+      ev("pipeline.started", "r1", { pipeline_name: "demo" }),
+      ev("run.awaiting_input", null, { kind: "input" }),
+    ]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.awaiting_input).toBe(false);
+  });
+
+  test("an unknown kind value degrades to `input`, never to null-with-flag-set", () => {
+    const [run] = buildRunForest([
+      ev("pipeline.started", "r1", {}),
+      ev("run.awaiting_input", "r1", { kind: "something-else" }),
+    ]);
+    expect(run!.awaiting_input).toBe(true);
+    expect(run!.awaiting_input_kind).toBe("input");
+  });
+});
