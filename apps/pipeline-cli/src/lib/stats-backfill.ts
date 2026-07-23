@@ -63,12 +63,18 @@ import {
 } from './stats';
 import { loadUsageTotals } from './envelope';
 import { readStepSessionRefs, foldStepSessionTranscripts } from './step-transcripts';
+// VENDORED walkers, never the sibling app: apps/pipeline-cli publishes
+// standalone to npm and the tarball contains no apps/pipeline-ui, so a
+// `../../../pipeline-ui/…` import resolves in this checkout but crashes at
+// import time for every npm-installed user (the shipped 0.2.0 regression that
+// created lib/vendor/transcript-walk.ts in the first place). Keep the vendor
+// file in lockstep with its source per that file's header.
 import {
   RUN_FAILURES_COLLECT_MAX,
   collectRunToolFailures,
   foldRunStatsFromTranscript,
   findTranscriptByRunId,
-} from '../../../pipeline-ui/transcript-stats';
+} from './vendor/transcript-walk';
 
 /** D10: default reconciliation window — how far back a record's `ended_at`
  *  may be and still be considered for backfill. The relay keeps its own

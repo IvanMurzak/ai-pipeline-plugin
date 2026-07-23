@@ -352,7 +352,7 @@ describe('backfillProject', () => {
     expect(report.enriched).toEqual(['good-1']);
   });
 
-  test('transcriptHint short-circuit: uniform fold against the hint regardless of `runner`', () => {
+  test("hintMode 'always': uniform fold against the hint regardless of `runner`", () => {
     const rec = baseRecord({ run_id: 'hint-1', runner: 'headless', pipeline: 'demo' });
     writeRuns([rec]);
     // No step-session evidence exists at all for this headless record — the
@@ -372,10 +372,61 @@ describe('backfillProject', () => {
       }) + entry(mid, { role: 'user', content: [okResult('t1')] }),
       'utf8',
     );
-    const report = backfillProject(projectRoot, { transcriptHint: transcript });
+    const report = backfillProject(projectRoot, { transcriptHint: transcript, hintMode: 'always' });
     expect(report.enriched).toEqual(['hint-1']);
     const written = JSON.parse(readFileSync(runsJsonlPath(), 'utf8').trim());
     expect(written.tokens.input).toBe(7);
+  });
+
+  // The default mode is the correlation-safe one: a hint is only applied to a
+  // record whose run_id literally occurs in it. Without this, a plain session
+  // Stop transcript (hours of unrelated work) would time-window-match a stale
+  // tokens-null record and corrupt it with someone else's usage.
+  test("hintMode 'correlated' (default): an uncorrelated hint is ignored, the record falls back to its normal source", () => {
+    const rec = baseRecord({ run_id: 'hint-uncorr', runner: 'headless', pipeline: 'demo' });
+    writeRuns([rec]);
+    const dir = join(home, '.claude', 'projects', encodeClaudeProjectDir(projectRoot));
+    mkdirSync(dir, { recursive: true });
+    const transcript = join(dir, 'uncorrelated.jsonl');
+    const mid = new Date((Date.parse(rec.started_at as string) + Date.parse(rec.ended_at)) / 2).toISOString();
+    writeFileSync(
+      transcript,
+      entry(mid, {
+        role: 'assistant',
+        usage: { input_tokens: 7, output_tokens: 2, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        content: [use('t1', 'Read', { file_path: '/x' })],
+      }) + entry(mid, { role: 'user', content: [okResult('t1')] }),
+      'utf8',
+    );
+    const report = backfillProject(projectRoot, { transcriptHint: transcript });
+    // Falls through to the headless source select, which has no session
+    // evidence for this run → pruned, and the record is left untouched.
+    expect(report.enriched).toEqual([]);
+    expect(report.transcript_pruned).toEqual(['hint-uncorr']);
+    expect(JSON.parse(readFileSync(runsJsonlPath(), 'utf8').trim()).tokens).toBeNull();
+  });
+
+  test("hintMode 'correlated' (default): a hint naming the run IS applied", () => {
+    const rec = baseRecord({ run_id: 'hint-corr', runner: 'headless', pipeline: 'demo' });
+    writeRuns([rec]);
+    const dir = join(home, '.claude', 'projects', encodeClaudeProjectDir(projectRoot));
+    mkdirSync(dir, { recursive: true });
+    const transcript = join(dir, 'correlated.jsonl');
+    const mid = new Date((Date.parse(rec.started_at as string) + Date.parse(rec.ended_at)) / 2).toISOString();
+    writeFileSync(
+      transcript,
+      entry(mid, {
+        role: 'assistant',
+        usage: { input_tokens: 7, output_tokens: 2, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        content: [use('t1', 'Read', { file_path: '/x' })],
+      }) +
+        entry(mid, { role: 'user', content: [okResult('t1')] }) +
+        entry(mid, { role: 'assistant', content: [{ type: 'text', text: 'run hint-corr done' }] }),
+      'utf8',
+    );
+    const report = backfillProject(projectRoot, { transcriptHint: transcript });
+    expect(report.enriched).toEqual(['hint-corr']);
+    expect(JSON.parse(readFileSync(runsJsonlPath(), 'utf8').trim()).tokens.input).toBe(7);
   });
 
   test('transcriptHint pointing at a nonexistent file → every candidate reports transcript_pruned', () => {

@@ -151,8 +151,13 @@ describe('stats_relay byte-equivalence (pre-refactor vs refactored)', () => {
     cpSync(template, rootOld, { recursive: true });
     cpSync(template, rootNew, { recursive: true });
 
+    // A real SubagentStop payload names its event — that name is the hook's
+    // correlation guarantee (the pipeline-manager matcher), so the hint applies
+    // unconditionally on this rung. The frozen pre-refactor script ignores the
+    // field entirely, which is exactly what makes the diff meaningful.
     const payloadFor = (root: string) => ({
       session_id: 'sess-1',
+      hook_event_name: 'SubagentStop',
       transcript_path: join(root, 'transcript-home', `${runId}.jsonl`),
       cwd: root,
     });
@@ -182,12 +187,64 @@ describe('stats_relay byte-equivalence (pre-refactor vs refactored)', () => {
 });
 
 describe('stats_relay end-to-end (Stop/SubagentStop, real hook)', () => {
-  test('enriches a tokens:null record from the payload transcript', () => {
+  test('SubagentStop: enriches a tokens:null record from the payload transcript', () => {
     const runId = 'relay-e2e-' + Math.random().toString(36).slice(2);
     const root = buildFixtureTemplate(runId);
     const r = spawnRelay(HOOK_PATH, root, {
       session_id: 'sess-1',
+      hook_event_name: 'SubagentStop',
       transcript_path: join(root, 'transcript-home', `${runId}.jsonl`),
+      cwd: root,
+    });
+    expect(r.status).toBe(0);
+    const rec = JSON.parse(readFileSync(runsJsonlPath(root), 'utf8').trim());
+    expect(rec.tokens).not.toBeNull();
+    expect(rec.tokens.tools_failed).toBe(1);
+  });
+
+  // The Stop rung (T2 of the E1 cascade) fires on EVERY ordinary session close,
+  // where the transcript is the main session's and can span hours of unrelated
+  // work. The hook therefore hands the core `hintMode: 'correlated'`, and these
+  // two tests pin both sides of that gate.
+  test('Stop: an uncorrelated session transcript never enriches the record (no cross-run corruption)', () => {
+    const runId = 'relay-stop-uncorr-' + Math.random().toString(36).slice(2);
+    const root = buildFixtureTemplate(runId);
+    const r = spawnRelay(HOOK_PATH, root, {
+      session_id: 'sess-1',
+      hook_event_name: 'Stop',
+      transcript_path: join(root, 'transcript-home', `${runId}.jsonl`),
+      cwd: root,
+    });
+    expect(r.status).toBe(0);
+    // The fixture transcript never mentions the run_id (it is named after it,
+    // but the CONTENT is what the correlation check reads) — and the manager
+    // locator finds nothing under the fixture's fake home, so the record is
+    // left exactly as it was rather than folded from unrelated usage.
+    const rec = JSON.parse(readFileSync(runsJsonlPath(root), 'utf8').trim());
+    expect(rec.tokens).toBeNull();
+  });
+
+  test('Stop: a transcript that names the run enriches it', () => {
+    const runId = 'relay-stop-corr-' + Math.random().toString(36).slice(2);
+    const root = buildFixtureTemplate(runId);
+    const transcript = join(root, 'transcript-home', `${runId}.jsonl`);
+    // Same transcript, plus one entry that literally names the run — the
+    // content correlation the Stop rung requires (a real session gets this for
+    // free: `/pipeline:run` prints the run id into the conversation).
+    writeFileSync(
+      transcript,
+      readFileSync(transcript, 'utf8') +
+        JSON.stringify({
+          timestamp: new Date(Date.now() - 6 * 60_000).toISOString(),
+          message: { role: 'assistant', content: [{ type: 'text', text: `run ${runId} finished` }] },
+        }) +
+        '\n',
+      'utf8',
+    );
+    const r = spawnRelay(HOOK_PATH, root, {
+      session_id: 'sess-1',
+      hook_event_name: 'Stop',
+      transcript_path: transcript,
       cwd: root,
     });
     expect(r.status).toBe(0);
