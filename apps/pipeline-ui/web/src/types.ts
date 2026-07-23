@@ -377,6 +377,20 @@ export interface StepTiming {
   last_outcome: string | null;
 }
 
+/** One step's slice of the run's transcript fold (/api/run-step-stats). */
+export interface RunStepStats {
+  step_id: string | null;
+  iteration_path: string;
+  rel: string | null;
+  stats: RunStats;
+}
+
+export interface RunStepStatsResponse {
+  run_id: string;
+  transcript_found: boolean;
+  steps: RunStepStats[];
+}
+
 export interface RunStepsResponse {
   run_id: string;
   status: RunStatus | "unknown";

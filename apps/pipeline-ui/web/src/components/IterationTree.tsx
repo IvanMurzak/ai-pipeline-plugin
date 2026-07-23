@@ -14,6 +14,7 @@ import {
 import type { PipelineInfo, RunState, StepTiming } from "../types";
 import { compactNumber, durationMs, iterationLabel, modelLabel, modelPillClass } from "../lib/format";
 import { useNowTick } from "../hooks/useNowTick";
+import { Provisional } from "./Provisional";
 import type { IterationStats, IterationToolStats } from "../lib/runs";
 import { HudCorners } from "./HudFrame";
 
@@ -367,6 +368,10 @@ function StatLine({
 // tools, agents, in/out tokens, cache read/write — mirrors the per-run
 // StatsPanel cards (the chips wrap onto a second line when needed).
 function ToolStatLine({ stats }: { stats: IterationToolStats }) {
+  // `provisional` marks the SOURCE, not the value: these came from the event
+  // fold, which undercounts, so every chip renders through <Provisional>.
+  const N = ({ children }: { children: React.ReactNode }) =>
+    stats.provisional ? <Provisional>{children}</Provisional> : <>{children}</>;
   const hasAny =
     stats.tools_called > 0 ||
     stats.agents_spawned > 0 ||
@@ -380,10 +385,10 @@ function ToolStatLine({ stats }: { stats: IterationToolStats }) {
       {stats.tools_called > 0 && (
         <span
           className="inline-flex items-center gap-1 border border-accent/30 px-1.5 py-px text-accent"
-          title={`Tools called${stats.tools_failed > 0 ? ` (${stats.tools_failed} failed)` : ""}`}
+          title={`Tools called${stats.tools_failed > 0 ? ` (${stats.tools_failed} failed)` : ""}${stats.provisional ? " — provisional (event fold, undercounts)" : ""}`}
         >
           <Wrench size={9} />
-          {compactNumber(stats.tools_called)}
+          <N>{compactNumber(stats.tools_called)}</N>
           {stats.tools_failed > 0 && (
             <span className="text-bad">/{compactNumber(stats.tools_failed)}✗</span>
           )}
@@ -395,7 +400,7 @@ function ToolStatLine({ stats }: { stats: IterationToolStats }) {
           title="Agents spawned"
         >
           <Sparkles size={9} />
-          {compactNumber(stats.agents_spawned)}
+          <N>{compactNumber(stats.agents_spawned)}</N>
         </span>
       )}
       {(stats.input_tokens > 0 || stats.output_tokens > 0) && (
@@ -404,7 +409,7 @@ function ToolStatLine({ stats }: { stats: IterationToolStats }) {
           title="Input / output tokens"
         >
           <Cpu size={9} />
-          {compactNumber(stats.input_tokens)}↓ {compactNumber(stats.output_tokens)}↑
+          <N>{compactNumber(stats.input_tokens)}</N>↓ <N>{compactNumber(stats.output_tokens)}</N>↑
         </span>
       )}
       {(stats.cache_read_tokens > 0 || stats.cache_creation_tokens > 0) && (

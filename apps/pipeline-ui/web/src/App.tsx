@@ -50,6 +50,7 @@ import {
 } from "./lib/runs";
 import type { IterationToolStats } from "./lib/runs";
 import { useProjectState } from "./hooks/useProjectState";
+import { useRunStepStats } from "./hooks/useRunStatsBatch";
 import { useRunStats } from "./hooks/useRunStats";
 import { useSelection } from "./hooks/useSelection";
 import { useReloadOnRestart } from "./lib/sse";
@@ -445,18 +446,47 @@ export function App() {
   // SEQUENTIAL run uses the legacy window. Empty when no run is selected.
   // Computed once per (events, run, pipeline) and threaded down to the tree
   // rather than recomputed per row.
+  // Transcript folds sliced per step — the PREFERRED source (design 07). The
+  // event fold below stays as the marked-provisional fallback for steps the
+  // server has no transcript slice for.
+  const foldedStepStats = useRunStepStats(selectedId, selectedRun?.run_id ?? null, runStatsLive);
+
   const stepToolStats = useMemo(() => {
     if (!state || !selectedRun || !selectedPipeline) {
       return new Map<string, IterationToolStats>();
     }
-    return iterationToolStatsByRel(
+    const eventFold = iterationToolStatsByRel(
       state.events,
       selectedRun.run_id,
       selectedPipeline.pipeline_name,
       selectedPipeline.family_hub?.pipeline_name,
       selectedPipeline.iterations,
     );
-  }, [state, selectedRun, selectedPipeline]);
+    // Prefer the transcript slice per key; a key the fold doesn't cover keeps
+    // its event-derived numbers, flagged `provisional` for the renderer.
+    const merged = new Map<string, IterationToolStats>();
+    for (const [key, evStats] of eventFold) {
+      const tail = key.includes("/") ? key.slice(key.lastIndexOf("/") + 1) : key;
+      const fold = foldedStepStats[key] ?? foldedStepStats[tail];
+      merged.set(
+        key,
+        fold
+          ? {
+              ...evStats,
+              tools_called: fold.tools_called,
+              tools_failed: fold.tools_failed,
+              agents_spawned: fold.agents_spawned,
+              input_tokens: fold.input_tokens,
+              output_tokens: fold.output_tokens,
+              cache_read_tokens: fold.cache_read_tokens,
+              cache_creation_tokens: fold.cache_creation_tokens,
+              provisional: false,
+            }
+          : { ...evStats, provisional: true },
+      );
+    }
+    return merged;
+  }, [state, selectedRun, selectedPipeline, foldedStepStats]);
 
   const selectedStepToolStats = useMemo(() => {
     const rel = selection.selectedStepRel;

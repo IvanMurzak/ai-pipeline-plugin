@@ -10,6 +10,7 @@ import type {
   LaunchCatalogPipeline,
   DriveRunSnapshot,
   RunStepsResponse,
+  RunStepStatsResponse,
   AiFixJob,
 } from "../types";
 
@@ -193,6 +194,32 @@ export async function fetchRunStats(projectId: string, runId: string): Promise<R
     `${base}/api/run-stats?project_id=${encodeURIComponent(projectId)}&run_id=${encodeURIComponent(runId)}`,
   );
   if (!r.ok) throw new Error(`run-stats: ${r.status}`);
+  return r.json();
+}
+
+/** Run-level folds for MANY runs in one request — the list views prefer
+ *  transcript numbers without firing a request per row. */
+export async function fetchRunStatsBatch(
+  projectId: string,
+  runIds: string[],
+): Promise<Record<string, RunStats>> {
+  if (runIds.length === 0) return {};
+  const r = await fetch(
+    `${base}/api/run-stats-batch?project_id=${encodeURIComponent(projectId)}&runs=${encodeURIComponent(runIds.join(","))}`,
+  );
+  if (!r.ok) throw new Error(`run-stats-batch: ${r.status}`);
+  return ((await r.json()) as { stats: Record<string, RunStats> }).stats;
+}
+
+/** The same transcript fold, sliced per step window. */
+export async function fetchRunStepStats(
+  projectId: string,
+  runId: string,
+): Promise<RunStepStatsResponse> {
+  const r = await fetch(
+    `${base}/api/run-step-stats?project_id=${encodeURIComponent(projectId)}&run_id=${encodeURIComponent(runId)}`,
+  );
+  if (!r.ok) throw new Error(`run-step-stats: ${r.status}`);
   return r.json();
 }
 
