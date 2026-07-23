@@ -91,7 +91,7 @@ import {
 } from '../lib/next';
 import { emitEvent } from '../lib/event';
 import { statsAppend, statsEnabled, statsFinalizeRun } from '../lib/stats';
-import { backfillProject } from '../lib/stats-backfill';
+import { backfillProject, findStatsProjectRoot } from '../lib/stats-backfill';
 import { resolveHookScript, runHook, parseHookJson, tail } from '../lib/hooks';
 import {
   executeScriptStep,
@@ -664,23 +664,6 @@ function statsNoteTerminal(root: string, runId: string, action: NextAction): voi
   if (action.action === 'halt') {
     statsFinalizeRun(root, runId, action.status ?? 'halted', action.reason ?? null);
   }
-}
-
-/** Walk up from a pipeline root (`a.root` — e.g. `<project>/.claude/pipeline/
- *  <name>`) to the project root `backfillProject` expects (the ancestor
- *  whose child is `.claude/pipeline`). Mirrors hooks/stats_relay.ts's own
- *  `findProjectRoot`, generalized to start from inside the pipeline tree
- *  rather than an arbitrary cwd. Null when no such ancestor exists (e.g. a
- *  detached/relocated root) — the run-init kick then no-ops. */
-function findStatsProjectRoot(pipelineRoot: string): string | null {
-  let dir = resolve(pipelineRoot);
-  for (let i = 0; i < 16; i++) {
-    if (existsSync(join(dir, '.claude', 'pipeline'))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-  return null;
 }
 
 /** T3 (run-init kick, 01-current-architecture.md §7 Wave 1): a best-effort

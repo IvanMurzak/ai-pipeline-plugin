@@ -22,8 +22,20 @@
  * SAME core every other trigger (this hook, the run-init kick, the daemon
  * sweep, `pipeline stats backfill`) calls through, so every trigger produces
  * bit-identical numbers. This hook's only job: gate, resolve the project
- * root, and pass its own transcript as the known-transcript short-circuit
- * (`transcriptHint`) with its narrower 48h window.
+ * root, and pass its own transcript as `transcriptHint` with its narrower
+ * 48h window — in the mode the firing event justifies:
+ *
+ *  - SubagentStop (matcher: pipeline-manager): the transcript IS a
+ *    pipeline-manager's — the matcher is the correlation guarantee, so the
+ *    hint applies unconditionally (`hintMode: 'always'`), byte-compatible
+ *    with the pre-refactor inline loop. Unbudgeted, like before.
+ *  - Stop (every ordinary session close — INTENDED, rung T2 of the E1
+ *    cascade, not an accident): the transcript is the MAIN session's, which
+ *    can span hours of unrelated runs and chat. The hint therefore applies
+ *    only to records whose run_id literally occurs in it
+ *    (`hintMode: 'correlated'`); everything else falls back to the core's
+ *    correlation-safe locator. Soft-budgeted (STOP_BUDGET_MS) so a session
+ *    close never stalls on a large .stats tree.
  *
  * Gating: PIPELINE_STATS_ENABLED (default ON — set 0/false/off/no to disable;
  * NOTE this is deliberately independent of PIPELINE_UI_ENABLED — stats keep
@@ -40,16 +52,23 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { statsEnabled } from '../apps/pipeline-cli/src/lib/stats';
-import { backfillProject } from '../apps/pipeline-cli/src/lib/stats-backfill';
+import { backfillProject, findStatsProjectRoot } from '../apps/pipeline-cli/src/lib/stats-backfill';
 
 const ENRICH_WINDOW_MS = 48 * 3600 * 1000;
+/** Soft budget for the Stop rung only — an ordinary session close must never
+ *  hang on reconciling a huge .stats tree (the SubagentStop rung stays
+ *  unbudgeted for byte-compat with the pre-refactor relay; the tree it walks
+ *  is the same one, so a pathological tree would have stalled it before this
+ *  refactor too). */
+const STOP_BUDGET_MS = 4000;
 
 interface HookPayload {
   session_id?: string;
   transcript_path?: string;
   cwd?: string;
+  hook_event_name?: string;
 }
 
 function readStdin(): string {
@@ -58,18 +77,6 @@ function readStdin(): string {
   } catch {
     return '';
   }
-}
-
-/** Walk up from `start` to the first dir containing `.claude/pipeline`. */
-function findProjectRoot(start: string): string | null {
-  let dir = start;
-  for (let i = 0; i < 12; i++) {
-    if (existsSync(join(dir, '.claude', 'pipeline'))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-  return null;
 }
 
 function main(): void {
@@ -82,12 +89,23 @@ function main(): void {
   }
   const transcript = payload.transcript_path;
   if (!transcript || !existsSync(transcript)) return;
-  const projectRoot = findProjectRoot(payload.cwd || process.cwd());
+  const projectRoot = findStatsProjectRoot(payload.cwd || process.cwd());
   if (!projectRoot) return;
-  const base = join(projectRoot, '.claude', 'pipeline', '.stats');
-  if (!existsSync(base)) return;
+  if (!existsSync(join(projectRoot, '.claude', 'pipeline', '.stats'))) return;
 
-  backfillProject(projectRoot, { windowMs: ENRICH_WINDOW_MS, transcriptHint: transcript });
+  // SubagentStop's pipeline-manager matcher makes the transcript run-
+  // correlated by provenance → unconditional hint. Anything else (Stop, or a
+  // payload without hook_event_name) gets the content-correlated safe mode.
+  if (payload.hook_event_name === 'SubagentStop') {
+    backfillProject(projectRoot, { windowMs: ENRICH_WINDOW_MS, transcriptHint: transcript, hintMode: 'always' });
+  } else {
+    backfillProject(projectRoot, {
+      windowMs: ENRICH_WINDOW_MS,
+      transcriptHint: transcript,
+      hintMode: 'correlated',
+      budgetMs: STOP_BUDGET_MS,
+    });
+  }
 }
 
 try {
