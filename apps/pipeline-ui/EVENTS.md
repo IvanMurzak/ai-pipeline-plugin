@@ -49,6 +49,7 @@ The daemon parses v1, v2, v3, and v4 events. v1 events lack the `terminal` field
 | `tool.called` | PostToolUse hook after every tool call | `{ tool_name, success, agent_spawn, tool_use_id }` |
 | `turn.usage` | Stop hook (one per assistant Stop event, summed across new transcript turns) | `{ assistant_turns, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens }` |
 | `awaiting_input` | `pipeline drive` at EVERY needs-input park (agent-step question AND approval gate; repeat parks re-emit) | `{ run_id, iteration, question_id, question: { text, context \| null, options \| null, question_id?, approval?: { required_role } }, step_id?, iteration_path? }` |
+| `run.awaiting_input` | Notification hook, when a permission prompt or an input request blocks the session (see the disambiguation below — NOT the same as `awaiting_input`) | `{ kind: "permission" | "input", message_excerpt: string }` |
 
 ### Envelope-level kv overrides on `pipeline event`
 
@@ -207,6 +208,43 @@ Values-only addition — NOT a `SCHEMA_VERSION` bump (same precedent as v4
 `step_id` / 0.69 `resolved_effort` / 0.71 `step_type`): one new event type old
 consumers ignore (the daemon tolerates unknown types) plus one optional `data`
 field. Journals from older emitters parse identically.
+
+### `run.awaiting_input` (observability a2 — new TYPE, schema stays 4)
+
+Emitted by the **Notification hook** (`hooks/analytics_relay.ts`) when Claude
+Code tells us the session is blocked on a human: a permission prompt, or an
+agent asking for input. Adding a new `type` is not a schema bump — same
+precedent as `manager.stopped`; every consumer already ignores unknown types.
+
+**Not the same event as `awaiting_input`.** That one is journalled by
+`pipeline drive` at a headless needs-input PARK and carries the protocol's
+`AwaitingInputData` (run_id, question_id, the question itself) so the control
+plane can mark a dispatched run parked and route an answer back. This one is a
+LOCAL, display-grade signal about the session hosting a manager-driven run —
+it carries no question and nothing can answer it programmatically. Keep them
+distinct: `awaiting_input` = the run is parked and resumable via `--answer`;
+`run.awaiting_input` = a human is sitting in front of a prompt right now.
+
+**No clearing event.** No "the user answered" hook signal exists, so WAITING is
+DERIVED: `run.awaiting_input` raises the flag and ANY later event for the same
+run clears it (resumed activity is the only signal that cannot lie). Both folds
+implement exactly that rule — `web/src/lib/runs.ts` and the server-side
+`RunSummaryFolder` in `lib.ts`. The flag is a DISPLAY state layered over
+`running` (`RunState.awaiting_input`), deliberately kept out of the status
+union so it never interacts with terminal logic, sweeps, or dismissal.
+
+**Classification.** The payload's structured `notification_type` decides when
+present (`permission_prompt` → `permission`, `agent_needs_input` → `input`,
+everything else including `idle_prompt` → no event). It is frequently absent in
+the wild (anthropics/claude-code#11964), so a deliberately narrow regex
+fallback matches permission/waiting/approval phrasings and ignores idle
+"finished responding" notifications. hooks.json registers the hook WITHOUT a
+`notification_type` matcher on purpose — a matcher would silently drop every
+event while that issue is open.
+
+**Gating.** `PIPELINE_AWAITING_INPUT_ENABLED` (default ON), evaluated BEFORE
+the `PIPELINE_UI_ENABLED` opt-out: a blocked run is worth surfacing through
+`pipeline logs` (`⏸` line) even when no dashboard runs.
 
 ### `manager.stopped` (Phase 2 — agent-lifecycle liveness)
 

@@ -620,6 +620,12 @@ export interface RunSummary {
   halt_reason: string | null;
   blocker_issue_url: string | null;
   worktree: string | null;
+  /** DISPLAY state layered over `running` (design 05) — mirror of RunState's
+   *  field in web/src/types.ts. Set by `run.awaiting_input`, cleared by ANY
+   *  later event for the run. Kept OUT of RunSummaryStatus on purpose: it must
+   *  never interact with terminal logic (sweeps, dismissal, completion). */
+  awaiting_input: boolean;
+  awaiting_input_kind: "permission" | "input" | null;
 }
 
 export interface JournalEvent {
@@ -702,11 +708,19 @@ export class RunSummaryFolder {
       this.map.set(id, r);
     }
     r.last_event_at = e.ts;
+    // Derived WAITING (design 05) — same rule as the client fold: the event
+    // raises it, any later event for the run clears it.
+    r.awaiting_input = e.type === "run.awaiting_input";
+    if (!r.awaiting_input) r.awaiting_input_kind = null;
     if (e.parent_run_id && !r.parent_run_id) r.parent_run_id = e.parent_run_id;
     if (e.worktree && !r.worktree) r.worktree = e.worktree;
     const d = e.data ?? {};
 
     switch (e.type) {
+      case "run.awaiting_input":
+        // Display-only: status untouched, terminal logic untouched.
+        r.awaiting_input_kind = d.kind === "permission" ? "permission" : "input";
+        break;
       case "pipeline.started":
         r.pipeline_name = (d.pipeline_name as string) ?? r.pipeline_name;
         setSummaryStatus(r, "running");
@@ -835,6 +849,8 @@ function initSummary(id: string, ts: string): MutableSummary {
     halt_reason: null,
     blocker_issue_url: null,
     worktree: null,
+    awaiting_input: false,
+    awaiting_input_kind: null,
     _completedPaths: new Set<string>(),
     _terminalReached: false,
     _dismissed: false,

@@ -105,6 +105,16 @@ function pipelineUiEnabled(): boolean {
   return v !== "0" && v !== "false" && v !== "no" && v !== "off";
 }
 
+/** Awaiting-input opt-out switch (PIPELINE_AWAITING_INPUT_ENABLED, default ON).
+ *  Deliberately INDEPENDENT of PIPELINE_UI_ENABLED (D2): a `run.awaiting_input`
+ *  event has daemon-free value — `pipeline logs` shows the ⏸ line whether or not
+ *  the dashboard runs — so a user who opted out of the UI still learns that a run
+ *  is blocked on a permission prompt. Same falsy parse as the switches above. */
+function awaitingInputEnabled(): boolean {
+  const v = (process.env.PIPELINE_AWAITING_INPUT_ENABLED ?? "").trim().toLowerCase();
+  return v !== "0" && v !== "false" && v !== "no" && v !== "off";
+}
+
 /** Transcript opt-out switch (PIPELINE_UI_TRANSCRIPTS, default ON) — gates
  *  ONLY the privacy-sensitive transcript work this hook does: the Stop-handler
  *  token tail (which OPENS + reads the session transcript to sum tokens) and
@@ -1582,14 +1592,83 @@ function handleSubagentStop(payload: Record<string, unknown>, projectRoot: strin
 }
 
 // --------------------------------------------------------------------
+// Notification → run.awaiting_input (design 05)
+// --------------------------------------------------------------------
+
+/** Ported from CCAM's `WAITING_INPUT_PATTERN` (`server/routes/hooks.js`,
+ *  `isWaitingForUserMessage`) and kept deliberately NARROW: it must match the
+ *  permission / needs-input phrasings and must NOT match the idle "Claude has
+ *  finished responding"-style notifications, which are not a blocked run. */
+const WAITING_INPUT_PATTERN =
+  /(needs? your permission|permission to use|waiting for your input|is waiting for input|approval needed|needs? your approval|awaiting your (input|response|approval))/i;
+
+/** `permission` when the text is about granting/approving something, else
+ *  `input` — the two kinds the event contract carries. */
+function awaitingKindFor(message: string): "permission" | "input" {
+  return /permission|approval|approve/i.test(message) ? "permission" : "input";
+}
+
+/**
+ * Classify a Notification payload into an awaiting-input kind, or null when the
+ * notification does not mean "this run is blocked on a human".
+ *
+ * The structured `notification_type` field is the PRIMARY discriminator when
+ * present, but it is frequently absent in the wild (anthropics/claude-code#11964)
+ * — hence the regex fallback, and hence the deliberate absence of a hook-level
+ * `notification_type` matcher in hooks.json, which would silently drop every
+ * event while that issue is open.
+ */
+function classifyNotification(payload: Record<string, unknown>): "permission" | "input" | null {
+  const type = String(payload.notification_type ?? "").trim().toLowerCase();
+  if (type) {
+    if (type === "permission_prompt") return "permission";
+    if (type === "agent_needs_input") return "input";
+    return null; // idle_prompt and everything else: not a blocked run
+  }
+  const message = String(payload.message ?? "");
+  if (!message || !WAITING_INPUT_PATTERN.test(message)) return null;
+  return awaitingKindFor(message);
+}
+
+const AWAITING_EXCERPT_MAX = 200;
+
+/**
+ * Emit `run.awaiting_input` for a notification that means a human is blocking
+ * the run. No clearing event exists (no "resumed" hook signal does), so the
+ * WAITING state is DERIVED downstream: any later event for the same run clears
+ * it. An unresolvable run id is not a reason to drop the event — it still shows
+ * in the ambient stream, it just cannot mark a run.
+ */
+function handleNotification(
+  payload: Record<string, unknown>,
+  projectRoot: string,
+  worktree: string | null,
+): void {
+  const kind = classifyNotification(payload);
+  if (kind === null) {
+    log(`notification not an input wait: ${String(payload.notification_type ?? payload.message ?? "")}`);
+    return;
+  }
+  const sessionId = String(payload.session_id ?? "") || null;
+  const runId = resolveRunIdFromEnvOrSession(sessionId, projectRoot);
+  appendEvent(
+    projectRoot,
+    worktree,
+    "run.awaiting_input",
+    { kind, message_excerpt: String(payload.message ?? "").slice(0, AWAITING_EXCERPT_MAX) },
+    { runId, parentRunId: null, sessionId },
+  );
+}
+
+// --------------------------------------------------------------------
 // Main
 // --------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  if (!pipelineUiEnabled()) {
-    log("PIPELINE_UI_ENABLED explicitly opted out (0/false/no/off) — no-op");
-    return;
-  }
+  // Gate ORDER is load-bearing. The payload read and the cwd/pipeline gate are
+  // hoisted above the PIPELINE_UI_ENABLED early-return so the Notification
+  // branch can run with the UI opted out (D2) — every other branch keeps its
+  // previous behavior because the early-return still fires before them.
   const cwd = process.cwd();
   // Resolve the project root FIRST (this also maps a git worktree to its
   // MAIN repo + records the worktree tag), then gate by walking up from
@@ -1609,6 +1688,21 @@ async function main(): Promise<void> {
 
   const payload = (await readStdinJson()) ?? {};
   const eventName = String(payload.hook_event_name ?? payload.event ?? "").trim();
+
+  // BEFORE the UI gate — see the ordering note at the top of main().
+  if (eventName === "Notification") {
+    if (!awaitingInputEnabled()) {
+      log("PIPELINE_AWAITING_INPUT_ENABLED explicitly opted out — no-op");
+      return;
+    }
+    handleNotification(payload, project_root, worktree);
+    return;
+  }
+
+  if (!pipelineUiEnabled()) {
+    log("PIPELINE_UI_ENABLED explicitly opted out (0/false/no/off) — no-op");
+    return;
+  }
 
   if (eventName === "PreToolUse") {
     handlePreToolUse(payload, project_root, worktree);
@@ -1631,6 +1725,9 @@ async function main(): Promise<void> {
 
 // Exported for tests; the hook itself imports nothing from this module.
 export {
+  handleNotification,
+  classifyNotification,
+  awaitingInputEnabled,
   handlePostToolUse,
   handlePreToolUse,
   handleStop,

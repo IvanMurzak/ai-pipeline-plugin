@@ -16,6 +16,9 @@ interface MutableRun {
   worktree: string | null;
   default_model: ModelValue | null;
   current_resolved_model: ModelValue | null;
+  /** Derived WAITING (design 05) — see RunState in ../types. */
+  awaiting_input: boolean;
+  awaiting_input_kind: "permission" | "input" | null;
   stats: RunStats;
   /** Iteration paths we've already counted as `outcome: "completed"`. Keeps
    *  iteration_count_completed accurate when (a) the same path emits a
@@ -83,6 +86,8 @@ function newRun(run_id: string, ts: string): MutableRun {
     worktree: null,
     default_model: null,
     current_resolved_model: null,
+    awaiting_input: false,
+    awaiting_input_kind: null,
     stats: emptyStats(),
     _completedPaths: new Set<string>(),
     _terminalReached: false,
@@ -117,6 +122,11 @@ export function buildRunForest(events: PipelineEvent[]): RunState[] {
       map.set(id, r);
     }
     r.last_event_at = e.ts;
+    // Derived WAITING (design 05): `run.awaiting_input` raises the flag and ANY
+    // other event for the same run clears it — resumed activity is the only
+    // signal that cannot lie, since no "the user answered" hook exists.
+    r.awaiting_input = e.type === "run.awaiting_input";
+    if (!r.awaiting_input) r.awaiting_input_kind = null;
     if (e.parent_run_id && !r.parent_run_id) r.parent_run_id = e.parent_run_id;
     if (e.worktree && !r.worktree) r.worktree = e.worktree;
     const d = e.data ?? {};
@@ -154,6 +164,11 @@ export function buildRunForest(events: PipelineEvent[]): RunState[] {
           if (v) r.current_resolved_model = v;
         }
         setStatus(r, "running");
+        break;
+      case "run.awaiting_input":
+        // Display-only: status is deliberately untouched (the run is still
+        // whatever it was — usually `running` — just blocked on a human).
+        r.awaiting_input_kind = d.kind === "permission" ? "permission" : "input";
         break;
       case "iteration.completed": {
         // Only count outcome:"completed" — halted and blocked-delegating

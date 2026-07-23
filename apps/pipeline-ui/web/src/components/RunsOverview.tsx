@@ -78,7 +78,7 @@ export function RunsOverview({ projectId, runs, driveRunsById, onSelect, onStop,
                   {r.pipeline_name ?? r.run_id.slice(0, 10)}
                 </button>
                 <span className="flex shrink-0 items-center gap-1.5">
-                  <StatusBadge status={parked ? "polling-blocker" : r.status} />
+                  <StatusBadge status={parked ? "polling-blocker" : r.status} awaiting={!parked && r.awaiting_input} />
                   {onStop && (
                     <button
                       type="button"

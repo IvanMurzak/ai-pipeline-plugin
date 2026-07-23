@@ -21,7 +21,8 @@ export type EventType =
   | "worktree.finalized"
   | "worktree.destroyed"
   | "tool.called"
-  | "turn.usage";
+  | "turn.usage"
+  | "run.awaiting_input";
 
 export interface PipelineEvent {
   schema: number;
@@ -245,6 +246,15 @@ export interface RunState {
    *  iteration.started.data.resolved_model (event schema v3+). null when
    *  absent. May be an alias OR a canonical `claude-*` id. */
   current_resolved_model: ModelValue | null;
+  /** DISPLAY state layered over `running` (design 05): the run emitted
+   *  `run.awaiting_input` and nothing has happened since, i.e. a permission
+   *  prompt or an input request is blocking it. Derived, not reported — any
+   *  later event for the run clears it, because no "resumed" hook signal
+   *  exists. Deliberately NOT a RunStatus member: it must never interact with
+   *  terminal logic (sweeps, dismissal, completion). */
+  awaiting_input: boolean;
+  /** What the run is waiting for, when awaiting_input is true. */
+  awaiting_input_kind: "permission" | "input" | null;
   stats: RunStats;
   children: RunState[];
 }
@@ -265,6 +275,11 @@ export interface RunSummary {
   halt_reason: string | null;
   blocker_issue_url: string | null;
   worktree: string | null;
+  /** Derived WAITING (design 05) — the server fold carries it too, so a run
+   *  the live event window has not reached still renders its badge. Optional
+   *  on the wire: an older daemon omits the field entirely. */
+  awaiting_input?: boolean;
+  awaiting_input_kind?: "permission" | "input" | null;
 }
 
 // --- Run launcher (/api/pipelines, /api/runs/launch, /api/drive-runs) ---

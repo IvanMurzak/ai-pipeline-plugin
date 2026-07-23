@@ -98,7 +98,7 @@ export function RunCard({ run, pipelines, selected, resumable, onStop, onSelect,
             )}
           </div>
         </div>
-        <StatusBadge status={run.status} />
+        <StatusBadge status={run.status} awaiting={run.awaiting_input} />
       </div>
 
       <div className="px-4 pb-3">
@@ -133,7 +133,7 @@ export function RunCard({ run, pipelines, selected, resumable, onStop, onSelect,
                 className="flex items-center justify-between gap-2 border border-line/40 bg-canvas/40 px-2 py-1.5 text-[11px]"
               >
                 <span className="truncate text-ink">{c.pipeline_name ?? c.run_id.slice(0, 8)}</span>
-                <StatusBadge status={c.status} />
+                <StatusBadge status={c.status} awaiting={c.awaiting_input} />
               </li>
             ))}
           </ul>
