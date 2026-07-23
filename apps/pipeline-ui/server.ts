@@ -403,8 +403,11 @@ function computeRunStepStats(entry: ProjectEntry, runId: string): RunStepStatsRe
     return cached.data;
   }
   const { transcriptPath, terminal } = resolveRunTranscript(entry, runId);
-  const events = readJournalWithArchives(journalPath(entry)).filter((e) => e.run_id === runId);
-  const timings = stepTimingsForRun(events);
+  // Reuse computeRunSteps rather than re-deriving the windows: it already
+  // streams the shards one at a time (bounded memory, no full-journal array),
+  // short-circuits on an unchanged journal signature, and is cached — and
+  // sharing it keeps the two endpoints from drifting apart.
+  const timings = computeRunSteps(entry, runId).steps;
 
   const steps: RunStepStats[] = timings.map((t) => {
     // Window: the step's first start → its last close. `open_since` means the

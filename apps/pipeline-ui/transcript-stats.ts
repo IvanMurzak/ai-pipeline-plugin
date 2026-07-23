@@ -899,9 +899,9 @@ function isActivityEntry(e: Record<string, unknown>): boolean {
 export function detectPendingInterrupt(
   transcriptPath: string,
   windowStartIso: string | null,
-  homeOverride?: string,
 ): InterruptProbe {
-  void homeOverride; // path is already absolute; parameter kept for call-site symmetry
+  // No homeOverride seam here, unlike its neighbours: this takes the resolved
+  // ABSOLUTE transcript path, so there is no home to redirect.
   const miss: InterruptProbe = { interrupted: false, interrupt_ts: null };
   let st;
   try {

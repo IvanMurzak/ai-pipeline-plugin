@@ -57,6 +57,23 @@ function readEvents(root: string): Record<string, unknown>[] {
     .map((l) => JSON.parse(l) as Record<string, unknown>);
 }
 
+/** Spawn the hook and keep stderr — with debug on, the gate that stopped it
+ *  names itself, which is how the ordering tests observe how far it got. */
+function spawnHookVerbose(
+  root: string,
+  env: Record<string, string | undefined>,
+  payload: Record<string, unknown>,
+): { status: number | null; stderr: string } {
+  const r = spawnSync(process.execPath, [HOOK_PATH], {
+    cwd: root,
+    env: { ...process.env, PIPELINE_UI_DEBUG: "1", ...env },
+    input: JSON.stringify(payload),
+    encoding: "utf-8",
+    timeout: 30_000,
+  });
+  return { status: r.status, stderr: r.stderr ?? "" };
+}
+
 describe("classifyNotification", () => {
   test("structured notification_type is the primary discriminator", () => {
     expect(classifyNotification({ notification_type: "permission_prompt" })).toBe("permission");
@@ -179,5 +196,54 @@ describe("gate ordering (the load-bearing case)", () => {
     const bare = mkdtempSync(join(tmpRoot, "bare-"));
     expect(spawnHook(bare, {})).toBe(0);
     expect(existsSync(journalPath(bare))).toBe(false);
+  });
+});
+
+/**
+ * The ordering has a SECOND requirement, easy to lose: the Notification branch
+ * needs the payload before the UI gate, but the FILESYSTEM work must stay
+ * behind it. `pipelineUiEnabled()` promises an opt-out costs ~zero per call,
+ * and this hook runs twice per tool call — so an opted-out user must never pay
+ * `resolveProjectRoot` + `hasPipelineDirUpTo`.
+ *
+ * Observable proof: with debug on, the gate that stopped the hook names itself.
+ * Seeing the opt-out line WITHOUT the "no .claude/pipeline from …" line means
+ * the walk was never reached.
+ */
+describe("gate ordering — the opt-out short-circuit stays cheap", () => {
+  const toolPayload = {
+    hook_event_name: "PostToolUse",
+    tool_name: "Bash",
+    tool_response: {},
+    session_id: "sess-cheap",
+  };
+
+  test("UI opted out ⇒ a tool event returns BEFORE any filesystem walk", () => {
+    const bare = mkdtempSync(join(tmpRoot, "cheap-"));
+    const r = spawnHookVerbose(bare, { PIPELINE_UI_ENABLED: "0" }, toolPayload);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("PIPELINE_UI_ENABLED explicitly opted out");
+    // The cwd gate logs this line whenever it runs and finds nothing. Its
+    // absence is the assertion: the walk never happened.
+    expect(r.stderr).not.toContain("no .claude/pipeline from");
+  });
+
+  test("UI enabled ⇒ the same event DOES reach the cwd gate", () => {
+    const bare = mkdtempSync(join(tmpRoot, "cheap-on-"));
+    const r = spawnHookVerbose(bare, { PIPELINE_UI_ENABLED: "1" }, toolPayload);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("no .claude/pipeline from");
+  });
+
+  test("a Notification still reaches the walk with the UI opted out", () => {
+    const root = makeProject();
+    const r = spawnHookVerbose(
+      root,
+      { PIPELINE_UI_ENABLED: "0" },
+      { hook_event_name: "Notification", message: "Claude needs your permission to use Bash" },
+    );
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain("PIPELINE_UI_ENABLED explicitly opted out");
+    expect(readEvents(root)).toHaveLength(1);
   });
 });
