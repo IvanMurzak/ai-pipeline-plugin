@@ -374,8 +374,12 @@ pipeline ci-wait --json                   # no selector = the repo's default bra
 
 Every pipeline run is measured by **pure software — no AI agent, zero LLM tokens**. It is ON by
 default (`PIPELINE_STATS_ENABLED=0` disables). The `pipeline next` engine appends a timeline as the
-run progresses and finalizes it at the terminal action; a `SubagentStop` hook later fills in token
-counts folded from the raw manager + subagent transcripts (the only complete token source). You get
+run progresses and finalizes it at the terminal action; token counts are then folded in from the raw
+manager + subagent transcripts (the only complete token source) by whichever rung gets there first —
+the `Stop`/`SubagentStop` relay, the next run's init, the dashboard daemon's periodic sweep, or
+`pipeline stats backfill` on demand. All four call one shared core, so the numbers are identical
+whichever one fills them in, and a run whose enrichment was missed is reconciled later instead of
+staying blank forever. You get
 simple text files to review whenever you like:
 
 ```
@@ -644,7 +648,7 @@ Flags: `-f`/`--follow` to stream live, `--tail <n>` (default 20) for the initial
 While it is **unset** (the default), or set to any non-falsy value, the system is on:
 
 - the `SessionStart` hook launches/registers the daemon and writes `session.opened`,
-- the analytics hooks (`PreToolUse`/`PostToolUse`/`SubagentStop`/`Stop`) emit events and mirror bindings,
+- the analytics hooks (`PreToolUse`/`PostToolUse`/`SubagentStop`/`Stop`) emit events and mirror bindings (the `Notification` hook is separate — it keeps its own `PIPELINE_AWAITING_INPUT_ENABLED` switch and still reports a blocked run when the UI is opted out),
 - `/pipeline:ui` starts the dashboard and prints its URL.
 
 When you opt out (`0`/`false`/`no`/`off`): the `SessionStart` hook does not launch/register the daemon or write `session.opened`, the analytics hooks emit nothing and do no filesystem work, and `/pipeline:ui` prints that it was opted out (with how to re-enable) instead of starting the dashboard. Either way your pipelines run identically — the variable only controls the observability layer. You can also set it in your shell or OS environment before launching Claude Code. Because the hook *registrations* live in the plugin, Claude Code still launches each hook's (instantly-exiting) process even when opted out; to remove even that, disable the plugin. Your core run lifecycle is always journaled by `/pipeline:run`, so `pipeline logs` works as a lightweight terminal view regardless of this setting.
@@ -702,6 +706,8 @@ Everything the plugin reads from the environment, in one place. Set the per-proj
 | `PIPELINE_UI_ENABLED` | **on** | Master opt-OUT for the whole UI/analytics system (dashboard daemon + analytics hooks). Enabled unless explicitly set to a falsy value; `0`/`false`/`no`/`off` disables, unset/empty/any other value enables. Does NOT affect the `PIPELINE_UI_HOST`/`PIPELINE_UI_TOKEN` binding security. |
 | `PIPELINE_UI_TRANSCRIPTS` | **on** | Opt-OUT for **only** the transcript mirroring/fold: the chat-panel message mirror, the transcript-folded per-run token/tool analytics, and the `Stop` hook's token tail. `0`/`false`/`no`/`off` disables just that; the UI + basic lifecycle events keep working (the dashboard degrades gracefully). Orthogonal to `PIPELINE_UI_ENABLED`, `PIPELINE_STATS_ENABLED`, and the host/token binding. Snapshotted at daemon boot. |
 | `PIPELINE_STATS_ENABLED` | **on** | Per-run measurement files under `.claude/pipeline/.stats/` (durations, per-step timings, outcomes, tokens, tool failures — see "Measuring every run" above). Set `0`/`false`/`no`/`off` to disable. Independent of `PIPELINE_UI_ENABLED` and `PIPELINE_UI_TRANSCRIPTS`. |
+| `PIPELINE_AWAITING_INPUT_ENABLED` | **on** | The `Notification` hook that journals `run.awaiting_input` when a permission prompt or an input request blocks the session — the WAITING badge in the dashboard and the `⏸` line in `pipeline logs`. Deliberately INDEPENDENT of `PIPELINE_UI_ENABLED`: a blocked run is worth surfacing even with no dashboard running. `0`/`false`/`no`/`off` disables. |
+| `PIPELINE_UI_WATCHDOG_ENABLED` | **on** | The daemon's interrupt watchdog: a run whose session you interrupted with Esc fires no hook at all, so after 30 s of silence the daemon reads the transcript and, if the interrupt is still the last thing that happened, retires the run instead of leaving it "running" forever. `0`/`false`/`no`/`off` disables. Requires `PIPELINE_UI_TRANSCRIPTS` (there is nothing to read without it). Snapshotted at daemon boot. |
 | `PIPELINE_PROMPT_MATCH_ENABLED` | off | Opt-in for the `UserPromptSubmit` pipeline-match hook (section above). Same non-falsy semantics. |
 | `PIPELINE_UI_IDLE_MINUTES` | `60` | Minutes of inactivity before the dashboard daemon auto-exits. |
 | `PIPELINE_UI_HOST` | `127.0.0.1` | Daemon bind address. Any non-loopback value (e.g. `0.0.0.0` for phone access) REQUIRES `PIPELINE_UI_TOKEN` — otherwise the daemon falls back to loopback with a warning. |

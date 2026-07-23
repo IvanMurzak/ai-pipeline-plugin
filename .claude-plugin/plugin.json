@@ -1,6 +1,6 @@
 {
   "name": "pipeline",
-  "version": "0.76.0",
+  "version": "0.77.0",
   "description": "Design, run, and self-improve deterministic long-chain AI workflows as ordered iteration files under .claude/pipeline/. The CLI orchestrates steps in fresh contexts; two-tier self-improvement (between-step improver + end-of-run retrospective) feeds execution-discovered knowledge back into pipeline docs. Built for repeatable workflows: releases, audits, testing, templates. Optional: parallel/DAG execution, graphs with routing, external worktrees, per-step model pinning, headless runner with crash-resume, and live dashboard.",
   "author": {
     "name": "IvanMurzak"
