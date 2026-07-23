@@ -37,6 +37,7 @@ import {
   streamJournalLines,
   summarizeRuns,
   summarizeRunsFromShards,
+  toEpochOrNull,
   pipelineUiTranscriptsEnabled,
   type JournalEvent,
   type PipelineInfo,
@@ -72,10 +73,13 @@ import {
   handleEditorValidate,
 } from "./editor.ts";
 import { handleTranscribe, handleTranscribeStatus } from "./transcribe.ts";
+import { backfillProject } from "../pipeline-cli/src/lib/stats-backfill";
+import { findRunsFiles, parseRunRecords } from "../pipeline-cli/src/lib/stats";
 import { handleStartAiFix, handleGetAiFixJob } from "./aifix.ts";
 import {
   collectRunBreakdown,
   collectRunToolFailures,
+  detectPendingInterrupt,
   findTranscriptByRunId,
   foldRunStatsFromTranscript,
   indexRunTranscripts,
@@ -470,6 +474,18 @@ const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
 // — the UI + basic lifecycle events keep working. Orthogonal to
 // PIPELINE_UI_ENABLED (the master switch) and PIPELINE_STATS_ENABLED.
 const TRANSCRIPTS_ENABLED = pipelineUiTranscriptsEnabled(process.env);
+// Interrupt watchdog (design 06, edge case E5): an Esc fires no hook, so a run
+// whose terminal session stays alive renders `running` forever — the pid
+// lockfile is healthy and no manager.stopped ever arrives. Default ON; same
+// boot-snapshot posture as every other daemon knob. Off ⇒ the sweep is never
+// called and no transcript tail is read for it.
+const WATCHDOG_ENABLED = (() => {
+  const v = (process.env.PIPELINE_UI_WATCHDOG_ENABLED ?? "").trim().toLowerCase();
+  return v !== "0" && v !== "false" && v !== "no" && v !== "off";
+})();
+/** A run must have been silent this long before we tail its transcript — an
+ *  actively-emitting run never pays the scan. */
+const WATCHDOG_QUIET_MS = 30_000;
 // Host + token come from PIPELINE_UI_HOST / PIPELINE_UI_TOKEN. Default stays
 // loopback-only; a wider bind (phone access) REQUIRES a token — the UI can
 // launch runs and edit pipelines, so exposing it unauthenticated would hand
@@ -1241,6 +1257,8 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       // fallback — both emit pipeline.halted for an abandoned run.
       sweepManagerStoppedRuns(entry);
       sweepProjectLiveness(entry);
+      // Third trigger: a user-pressed Esc, which fires no hook at all.
+      sweepInterruptedRuns(entry);
       // Fold archives too — `events-<stamp>.jsonl` files produced by the
       // 50 MB rotation. Without this, the endpoint would silently truncate
       // history at every rotation boundary, defeating its purpose.
@@ -2129,6 +2147,122 @@ function sweepManagerStoppedRuns(entry: ProjectEntry): void {
       ctx.worktree ?? entry.worktree ?? null,
     );
     terminal.add(rid);
+  }
+}
+
+/**
+ * Third abandonment trigger (design 06, edge case E5): a user-pressed Esc.
+ *
+ * Esc fires NO hook. If the terminal session process stays alive, the `.alive`
+ * lockfile still names a live pid and `manager.stopped` never arrives — so
+ * neither existing sweep retires the run and it renders `running` forever. The
+ * transcript is the only durable evidence, so a run that has been SILENT for
+ * WATCHDOG_QUIET_MS gets its transcript tail probed; a pending interrupt (an
+ * Esc nothing has happened after) synthesizes the same abandonment
+ * `pipeline.halted` the other two sweeps emit, which flips the run terminal
+ * through the existing fold + isActive machinery.
+ *
+ * Deliberately conservative — a false positive retires a run that is still
+ * working, which is worse than missing one:
+ *   • runs already terminal are excluded upstream (and the synthetic halt makes
+ *     a swept run terminal, so this is idempotent);
+ *   • a run with no resolvable transcript is skipped entirely (the existing 15 s
+ *     negative cache paces those retries);
+ *   • the pending test compares transcript timestamps only, never daemon
+ *     wall-clock, so clock skew between the writing machine and this daemon
+ *     cannot manufacture an interrupt.
+ *
+ * Not detected (accepted): an Esc BEFORE any model output in the run's window
+ * leaves no marker. The 60 s pid sweep and manager.stopped still cover hard
+ * deaths; importing an idle-timeout heuristic here would false-positive on long
+ * thinking phases.
+ */
+/** Soft budget for one project's backfill pass on the 60 s timer. The sweep is
+ *  a background courtesy — it must never make the daemon unresponsive. */
+const BACKFILL_SWEEP_BUDGET_MS = 3000;
+
+/**
+ * Recovery rung T4 (design 04): the periodic backfill sweep.
+ *
+ * Token/tool enrichment normally lands from the Stop/SubagentStop relay, but a
+ * run can miss it for entirely ordinary reasons — the session was killed before
+ * Stop fired, the machine slept, stats were opted out at the time. This calls
+ * the SAME shared `backfillProject` core every other trigger uses, so all four
+ * rungs produce bit-identical numbers.
+ *
+ * Cheap pre-scan first: reading the project's runs.jsonl files and looking for
+ * a single `tokens: null` record is orders of magnitude cheaper than the
+ * transcript folds, and the overwhelming majority of projects are already
+ * clean, so they cost one small read per minute and nothing else.
+ */
+function sweepStatsBackfill(entry: ProjectEntry): void {
+  const statsDir = join(entry.project_root, ".claude", "pipeline", ".stats");
+  if (!existsSync(statsDir)) return;
+
+  let hasPending = false;
+  try {
+    for (const runsFile of findRunsFiles(statsDir)) {
+      let text: string;
+      try {
+        text = readFileSync(runsFile, "utf-8");
+      } catch {
+        continue;
+      }
+      // Cheap textual pre-filter before the JSON parse: a file with no
+      // `"tokens":null` substring cannot hold an unenriched record.
+      if (!text.includes('"tokens":null') && !text.includes('"tokens": null')) continue;
+      if (parseRunRecords(text).some((r) => r.tokens === null)) {
+        hasPending = true;
+        break;
+      }
+    }
+  } catch {
+    return; // never let a stats hiccup disturb the daemon
+  }
+  if (!hasPending) return;
+
+  try {
+    const report = backfillProject(entry.project_root, { budgetMs: BACKFILL_SWEEP_BUDGET_MS });
+    if (report.enriched.length > 0) {
+      log(`stats backfill sweep: enriched ${report.enriched.length} run(s) in ${entry.project_root}`);
+    }
+  } catch (e) {
+    log(`stats backfill sweep failed for ${entry.project_root}: ${e}`);
+  }
+}
+
+function sweepInterruptedRuns(entry: ProjectEntry): void {
+  if (!WATCHDOG_ENABLED) return;
+  // The probe reads transcripts; with transcripts opted out there is nothing
+  // to read and the watchdog is inert by construction.
+  if (!TRANSCRIPTS_ENABLED) return;
+
+  const now = Date.now();
+  for (const summary of allRunSummaries(entry)) {
+    if (summary.status === "completed" || summary.status === "halted") continue;
+    const lastEvent = toEpochOrNull(summary.last_event_at);
+    if (lastEvent === null || now - lastEvent < WATCHDOG_QUIET_MS) continue; // still chatty
+
+    const { transcriptPath, startIso } = resolveRunTranscript(entry, summary.run_id);
+    if (!transcriptPath) continue; // unresolved — the negative cache paces retries
+
+    const probe = detectPendingInterrupt(transcriptPath, startIso);
+    if (!probe.interrupted) continue;
+
+    log(`watchdog: run ${summary.run_id} interrupted by user with no terminal event → marking abandoned`);
+    emitJournalEvent(
+      entry.project_root,
+      summary.run_id,
+      "pipeline.halted",
+      {
+        pipeline_name: summary.pipeline_name,
+        iteration_path: summary.current_iteration_path,
+        halt_reason: "interrupted by user (Esc) — no terminal event",
+        abandoned: true,
+        interrupt_ts: probe.interrupt_ts,
+      },
+      summary.worktree ?? entry.worktree ?? null,
+    );
   }
 }
 
@@ -3382,6 +3516,20 @@ async function bootDaemon(): Promise<void> {
   // don't linger as "active". Deferred + best-effort so it never delays serving.
   setTimeout(() => reconcileDeadChatRunsAtBoot(), 1000);
 
+  // First backfill pass at boot rather than 60 s in: a daemon usually starts
+  // right after the session that produced the unenriched records, so this is
+  // the moment the numbers are most likely missing and most likely wanted.
+  // Deferred + best-effort, same posture as the reconcile above.
+  setTimeout(() => {
+    for (const e of Object.values(registry)) {
+      try {
+        sweepStatsBackfill(e);
+      } catch {
+        // never let a stats hiccup disturb boot
+      }
+    }
+  }, 1500);
+
   // Dead-run liveness backstop: /api/runs sweeps the requested project on the
   // hot path, but a project whose dashboard nobody is watching still needs its
   // crashed runs retired. Sweep every project with a runs/ lockfile dir every
@@ -3390,6 +3538,13 @@ async function bootDaemon(): Promise<void> {
     for (const e of Object.values(registry)) {
       sweepManagerStoppedRuns(e);
       sweepProjectLiveness(e);
+      sweepInterruptedRuns(e);
+      // Recovery rung T4 (design 04): the same shared backfill core the hook,
+      // the run-init kick and `pipeline stats backfill` call, on a timer — so
+      // a run whose enrichment never landed (no Stop ever fired in that
+      // session, the machine slept, the hook was opted out at the time) is
+      // reconciled without the user doing anything.
+      sweepStatsBackfill(e);
     }
   }, 60_000);
 

@@ -799,3 +799,165 @@ export function indexRunTranscripts(
   }
   return out;
 }
+
+// --------------------------------------------------------------------
+// Interrupt detection (design 06, edge case E5)
+//
+// An Esc-interrupt fires NO hook. If the terminal session process stays alive,
+// the `.alive` pid keeps looking healthy and `manager.stopped` never arrives —
+// so neither existing sweep retires the run and it renders `running` forever.
+// The transcript is the only durable evidence, so we read it.
+// --------------------------------------------------------------------
+
+export interface InterruptProbe {
+  /** True when the newest interrupt is at-or-after the newest run activity. */
+  interrupted: boolean;
+  /** Timestamp of that interrupt (transcript clock), null when not pending. */
+  interrupt_ts: string | null;
+}
+
+/** Dual signal, for format-drift tolerance: the user-visible marker text OR the
+ *  structured field. Either alone is enough — a producer that drops one keeps
+ *  the detector working. */
+const INTERRUPT_MARKER = /\[Request interrupted by user/i;
+
+interface InterruptMemoEntry {
+  size: number;
+  mtimeMs: number;
+  probe: InterruptProbe;
+  windowStartIso: string | null;
+}
+
+/** Same stat-keyed memo idiom as `occurrenceMemo`: the 60 s sweep re-reads only
+ *  files that actually grew. Keyed by path; invalidated by size/mtime drift or
+ *  a different window. */
+const interruptMemo = new Map<string, InterruptMemoEntry>();
+const INTERRUPT_MEMO_MAX = 2000;
+
+/** Collect a transcript entry's timestamp when it is in window. */
+function entryTsInWindow(e: Record<string, unknown>, start: number | null): number | null {
+  const raw = typeof e.timestamp === "string" ? e.timestamp : "";
+  const ts = raw ? Date.parse(raw) : NaN;
+  if (!Number.isFinite(ts)) return null;
+  if (start !== null && ts < start - WINDOW_SLACK_MS) return null;
+  return ts;
+}
+
+/** True when this entry is an interrupt marker (either signal). */
+function isInterruptEntry(e: Record<string, unknown>): boolean {
+  if (e.interruptedMessageId !== undefined && e.interruptedMessageId !== null) return true;
+  const type = typeof e.type === "string" ? e.type : "";
+  const message = e.message as Record<string, unknown> | undefined;
+  const role = message && typeof message.role === "string" ? message.role : type;
+  if (role !== "user") return false;
+  const content = message?.content;
+  if (typeof content === "string") return INTERRUPT_MARKER.test(content);
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (typeof block === "string" && INTERRUPT_MARKER.test(block)) return true;
+      if (block && typeof block === "object") {
+        const b = block as Record<string, unknown>;
+        if (typeof b.text === "string" && INTERRUPT_MARKER.test(b.text)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** True when this entry is RUN ACTIVITY — model output or a tool call. A
+ *  `user` entry is not activity: the interrupt marker itself arrives as one,
+ *  and so does the prompt that would follow a resume (which IS followed by
+ *  assistant output, so a genuine resume still clears the probe). */
+function isActivityEntry(e: Record<string, unknown>): boolean {
+  const type = typeof e.type === "string" ? e.type : "";
+  const message = e.message as Record<string, unknown> | undefined;
+  const role = message && typeof message.role === "string" ? message.role : type;
+  if (role === "assistant") return true;
+  const content = message?.content;
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      if ((block as Record<string, unknown>).type === "tool_result") return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Probe a transcript for a PENDING user interrupt: an Esc that nothing has
+ * happened after.
+ *
+ * "Pending" compares the newest interrupt against the newest activity **on the
+ * transcript's own clock only** — never against daemon wall-clock, which can
+ * skew arbitrarily from the machine that wrote the file. The comparison is
+ * `>=` so an interrupt sharing a timestamp with the activity it cut off still
+ * counts as pending.
+ *
+ * A session resumed after an Esc self-clears: the new assistant output carries
+ * a later timestamp than the interrupt, so the probe reports not-pending.
+ */
+export function detectPendingInterrupt(
+  transcriptPath: string,
+  windowStartIso: string | null,
+  homeOverride?: string,
+): InterruptProbe {
+  void homeOverride; // path is already absolute; parameter kept for call-site symmetry
+  const miss: InterruptProbe = { interrupted: false, interrupt_ts: null };
+  let st;
+  try {
+    st = statSync(transcriptPath);
+  } catch {
+    return miss;
+  }
+  if (!st.isFile()) return miss;
+
+  const memo = interruptMemo.get(transcriptPath);
+  if (memo && memo.size === st.size && memo.mtimeMs === st.mtimeMs && memo.windowStartIso === windowStartIso) {
+    return { ...memo.probe };
+  }
+
+  let text: string;
+  try {
+    text = readFileSync(transcriptPath, "utf-8");
+  } catch {
+    return miss;
+  }
+
+  const start = toEpochOrNull(windowStartIso);
+  let newestInterrupt: number | null = null;
+  let newestInterruptIso: string | null = null;
+  let newestActivity: number | null = null;
+
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let entry: Record<string, unknown>;
+    try {
+      entry = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      continue; // malformed line — skip, never abort the scan
+    }
+    if (!entry || typeof entry !== "object") continue;
+    const ts = entryTsInWindow(entry, start);
+    if (ts === null) continue;
+    if (isInterruptEntry(entry)) {
+      if (newestInterrupt === null || ts >= newestInterrupt) {
+        newestInterrupt = ts;
+        newestInterruptIso = typeof entry.timestamp === "string" ? entry.timestamp : null;
+      }
+      continue;
+    }
+    if (isActivityEntry(entry)) {
+      if (newestActivity === null || ts > newestActivity) newestActivity = ts;
+    }
+  }
+
+  const probe: InterruptProbe =
+    newestInterrupt !== null && (newestActivity === null || newestInterrupt >= newestActivity)
+      ? { interrupted: true, interrupt_ts: newestInterruptIso }
+      : miss;
+
+  if (interruptMemo.size >= INTERRUPT_MEMO_MAX) interruptMemo.clear();
+  interruptMemo.set(transcriptPath, { size: st.size, mtimeMs: st.mtimeMs, probe, windowStartIso });
+  return { ...probe };
+}

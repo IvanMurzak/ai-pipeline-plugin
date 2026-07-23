@@ -209,6 +209,33 @@ Values-only addition — NOT a `SCHEMA_VERSION` bump (same precedent as v4
 consumers ignore (the daemon tolerates unknown types) plus one optional `data`
 field. Journals from older emitters parse identically.
 
+### Dead-run protection — third trigger: the interrupt watchdog (observability a3)
+
+A user-pressed **Esc** fires no hook at all. If the terminal session process
+stays alive, the `.alive` lockfile still names a live pid and `manager.stopped`
+never arrives — so both existing triggers miss it and the run renders `running`
+forever. `sweepInterruptedRuns` (server.ts, wired at the same two sweep sites as
+the other two) probes the transcript of any non-terminal run that has been
+silent for `WATCHDOG_QUIET_MS` (30 s) and emits the same abandonment
+`pipeline.halted` the others do, plus `interrupt_ts`:
+
+```json
+{ "type": "pipeline.halted",
+  "data": { "abandoned": true, "interrupt_ts": "...",
+            "halt_reason": "interrupted by user (Esc) — no terminal event" } }
+```
+
+Detection (`detectPendingInterrupt`, transcript-stats.ts) takes EITHER signal —
+a `[Request interrupted by user` marker or an `interruptedMessageId` field — and
+calls it PENDING only when the newest interrupt is at-or-after the newest
+activity, comparing timestamps **on the transcript's own clock**; daemon
+wall-clock never enters the comparison, so clock skew between the writing
+machine and the daemon cannot manufacture an interrupt. A resumed session
+self-clears: its new output post-dates the interrupt. Gate
+`PIPELINE_UI_WATCHDOG_ENABLED` (default ON); inert when `PIPELINE_UI_TRANSCRIPTS`
+is off. Accepted gap: an Esc before any model output leaves no marker — an
+idle-timeout heuristic would false-positive on long thinking phases.
+
 ### `run.awaiting_input` (observability a2 — new TYPE, schema stays 4)
 
 Emitted by the **Notification hook** (`hooks/analytics_relay.ts`) when Claude
