@@ -503,9 +503,37 @@ export function iterationStatsByRel(
 // Keep this in lockstep with apps/pipeline-ui/lib.ts:iterationToolStatsForRun.
 // --------------------------------------------------------------------
 
+/**
+ * Which number a surface should show for a run/step, and whether it is a
+ * provisional floor (design 07, edge case E9).
+ *
+ * The transcript fold is authoritative; the client's event fold undercounts
+ * (hook events leak run-id correlation and never see subagent tokens). But an
+ * all-zeros fold means "no transcript is bound yet", NOT "nothing happened" —
+ * coercing to it would blank a populated row, so an absent/empty fold falls
+ * back to the event number, marked provisional.
+ *
+ * Returns `null` when there is nothing worth rendering at all.
+ */
+export function preferFoldCount(
+  foldValue: number | undefined,
+  eventValue: number,
+): { value: number; provisional: boolean } | null {
+  if (foldValue !== undefined) {
+    return foldValue > 0 ? { value: foldValue, provisional: false } : null;
+  }
+  return eventValue > 0 ? { value: eventValue, provisional: true } : null;
+}
+
 export interface IterationToolStats {
   step_id: string;
   iteration_path: string | null;
+  /** SOURCE marker, not a measurement (design 07): true ⇒ these numbers came
+   *  from the client's event fold, which undercounts (hook events leak run-id
+   *  correlation and never see subagent tokens), so the UI renders them as a
+   *  provisional floor. The event fold sets nothing here; App.tsx flips it
+   *  when no transcript slice covers the step. */
+  provisional?: boolean;
   tools_called: number;
   tools_failed: number;
   agents_spawned: number;

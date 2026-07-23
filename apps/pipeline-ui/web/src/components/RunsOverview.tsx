@@ -2,9 +2,11 @@ import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { LayoutGrid, OctagonX, Rocket } from "lucide-react";
 import { AwaitingInput } from "./AwaitingInput";
+import { Provisional } from "./Provisional";
 import { StatusBadge } from "./StatusBadge";
+import { useRunStatsBatch } from "../hooks/useRunStatsBatch";
 import { elapsed as fmtElapsed, iterationLabel } from "../lib/format";
-import { activeRuns } from "../lib/runs";
+import { activeRuns, preferFoldCount } from "../lib/runs";
 import type { DriveRunSnapshot, RunState } from "../types";
 
 interface Props {
@@ -32,6 +34,12 @@ export function RunsOverview({ projectId, runs, driveRunsById, onSelect, onStop,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [runs, driveRunsById],
   );
+
+  // Transcript folds for the visible rows, in ONE request. A run missing from
+  // the map has no bound transcript (yet), so its row falls back to the
+  // event-folded count — shown provisional rather than as a plain number.
+  const activeIds = useMemo(() => active.map((r) => r.run_id), [active]);
+  const folded = useRunStatsBatch(projectId, activeIds, true);
 
   if (!active.length) {
     return (
@@ -116,7 +124,17 @@ export function RunsOverview({ projectId, runs, driveRunsById, onSelect, onStop,
                 </div>
                 <div className="mt-1 font-mono text-[9px] uppercase tracking-wider text-muted/70">
                   {r.iteration_count_completed} done
-                  {r.stats.tools_called > 0 ? ` · ${r.stats.tools_called} tools` : ""}
+                  {(() => {
+                    const tools = preferFoldCount(folded[r.run_id]?.tools_called, r.stats.tools_called);
+                    if (!tools) return "";
+                    return (
+                      <>
+                        {" · "}
+                        {tools.provisional ? <Provisional>{tools.value}</Provisional> : tools.value}
+                        {" tools"}
+                      </>
+                    );
+                  })()}
                   {r.worktree ? ` · ${r.worktree}` : ""}
                 </div>
               </button>

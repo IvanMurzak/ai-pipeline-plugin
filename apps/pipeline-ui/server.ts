@@ -178,6 +178,9 @@ const RUN_STATS_TTL_MS = 4000;
 // indefinitely (immutable), so bound the map and evict oldest (FIFO — Map keeps
 // insertion order) to keep the optimization without unbounded heap growth.
 const RUN_STATS_CACHE_MAX = 500;
+/** Upper bound on ids honoured by /api/run-stats-batch — the list views ask for
+ *  a page, never the whole history. */
+const RUN_STATS_BATCH_MAX = 100;
 const runStatsCache = new Map<
   string,
   { at: number; terminal: boolean; data: TranscriptRunStats }
@@ -355,6 +358,75 @@ function computeRunBreakdown(entry: ProjectEntry, runId: string): RunBreakdownRe
     data,
   });
   capMap(runBreakdownCache, RUN_STATS_CACHE_MAX);
+  return data;
+}
+
+/** One step's slice of the run's transcript fold (design 07 — the per-step
+ *  numbers the iteration tree and the step detail render). */
+export interface RunStepStats {
+  step_id: string | null;
+  iteration_path: string;
+  /** Path after the last `/steps/` segment — the iteration tree's key. */
+  rel: string | null;
+  stats: TranscriptRunStats;
+}
+
+interface RunStepStatsResponse {
+  run_id: string;
+  transcript_found: boolean;
+  steps: RunStepStats[];
+}
+
+const runStepStatsCache = new Map<
+  string,
+  { at: number; terminal: boolean; data: RunStepStatsResponse }
+>();
+
+/**
+ * Per-step transcript fold: the run's own step windows (event-derived, the
+ * same `stepTimingsForRun` the timings UI uses) sliced against the run's
+ * resolved transcript.
+ *
+ * Why slice rather than sum the client's per-step event counts: the
+ * tool.called/turn.usage hook events undercount badly (they leak run-id
+ * correlation and never see subagent tokens), which is the whole reason
+ * /api/run-stats exists. This gives the per-step surfaces the same
+ * transcript-grade numbers the run-level panel already shows.
+ *
+ * A step whose window is not closed yet (still running) folds against an OPEN
+ * end, so a live step's numbers grow as it works instead of reading zero.
+ */
+function computeRunStepStats(entry: ProjectEntry, runId: string): RunStepStatsResponse {
+  const cacheKey = `${entry.project_root}|${runId}`;
+  const cached = runStepStatsCache.get(cacheKey);
+  if (cached && (cached.terminal || Date.now() - cached.at < RUN_STATS_TTL_MS)) {
+    return cached.data;
+  }
+  const { transcriptPath, terminal } = resolveRunTranscript(entry, runId);
+  const events = readJournalWithArchives(journalPath(entry)).filter((e) => e.run_id === runId);
+  const timings = stepTimingsForRun(events);
+
+  const steps: RunStepStats[] = timings.map((t) => {
+    // Window: the step's first start → its last close. `open_since` means the
+    // step is still running, so the end stays OPEN (null) rather than being
+    // clamped to a duration that hasn't finished accruing.
+    const startIso = t.first_started_at;
+    const startMs = toEpochOrNull(startIso);
+    const endIso =
+      t.open_since !== null || startMs === null ? null : new Date(startMs + t.duration_ms).toISOString();
+    return {
+      step_id: t.step_id,
+      iteration_path: t.iteration_path,
+      rel: t.rel,
+      stats: transcriptPath
+        ? foldRunStatsFromTranscript(transcriptPath, startIso, endIso)
+        : emptyTranscriptRunStats(),
+    };
+  });
+
+  const data: RunStepStatsResponse = { run_id: runId, transcript_found: transcriptPath !== null, steps };
+  runStepStatsCache.set(cacheKey, { at: Date.now(), terminal: terminal && transcriptPath !== null, data });
+  capMap(runStepStatsCache, RUN_STATS_CACHE_MAX);
   return data;
 }
 
@@ -1284,6 +1356,37 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     const entry = registry[pid];
     if (!entry) return new Response("unknown project", { status: 404 });
     return Response.json(computeRunStats(entry, runId));
+  }
+
+  // /api/run-stats-batch?project_id=&runs=<id,id,…> — the run-level fold for
+  // several runs in ONE request, so a list view can prefer transcript numbers
+  // without firing a request per row. Each run goes through the same cached
+  // computeRunStats, so a batch over already-warm runs costs no transcript
+  // reads at all. Capped so a crafted query can't ask for unbounded work.
+  if (pathname === "/api/run-stats-batch") {
+    const pid = url.searchParams.get("project_id");
+    const runsParam = url.searchParams.get("runs");
+    if (!pid || !runsParam) return new Response("missing params", { status: 400 });
+    const entry = registry[pid];
+    if (!entry) return new Response("unknown project", { status: 404 });
+    const ids = [...new Set(runsParam.split(",").map((r) => r.trim()).filter(Boolean))].slice(
+      0,
+      RUN_STATS_BATCH_MAX,
+    );
+    const stats: Record<string, TranscriptRunStats> = {};
+    for (const id of ids) stats[id] = computeRunStats(entry, id);
+    return Response.json({ stats });
+  }
+
+  // /api/run-step-stats?project_id=&run_id= — the same transcript fold sliced
+  // per step window, for the iteration tree + step detail.
+  if (pathname === "/api/run-step-stats") {
+    const pid = url.searchParams.get("project_id");
+    const runId = url.searchParams.get("run_id");
+    if (!pid || !runId) return new Response("missing params", { status: 400 });
+    const entry = registry[pid];
+    if (!entry) return new Response("unknown project", { status: 404 });
+    return Response.json(computeRunStepStats(entry, runId));
   }
 
   // /api/run-failures?project_id=&run_id= — per-failure detail behind the

@@ -13,8 +13,10 @@ import {
   iterationToolStatsByRel,
   iterationToolStatsByRun,
   iterationToolStatsForRun,
+  preferFoldCount,
 } from "../runs";
 import type { PipelineEvent } from "../../types";
+import { hasStatsData } from "../../hooks/useRunStatsBatch";
 
 const proj = "C:/proj";
 
@@ -704,5 +706,79 @@ describe("run.awaiting_input fold", () => {
     ]);
     expect(run!.awaiting_input).toBe(true);
     expect(run!.awaiting_input_kind).toBe("input");
+  });
+});
+
+/**
+ * Fold-preferred numbers (design 07, edge case E9). The transcript fold is
+ * authoritative; the event fold is a floor. The subtle case is the third one:
+ * an all-zeros fold means "no transcript bound yet", so preferring it would
+ * blank a row that has real event-counted activity.
+ */
+describe("preferFoldCount", () => {
+  test("a fold with data wins and is NOT provisional", () => {
+    expect(preferFoldCount(12, 5)).toEqual({ value: 12, provisional: false });
+  });
+
+  test("no fold yet ⇒ the event number, marked provisional", () => {
+    expect(preferFoldCount(undefined, 5)).toEqual({ value: 5, provisional: true });
+  });
+
+  test("a zero fold renders nothing rather than the event number", () => {
+    // The hook drops zero-folds before they reach here, so a 0 that DID arrive
+    // is an authoritative zero — the run really called no tools.
+    expect(preferFoldCount(0, 5)).toBeNull();
+  });
+
+  test("nothing anywhere ⇒ null (render nothing, not a bare 0)", () => {
+    expect(preferFoldCount(undefined, 0)).toBeNull();
+    expect(preferFoldCount(0, 0)).toBeNull();
+  });
+
+  test("the fold REPLACES the event number rather than adding to it", () => {
+    // Regression guard: an undercounting event number must never inflate or
+    // survive alongside the authoritative one.
+    const r = preferFoldCount(3, 99);
+    expect(r).toEqual({ value: 3, provisional: false });
+  });
+});
+
+/**
+ * Zero-coercion parity with useRunStats' own `hasData` (hooks/useRunStats.ts).
+ * Both gates must agree, or the batch/per-step surfaces would show zeros
+ * exactly where the run-level panel correctly falls back.
+ */
+describe("hasStatsData (batch/per-step zero-coercion)", () => {
+  const empty = {
+    tools_called: 0,
+    tools_failed: 0,
+    agents_spawned: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_creation_tokens: 0,
+    cost_usd: 0,
+  };
+
+  test("all zeros ⇒ no data (a transcript that isn't bound, not a quiet run)", () => {
+    expect(hasStatsData(empty)).toBe(false);
+  });
+
+  test("any single non-zero signal counts as data", () => {
+    for (const k of [
+      "tools_called",
+      "agents_spawned",
+      "input_tokens",
+      "output_tokens",
+      "cache_read_tokens",
+      "cache_creation_tokens",
+    ] as const) {
+      expect(hasStatsData({ ...empty, [k]: 1 })).toBe(true);
+    }
+  });
+
+  test("tools_failed alone does NOT count — it cannot exceed tools_called", () => {
+    // Parity with useRunStats' hasData, which omits it for the same reason.
+    expect(hasStatsData({ ...empty, tools_failed: 3 })).toBe(false);
   });
 });
