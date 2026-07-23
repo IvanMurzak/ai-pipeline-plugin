@@ -40,7 +40,7 @@ jobs:
         run: bun test tests/
 
   web-build:
-    name: Web build (tsc + vite)
+    name: Web build + vitest
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -58,6 +58,10 @@ jobs:
         run: bun install
       - name: Type-check and build
         run: bun run build
+      # The web vitest suites (fold logic, run folds, formatting, and the
+      # jsdom component tests) were never executed by CI — only the build was.
+      - name: Run web tests
+        run: bun run test
 
   pipeline-cli:
     name: Pipeline CLI (apps/pipeline-cli)
