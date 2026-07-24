@@ -22,6 +22,7 @@ This repository is itself the plugin, so the `pipeline` CLI and the local dashbo
 - **`/pipeline:find <task-or-github-issue-url>`** — deterministic, AI-free matcher (the inspection variant of dispatch). Shares dispatch's first-stage matcher (the bundled `pipeline match` CLI) but stops there — no LLM tiers, no auto-run. Returns ranked candidates with score + matched terms plus explicit excluded-with-reason output, then asks before running. Accepts a GitHub issue URL / `owner/repo#NUMBER` / plain issue number — fetches title+body via `gh issue view` and matches against that. Runs with Bun (no `pip install`).
 - **`/pipeline:ui`** — opens a live dashboard in the browser. Single shared local Bun daemon (one per machine, one stable port) that aggregates every project on this machine that uses the plugin, with iteration trees, active-run cards, blocker-child views, per-run analytics (tool counts, agent spawns, token usage), light/dark themes, and live SSE updates. The daemon is auto-launched by a `SessionStart` hook the first time you open Claude Code in any pipeline-using project, and self-shuts-down when idle. See "Live dashboard (/pipeline:ui)" below.
 - **Six subagents** usable via the `Agent` tool: `pipeline-designer`, `pipeline-manager`, `step-executor`, `pipeline-improver`, `pipeline-script-creator`, and `pipeline-disambiguator`. Most are normally invoked through automated chains — see "Self-improving pipelines", "Token-cheap iterations via script extraction", and "Finding the right pipeline for a task" below. The disambiguator runs on Haiku 4.5 to keep the matching ladder cheap.
+- **A remote MCP server + background notifier** for the [ai-pipeline.dev](https://ai-pipeline.dev) department mesh — delegate a task to another agent/department straight from Claude Code (`/mcp` connects with a one-time browser OAuth consent, no token to paste) and get notified even after this session ends when that task needs your input or finishes. See "Department mesh (`/mcp` + background notifier)" below.
 
 ## Token discipline (why the architecture looks the way it does)
 
@@ -709,6 +710,9 @@ Everything the plugin reads from the environment, in one place. Set the per-proj
 | `PIPELINE_AWAITING_INPUT_ENABLED` | **on** | The `Notification` hook that journals `run.awaiting_input` when a permission prompt or an input request blocks the session — the WAITING badge in the dashboard and the `⏸` line in `pipeline logs`. Deliberately INDEPENDENT of `PIPELINE_UI_ENABLED`: a blocked run is worth surfacing even with no dashboard running. `0`/`false`/`no`/`off` disables. |
 | `PIPELINE_UI_WATCHDOG_ENABLED` | **on** | The daemon's interrupt watchdog: a run whose session you interrupted with Esc fires no hook at all, so after 30 s of silence the daemon reads the transcript and, if the interrupt is still the last thing that happened, retires the run instead of leaving it "running" forever. `0`/`false`/`no`/`off` disables. Requires `PIPELINE_UI_TRANSCRIPTS` (there is nothing to read without it). Snapshotted at daemon boot. |
 | `PIPELINE_PROMPT_MATCH_ENABLED` | off | Opt-in for the `UserPromptSubmit` pipeline-match hook (section above). Same non-falsy semantics. |
+| `PIPELINE_MESH_NOTIFY_ENABLED` | **on** | Opt-OUT for the department-mesh background notifier (section above): the `SessionStart` daemon launcher and the pending-notification drain. `0`/`false`/`no`/`off` disables; no-ops anyway until `pipeline cloud connect` has been run once. |
+| `PIPELINE_CLOUD_API` | `https://api.ai-pipeline.dev` | Overrides the control-plane API base used by `pipeline cloud connect` and the mesh notifier. |
+| `PIPELINE_CLOUD_HOME` | platform default (`%APPDATA%\claude-pipeline` on Windows, `$XDG_CONFIG_HOME/claude-pipeline` / `~/.config/claude-pipeline` elsewhere) | Overrides the per-user directory holding the cloud credential store and the mesh notifier's journal/lock files. |
 | `PIPELINE_UI_IDLE_MINUTES` | `60` | Minutes of inactivity before the dashboard daemon auto-exits. |
 | `PIPELINE_UI_HOST` | `127.0.0.1` | Daemon bind address. Any non-loopback value (e.g. `0.0.0.0` for phone access) REQUIRES `PIPELINE_UI_TOKEN` — otherwise the daemon falls back to loopback with a warning. |
 | `PIPELINE_UI_TOKEN` | unset | Access token enforced on every request when set (`Authorization: Bearer`, `?token=`, or the cookie the first `?token=` page-load pins). Mandatory for a non-loopback bind: the UI can launch runs and edit pipeline files. |
@@ -723,6 +727,45 @@ Everything the plugin reads from the environment, in one place. Set the per-proj
 **Hook contract (set BY the plugin, read by your hook scripts):** every `PIPELINE_WT_*` variable passed to the `worktree-create` / `worktree-finalize` / `worktree-destroy` hooks is specified in [`docs/worktree-hook-contract.md`](docs/worktree-hook-contract.md) — that contract is frozen; write hooks against it, never set those variables yourself.
 
 **Internal (do not set):** `PIPELINE_UI_RUN_ID` / `PIPELINE_UI_PARENT_RUN_ID` are run-correlation plumbing between `/pipeline:run` and the analytics hooks; setting them manually mis-attributes events. `PIPELINE_STATS_RUNNER` is set by `pipeline drive` to tag headless runs in the measurement files.
+
+## Department mesh (`/mcp` + background notifier)
+
+Separate from pipelines: this plugin also ships a **remote MCP server entry** pointing at the [ai-pipeline.dev](https://ai-pipeline.dev) department mesh, plus a **background notifier** so a task you delegate doesn't get lost if you close Claude Code before it finishes.
+
+### Connecting — 2 steps, 1 browser hop, no token to paste
+
+```
+/mcp
+```
+
+1. Running `/mcp` (or just asking to delegate work — Claude Code triggers discovery automatically) opens your browser to the mesh's consent screen.
+2. Log in if needed and approve — pick your org if you belong to more than one.
+
+That's it. Claude Code holds an audience-bound, scope-limited, short-lived credential from here on — never a long-lived token sitting on disk, and nothing to copy-paste. This is the same flow you'd use to connect any other remote MCP server; the plugin just ships the server's URL for you.
+
+Once connected, delegating work is one line in natural language — "have the Unity department review the save system" — and the agent calls the mesh's tools (`departments.list`, `tasks.send`, `tasks.wait`, …) on your behalf. A clarifying question along the way costs exactly one extra turn (you answer it like any other question); the result and any artifacts land back in your session.
+
+### The background notifier — a parked task announces itself
+
+Some department tasks take a while, and `tasks.wait` (the tool the agent loops on to watch a task) only blocks up to 45 seconds at a time by design — a live session loops it invisibly, but if a task needs your input or finishes **after you've closed that Claude Code session**, a plain MCP client has no way to tell you. This plugin ships a small background piece so that doesn't mean silence:
+
+- A lightweight daemon (`pipeline mesh notify`) starts automatically the first time a `SessionStart` hook sees you've connected the CLI to the cloud (`pipeline cloud connect` — see below), and keeps polling your open department-mesh tasks in the background, independent of any open Claude Code session.
+- The moment one of your tasks needs input or reaches a final state (done, failed, canceled, rejected), it fires a best-effort **OS-level notification** (a toast / notify-send / balloon, depending on your platform) right then.
+- Every such transition is also written to a small durable queue, so even if you miss the toast (or your platform doesn't support one), the **next time you open Claude Code — in any project** — a `SessionStart` hook drains that queue and adds it as context, and the agent tells you about it.
+
+You don't do anything extra to get this: it reuses the same credential `pipeline cloud connect` already stores (see `apps/pipeline-cli/src/lib/cloud-config.ts`) and needs no separate setup or consent step of its own.
+
+```bash
+# one-time (if you haven't already connected the CLI to the cloud for other reasons):
+bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" cloud connect
+
+# manual smoke-test / debugging — runs one poll cycle and exits:
+bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" mesh notify --once --json
+```
+
+Opt out with `PIPELINE_MESH_NOTIFY_ENABLED=0` (same falsy-value convention as `PIPELINE_UI_ENABLED`) if you never want the daemon spawned or the queue drained.
+
+> **Implementation note for the curious:** the notifier polls the mesh's REST task surface using the same credential `pipeline cloud connect` stores, rather than the `/mcp` tool surface Claude Code itself uses — a headless background process has no browser session to complete an OAuth consent flow in, so it reuses the credential that's already there. See the header comment in `apps/pipeline-cli/src/lib/mesh-notify.ts` for the full reasoning.
 
 ## Resuming a halted pipeline
 
