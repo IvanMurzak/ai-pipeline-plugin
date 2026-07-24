@@ -230,6 +230,39 @@ describe('pollOnce', () => {
     expect(result.notifications).toEqual([]);
   });
 
+  test('a task originated via the REAL /mcp tasks.send tool (originPrincipal "mcp-user:<id>") is STILL detected as the caller\'s own — regression for the e3 gate convergence bug', async () => {
+    // cloud/apps/api/src/modules/mesh-mcp/tools/types.ts#principalForUser
+    // stamps MCP-created tasks `mcp-user:<id>`, not `user:<id>` — the two
+    // spellings name the SAME human via two different orchestrator entry
+    // points (REST vs the live Claude-Code-via-MCP path Persona B actually
+    // uses). Before this fix, pollOnce compared against `user:<id>` only, so
+    // a task created the way Persona B really creates it was silently never
+    // surfaced — Q2's "a parked task announces itself" guarantee never fired
+    // for the one path it exists to serve.
+    const home = mkHome();
+    seedCredential(home, SERVER, TOKEN);
+    const orgs = [{ id: 'org-1', slug: 'acme', name: 'Acme', role: 'member' }];
+    const fetchImpl = scriptedFetch({
+      me: { status: 200, body: { user: { id: 'u1' }, orgs } },
+      tasksByOrg: { 'org-1': [task({ originPrincipal: 'mcp-user:u1' })] },
+    });
+    const result = await pollOnce(makeDeps(fetchImpl, home));
+    expect(result.notifications).toHaveLength(1);
+    expect(result.notifications[0]!.taskId).toBe('task-1');
+  });
+
+  test('a "mcp-user:" task belonging to someone else is still filtered out', async () => {
+    const home = mkHome();
+    seedCredential(home, SERVER, TOKEN);
+    const orgs = [{ id: 'org-1', slug: 'acme', name: 'Acme', role: 'member' }];
+    const fetchImpl = scriptedFetch({
+      me: { status: 200, body: { user: { id: 'u1' }, orgs } },
+      tasksByOrg: { 'org-1': [task({ originPrincipal: 'mcp-user:someone-else' })] },
+    });
+    const result = await pollOnce(makeDeps(fetchImpl, home));
+    expect(result.notifications).toEqual([]);
+  });
+
   test('an EXPIRED stored credential is skipped with an error, not thrown', async () => {
     const home = mkHome();
     seedCredential(home, SERVER, TOKEN, Date.parse('2026-07-01T00:00:00.000Z')); // in the past relative to `now`

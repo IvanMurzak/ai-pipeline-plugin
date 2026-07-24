@@ -97,6 +97,32 @@ export type DeptTaskState =
   | 'REJECTED'
   | 'AUTH_REQUIRED';
 
+/**
+ * True when `originPrincipal` names `userId` as the ORIGINATING human —
+ * across BOTH principal spellings the mesh orchestrator actually produces
+ * for a user-delegated task, not just one.
+ *
+ * FIX (e3 P2 gate, cross-repo convergence bug found against the REAL c6
+ * `tasks.send` tool, not the REST reference path this module was written
+ * against): `cloud/apps/api/src/modules/mesh/routes.ts`'s REST
+ * `POST /api/v1/dept-tasks` stamps `user:<id>` (`principalFor`), but the
+ * `/mcp` `tasks.send` tool — the ACTUAL Persona B entry point Q2 exists to
+ * serve, `cloud/apps/api/src/modules/mesh-mcp/tools/types.ts`'s
+ * `principalForUser` — stamps `mcp-user:<id>` instead (deliberately
+ * namespaced, per that file's own comment, "unambiguously distinguishable
+ * once the real execution-token-bound delegation path lands"). This
+ * module's poll filter compared against `user:<id>` ONLY, so a task created
+ * by the live Claude-Code-via-MCP flow was silently invisible to its own
+ * notifier — the parked-task-across-sessions guarantee (12-user-workflows.md
+ * Persona B's Q2 row) never fired for the one path that matters. Recognize
+ * both spellings so a task is "mine" regardless of which entry point created
+ * it.
+ */
+function isOwnTask(originPrincipal: string, userId: string): boolean {
+  if (userId.length === 0) return false;
+  return originPrincipal === `user:${userId}` || originPrincipal === `mcp-user:${userId}`;
+}
+
 /** States worth waking the user up for: needs a human, or done (either way). */
 export const NOTIFY_STATES: ReadonlySet<DeptTaskState> = new Set([
   'INPUT_REQUIRED',
@@ -324,11 +350,11 @@ export async function pollOnce(deps: MeshNotifyDeps): Promise<PollResult> {
       continue;
     }
     serversPolled++;
-    const myPrincipal = `user:${me.user?.id ?? ''}`;
+    const myUserId = me.user?.id ?? '';
     for (const org of me.orgs) {
       const tasks = await fetchOpenTasks(deps, server, cred.access_token, org.id);
       for (const task of tasks) {
-        if (task.originPrincipal !== myPrincipal) continue;
+        if (!isOwnTask(task.originPrincipal, myUserId)) continue;
         if (!NOTIFY_STATES.has(task.state)) continue;
         const key = `${server}::${task.id}`;
         const prior = journal.seen[key];
