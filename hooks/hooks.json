@@ -6,11 +6,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
           },
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/stats_relay.ts\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/stats_relay.ts\""
           }
         ]
       }
@@ -21,11 +21,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
           },
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/stats_relay.ts\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/stats_relay.ts\""
           }
         ]
       }
@@ -35,11 +35,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/pipeline_ui_relay.ts\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\" --loud \"${CLAUDE_PLUGIN_ROOT}/hooks/pipeline_ui_relay.ts\""
           },
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/mesh_notifier_relay.ts\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/mesh_notifier_relay.ts\""
           }
         ]
       }
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
           }
         ]
       }
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
           }
         ]
       }
@@ -70,7 +70,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt_match_relay.ts\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt_match_relay.ts\""
           }
         ]
       }
@@ -80,7 +80,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/analytics_relay.ts\""
           }
         ]
       }
