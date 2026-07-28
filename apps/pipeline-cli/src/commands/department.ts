@@ -1129,7 +1129,7 @@ function serveHelpText(): string {
     'installed, claim the install, and report.\n\n' +
     'Idempotent and resumable: re-running after any failure re-checks each step and\n' +
     'performs only what is missing. Nothing is ever written INSIDE the department\n' +
-    "folder — the credential lives in the per-user store and the runtime binding in\n" +
+    'folder — the credential lives in the per-user store and the runtime binding in\n' +
     "pipeline-runner's own config dir (written by `pipeline-runner bind`).\n\n" +
     'The final line reports only what was OBSERVED: `online` is printed when the\n' +
     'control plane says so, `registered — not serving` with the reason and the fix\n' +
