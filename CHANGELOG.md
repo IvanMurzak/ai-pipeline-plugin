@@ -4,6 +4,39 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## Terminology rename: "mesh"/"fleet" are gone (simplified-onboarding a11)
+
+**Prepared, not yet released** — this entry documents the code change landed in this PR; the
+`plugin.json` `version` bump and the actual release are coordinated with `c13` (see below), not
+bundled into this commit. Per the owner directive recorded in `08-terminology.md`/D10/D31, "mesh"
+and "fleet" no longer appear anywhere a user reads them:
+
+- **Command:** `pipeline mesh notify` → `pipeline department notify`. The old spelling still works —
+  `pipeline mesh notify` is now a hidden, deprecated alias that prints a warning on stderr naming the
+  new command, then behaves identically. Scripts and service definitions written against it keep
+  working unchanged.
+- **Environment variable:** `PIPELINE_MESH_NOTIFY_ENABLED` → `PIPELINE_DEPARTMENT_NOTIFY_ENABLED`. The
+  old name is still read as a fallback (with a deprecation warning) when the new one is unset.
+- **Files:** `src/lib/mesh-notify.ts` → `src/lib/department-notify.ts`, `src/commands/mesh.ts` →
+  `src/commands/department-notify.ts` (a new, thin `src/commands/mesh.ts` now holds only the
+  deprecated-alias shim), `hooks/mesh_notifier_relay.ts` → `hooks/department_notifier_relay.ts`,
+  `docs/mesh-mcp.md` → `docs/departments-mcp.md`.
+- **Prose:** every user-facing string in the CLI, `README.md`, `CLAUDE.md`, and the docs — OS
+  notification titles now read "Department task …" instead of "Mesh task …", and the SessionStart
+  hook's injected context says "department task update" instead of "department-mesh task update".
+- **⚠ Re-consent, on release, not in this commit:** `.claude-plugin/plugin.json`'s `mcpServers` key
+  changes from `ai-pipeline-mesh` to `ai-pipeline-departments`. Because that key is embedded in every
+  tool's callable name (`mcp__plugin_<plugin>_<server>__<tool>`) and stored OAuth grants are keyed by
+  it, this is a one-time, unavoidable cost: **every already-connected user will need to run `/mcp` and
+  approve again once**, the next time this key actually ships in a released `version`. Nothing else
+  about the connection changes. The `version` bump for that release, and its timing, are coordinated
+  with `c13` rather than happening in this PR.
+
+Deliberately NOT renamed: prose inside `.claude/design/**` (the design ledger keeps its original
+wording — D17), citations to files in the private `cloud/` repo whose own tier-2 rename has not
+landed yet (`mesh-oauth/…`, `mesh-registry/…`, `mesh/routes.ts`, …), and citations to the `pipeline-runner`
+sibling repo's own `core/mesh-oauth.ts` (a separate repo's own rename, out of this task's scope).
+
 ## Drive record contract on Claude Code >= 2.1.21x + parked-run journaling (e7 kill-drill DEFECT-1 / DEFECT-3)
 
 **CLI 0.3.1** (owner-approved patch release; plugin version unchanged at 0.75.0). Both defects
