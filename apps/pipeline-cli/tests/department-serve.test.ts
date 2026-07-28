@@ -1821,6 +1821,9 @@ describe('department-serve pure helpers', () => {
       // x44/x24: an installed-but-stopped service is STARTED, not recreated.
       expect(stopped.nextStep).toContain('pipeline-runner service start');
       expect(stopped.nextStep).not.toContain('service install');
+      // …and because `service start` is not in a PUBLISHED runner yet, the
+      // dead end that verb hits on an older one has its own next step.
+      expect(stopped.nextStep).toContain('bun add -g @baizor/pipeline-runner');
 
       const none = assessLiveness({ ...base, supervisor: 'not-installed', cloudOnline });
       expect(none.verdict).toBe('not-live');

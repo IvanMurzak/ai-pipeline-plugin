@@ -1159,7 +1159,17 @@ export function assessLiveness(e: LivenessEvidence): Liveness {
           ? `Run one here:  ${SUPERVISOR_FOREGROUND_HINT}   (or start the installed service: \`${SUPERVISOR_START_HINT}\`)`
           : // x24: the service EXISTS. Starting it is a different act from
             // recreating it, and only one of them needs an elevated shell.
-            `Start it:  ${SUPERVISOR_START_HINT}   (it is installed — this starts it, and re-registers nothing)`
+            //
+            // The trailing clause is not padding. `service start` shipped on
+            // pipeline-runner's `main` and is NOT in any published release yet
+            // (0.6.0 is the latest on npm at the time of writing), so on the
+            // runner most people have installed this verb fails with `unknown
+            // service command 'start'`. It fails LOUDLY (x11), which is right
+            // — but a loud failure with no next step is still a dead end, so
+            // the next step is named. Phrased as a condition rather than a
+            // version number, so it needs no maintenance and self-obsoletes.
+            `Start it:  ${SUPERVISOR_START_HINT}   (it is installed — this starts it, and re-registers nothing.` +
+            " If that verb is unknown, this machine's runner predates it:  bun add -g @baizor/pipeline-runner)"
         : e.foreground
           ? `Run one here:  ${SUPERVISOR_FOREGROUND_HINT}`
           : serviceClause === ''
