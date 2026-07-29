@@ -4,11 +4,37 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## plugin 0.85.0 — the MCP server rename reaches installed users; install is `pipeline init`
+
+Two things, one of which is not a documentation change despite living in a documentation release.
+
+- **⚠ `/mcp` needs approving once more.** The `mcpServers` key rename `ai-pipeline-mesh` →
+  `ai-pipeline-departments` (the a11 entry below) landed in `main` with **no version bump**, and
+  Claude Code caches an installed plugin by `name@version` — so every already-installed user kept
+  the old manifest and the old server key, verified live (`claude mcp list` after `pipeline init`
+  still reported the legacy key). **This version is what actually ships it.** Because the key is
+  embedded in every tool's callable name and stored OAuth grants are keyed by it, the renamed entry
+  is a NEW server with no grant: run `/mcp` and approve once. Nothing else about the connection
+  changes. Update the old name anywhere you carry it by hand — `permissions.allow`, a skill's
+  `allowed-tools`, a subagent's `tools`, a hook matcher. The control plane's own `serverInfo.name`
+  was renamed to match in the same release train, so both halves now agree in the field.
+- **`README.md` (a12).** The install section leads with `bun add -g @baizor/pipeline` +
+  `pipeline init` — one command that installs the plugin, clones a starter pipeline, starts the
+  dashboard and offers to run it — with the two `/plugin` slash commands kept as the manual
+  alternative for someone who already has the CLI. The departments section now points at the five
+  path pages on ai-pipeline.dev instead of restating them, and documents the
+  `pipeline department new` / `validate` / `serve` / `status` / `stop` / `retire` verbs that had
+  never appeared in the README at all. No other section changed.
+
+Nothing is published to npm by this release: `@baizor/pipeline` stays at 0.7.0 until the
+publish hold lifts, so the globally installed CLI and the copy bundled in this plugin are at
+different versions on purpose.
+
 ## Terminology rename: "mesh"/"fleet" are gone (simplified-onboarding a11)
 
-**Prepared, not yet released** — this entry documents the code change landed in this PR; the
-`plugin.json` `version` bump and the actual release are coordinated with `c13` (see below), not
-bundled into this commit. Per the owner directive recorded in `08-terminology.md`/D10/D31, "mesh"
+**Landed in `main` without a version bump; released in plugin 0.85.0 above** — the note below was
+written when this entry documented an unreleased code change. Per the owner directive recorded in
+`08-terminology.md`/D10/D31, "mesh"
 and "fleet" no longer appear anywhere a user reads them:
 
 - **Command:** `pipeline mesh notify` → `pipeline department notify`. The old spelling still works —
@@ -24,13 +50,14 @@ and "fleet" no longer appear anywhere a user reads them:
 - **Prose:** every user-facing string in the CLI, `README.md`, `CLAUDE.md`, and the docs — OS
   notification titles now read "Department task …" instead of "Mesh task …", and the SessionStart
   hook's injected context says "department task update" instead of "department-mesh task update".
-- **⚠ Re-consent, on release, not in this commit:** `.claude-plugin/plugin.json`'s `mcpServers` key
-  changes from `ai-pipeline-mesh` to `ai-pipeline-departments`. Because that key is embedded in every
-  tool's callable name (`mcp__plugin_<plugin>_<server>__<tool>`) and stored OAuth grants are keyed by
-  it, this is a one-time, unavoidable cost: **every already-connected user will need to run `/mcp` and
-  approve again once**, the next time this key actually ships in a released `version`. Nothing else
-  about the connection changes. The `version` bump for that release, and its timing, are coordinated
-  with `c13` rather than happening in this PR.
+- **⚠ Re-consent — shipped in plugin 0.85.0, not in the commit that made this change:**
+  `.claude-plugin/plugin.json`'s `mcpServers` key changes from `ai-pipeline-mesh` to
+  `ai-pipeline-departments`. Because that key is embedded in every tool's callable name
+  (`mcp__plugin_<plugin>_<server>__<tool>`) and stored OAuth grants are keyed by it, this is a
+  one-time, unavoidable cost: **every already-connected user needs to run `/mcp` and approve again
+  once**. Nothing else about the connection changes. The commit that renamed the key did not bump
+  `version`, so installed users kept the old one until 0.85.0 — see the entry at the top of this
+  file.
 
 Deliberately NOT renamed: prose inside `.claude/design/**` (the design ledger keeps its original
 wording — D17), citations to files in the private `cloud/` repo whose own tier-2 rename has not
