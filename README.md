@@ -6,12 +6,30 @@ Claude Code plugin for designing and executing long-chain AI workflows as ordere
 
 ## Install
 
+Two commands — the second one from the project where you want pipelines to live:
+
+```bash
+bun add -g @baizor/pipeline
+pipeline init
+```
+
+`pipeline init` is the whole setup. It installs this plugin into Claude Code for you (it shells out to `claude plugin marketplace add IvanMurzak/ai-pipeline-plugin` + `claude plugin install pipeline@ai-pipeline`), clones a starter pipeline into `./.claude/pipeline/support-answer`, starts the local dashboard, and offers to run that starter pipeline right there — so the install ends with a pipeline that has already run on your machine. Every step is idempotent (a re-run prints a `✓` per already-satisfied step and changes nothing) and independently skippable: `--no-plugin`, `--no-ui`, `--no-run`, plus `--yes` / `--json` for scripted setups, and `pipeline init <template>` to start from a different template (`pipeline clone --list` shows them). If Claude Code was already open when you ran it, restart it — a running session does not pick up a newly installed plugin.
+
+Two prerequisites, and `init` is explicit about both:
+
+- **Bun.** The CLI's executable is TypeScript, so Bun is required, not preferred. `pipeline init` stops immediately with the install URL if `bun` isn't found.
+- **Claude Code, installed and authenticated** with your own subscription or API key. Pipeline steps are executed by `claude`; it is your account that runs them and your account that pays for them. If `claude` isn't on `PATH`, `init` says so, skips the plugin install and the starter run, and still exits 0 — the clone and the dashboard are done, and you re-run `pipeline init` once Claude Code is there.
+
+The same two commands with real terminal output, start to finish: [Get started](https://ai-pipeline.dev/docs/getting-started). It needs no account and sends nothing to ai-pipeline.dev.
+
+**Manual alternative.** Installing the plugin is one step of `init`. If you already have the CLI — or you want the plugin on its own, without a starter pipeline or a dashboard — run that step by hand from inside Claude Code instead:
+
 ```
 /plugin marketplace add IvanMurzak/ai-pipeline-plugin
 /plugin install pipeline@ai-pipeline
 ```
 
-This repository is itself the plugin, so the `pipeline` CLI and the local dashboard UI under `apps/` ship inside — nothing else to fetch or build. Updates arrive via `/plugin update` whenever this repo's `.claude-plugin/plugin.json` version is bumped.
+This repository is itself the plugin, so the `pipeline` CLI and the local dashboard UI under `apps/` ship inside — nothing else to fetch or build, and every `/pipeline:*` skill shells that bundled copy rather than a global install. Updates arrive via `/plugin update` whenever this repo's `.claude-plugin/plugin.json` version is bumped. The global `bun add -g` install is the same CLI released to npm on its own version line (`@baizor/pipeline`), for use from a bare terminal; the two are versioned independently, so a command can land in the bundled copy before it appears in the published package.
 
 ## What you get
 
@@ -22,7 +40,7 @@ This repository is itself the plugin, so the `pipeline` CLI and the local dashbo
 - **`/pipeline:find <task-or-github-issue-url>`** — deterministic, AI-free matcher (the inspection variant of dispatch). Shares dispatch's first-stage matcher (the bundled `pipeline match` CLI) but stops there — no LLM tiers, no auto-run. Returns ranked candidates with score + matched terms plus explicit excluded-with-reason output, then asks before running. Accepts a GitHub issue URL / `owner/repo#NUMBER` / plain issue number — fetches title+body via `gh issue view` and matches against that. Runs with Bun (no `pip install`).
 - **`/pipeline:ui`** — opens a live dashboard in the browser. Single shared local Bun daemon (one per machine, one stable port) that aggregates every project on this machine that uses the plugin, with iteration trees, active-run cards, blocker-child views, per-run analytics (tool counts, agent spawns, token usage), light/dark themes, and live SSE updates. The daemon is auto-launched by a `SessionStart` hook the first time you open Claude Code in any pipeline-using project, and self-shuts-down when idle. See "Live dashboard (/pipeline:ui)" below.
 - **Six subagents** usable via the `Agent` tool: `pipeline-designer`, `pipeline-manager`, `step-executor`, `pipeline-improver`, `pipeline-script-creator`, and `pipeline-disambiguator`. Most are normally invoked through automated chains — see "Self-improving pipelines", "Token-cheap iterations via script extraction", and "Finding the right pipeline for a task" below. The disambiguator runs on Haiku 4.5 to keep the matching ladder cheap.
-- **A remote MCP server + background notifier** for [ai-pipeline.dev](https://ai-pipeline.dev) departments — delegate a task to another agent/department straight from Claude Code (`/mcp` connects with a one-time browser OAuth consent, no token to paste) and get notified even after this session ends when that task needs your input or finishes. See "Departments (`/mcp` + background notifier)" below.
+- **A remote MCP server + background notifier** for [ai-pipeline.dev](https://ai-pipeline.dev) departments — delegate a task to another agent/department straight from Claude Code (`/mcp` connects with a one-time browser OAuth consent, no token to paste) and get notified even after this session ends when that task needs your input or finishes. The bundled CLI also carries `pipeline department new` / `validate` / `serve` / `status` / `stop` / `retire`, which publish a folder of your own as a department other people can call. See "Departments (`/mcp` + background notifier)" below.
 
 ## Token discipline (why the architecture looks the way it does)
 
@@ -731,7 +749,19 @@ Everything the plugin reads from the environment, in one place. Set the per-proj
 
 ## Departments (`/mcp` + background notifier)
 
-Separate from pipelines: this plugin also ships a **remote MCP server entry** pointing at [ai-pipeline.dev](https://ai-pipeline.dev) departments, plus a **background notifier** so a task you delegate doesn't get lost if you close Claude Code before it finishes.
+Separate from pipelines: a **department** is an agent somebody else runs, on somebody else's machine, that yours can hand work to. It has a name, a description and a list of skills; you don't install or clone it — you ask for it by name and [ai-pipeline.dev](https://ai-pipeline.dev) routes the task to whoever is serving it. This plugin is the client side of that, in three pieces: a **remote MCP server entry** so Claude Code can call departments inside a live session, a **background notifier** so a delegated task doesn't get lost if you close that session before it finishes, and the `pipeline department …` commands that publish a folder of your own as a department other people can call.
+
+**The walkthroughs live on ai-pipeline.dev** — five pages, in order, every command on them pasted from a terminal where it ran. This section is the plugin-side reference and deliberately does not repeat them:
+
+| Page | Covers |
+|---|---|
+| [Get started](https://ai-pipeline.dev/docs/getting-started) | `bun add -g` → `pipeline init` → a completed local run. No account; nothing leaves the machine. |
+| [Connect the cloud](https://ai-pipeline.dev/docs/connect-the-cloud) | `pipeline cloud connect` — one browser approval, no token typed or pasted — and what the Free plan includes. |
+| [Use a department](https://ai-pipeline.dev/docs/use-a-department) | `/mcp`, delegating in plain language, and what happens when a department asks you something back. |
+| [Build a department](https://ai-pipeline.dev/docs/build-a-department) | `department.yml`, then `new` / `validate` / `serve` / `status`, and running the same department on another machine. |
+| [Privacy](https://ai-pipeline.dev/docs/privacy-tiers) | Field by field, what leaves your machine once any of this is connected. |
+
+The plugin-internal contract behind the two client pieces — why the MCP entry and the notifier deliberately don't share a transport, what the `timeout` is sized against, and every file involved — is [`docs/departments-mcp.md`](docs/departments-mcp.md).
 
 ### Connecting — 2 steps, 1 browser hop, no token to paste
 
@@ -739,12 +769,32 @@ Separate from pipelines: this plugin also ships a **remote MCP server entry** po
 /mcp
 ```
 
-1. Running `/mcp` (or just asking to delegate work — Claude Code triggers discovery automatically) opens your browser to the departments' consent screen.
+1. Running `/mcp` (or just asking to delegate work — Claude Code triggers discovery automatically) lists `ai-pipeline-departments` as needing authorization; selecting it opens your browser to the departments' consent screen.
 2. Log in if needed and approve — pick your org if you belong to more than one.
 
-That's it. Claude Code holds an audience-bound, scope-limited, short-lived credential from here on — never a long-lived token sitting on disk, and nothing to copy-paste. This is the same flow you'd use to connect any other remote MCP server; the plugin just ships the server's URL for you.
+That's it, once per machine. Claude Code holds an audience-bound, scope-limited, short-lived credential from here on — never a long-lived token sitting on disk, and nothing to copy-paste. This is the same flow you'd use to connect any other remote MCP server; the plugin just ships the server's URL for you.
 
 Once connected, delegating work is one line in natural language — "have the Unity department review the save system" — and the agent calls the departments' tools (`departments.list`, `tasks.send`, `tasks.wait`, …) on your behalf. A clarifying question along the way costs exactly one extra turn (you answer it like any other question); the result and any artifacts land back in your session.
+
+> **One-time re-consent when you update to this version.** The MCP server key is `ai-pipeline-departments`; it was `ai-pipeline-mesh` before the terminology rename. That key is embedded in every tool's callable name (`mcp__plugin_<plugin>_<server>__<tool>`) and stored OAuth grants are keyed by it, so to Claude Code the renamed entry is a *new* server with no grant: run `/mcp` and approve once more. Nothing else about the connection changes. If you carry the old name in a `permissions.allow` entry, a skill's `allowed-tools`, a subagent's `tools` list or a hook matcher, update it too.
+
+### Publishing one of your own — the `pipeline department` commands
+
+A department is a folder whose only required file is `department.yml`. [Build a department](https://ai-pipeline.dev/docs/build-a-department) walks that end to end; these are the verbs it uses.
+
+| Command | What it does |
+|---|---|
+| `pipeline department new [<name>]` | Scaffolds `department.yml` and **nothing else** — no `.claude/`, no README, no starter agent. The name defaults to the folder's. `--engine <id>` picks the runtime engine; `--from-pipeline <name>` prefills the description and one skill from an existing `.claude/pipeline/<name>/PIPELINE.md` and points the manifest at it. |
+| `pipeline department validate` | Checks a hand-written or hand-edited file: schema + `apiVersion`, engine support, coherence, advisory nits, and the local paths it names. Non-zero exit on any error, `--json` for scripts. It ends by listing what it structurally *cannot* check (a runner, a credential, the control plane) — that list is `serve`'s job. |
+| `pipeline department serve` | One command from an authored file to a live department: validate, sign in, register (or update the registration when the manifest changed), enrol this machine as a runner if it isn't one, bind the runtime, ensure a supervisor is installed, claim the install, report. No separate connect step, no runner token. Idempotent and resumable from any partial state, and it writes nothing **inside** the department folder, so a department stays clonable. |
+| `pipeline department status [--follow]` | State, plan budget, and recent tasks — from the control plane when a credential is already stored, from this machine's own binding state when it isn't. Never triggers an interactive sign-in. Each task line names who asked (sender) and what ran it (engine), read from this machine's own runner journal; a task this machine did not run shows `?` for both, with the reason, rather than being attributed to somebody else. |
+| `pipeline department stop` | Local only: finishes in-flight tasks, refuses new offers, unbinds from this machine's supervisor. It never contacts the control plane, so the registration survives and `serve` brings it straight back — and it works with the network down. |
+| `pipeline department retire` | The unpublish verb (owner role): soft-deletes the department from the org, fails its open tasks with a stated reason, and only **then** unbinds locally. That order is deliberate — if the cloud half fails, this machine is left exactly as it was rather than unserved while the control plane keeps routing to it. Destructive; refused without `--yes` when not interactive. |
+
+Two things worth knowing before you author one:
+
+- **`serve` reports only what it observed.** It prints `online` when the control plane says so, `registered — not serving` with the reason and the fix when this machine has no live supervisor, and `could not confirm it is live` when neither could be read. It does not assert success it hasn't checked.
+- **The declared engine has to be one `pipeline-runner` actually ships a module for.** The scaffold's default is `claude-code`; when no module exists for the declared engine, `serve` refuses and registers nothing rather than publishing a department that could not execute a single task, and `validate`'s engine-support line tells you the same thing before you get there — one predicate behind both, so they cannot disagree. [Build a department](https://ai-pipeline.dev/docs/build-a-department) walks `engine: pipeline`, which turns a pipeline you already have into something your org can call, and states the current limit in the CLI's own words. Nothing about the file changes when a missing module ships: set `runtime.engine` and re-run `serve`.
 
 ### The background notifier — a parked task announces itself
 
@@ -758,9 +808,13 @@ You don't do anything extra to get this: it reuses the same credential `pipeline
 
 ```bash
 # one-time (if you haven't already connected the CLI to the cloud for other reasons):
+pipeline cloud connect
+# …or, with no global install, the copy that ships inside the plugin:
 bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" cloud connect
 
-# manual smoke-test / debugging — runs one poll cycle and exits:
+# manual smoke-test / debugging — runs one poll cycle and exits. Use the bundled
+# copy: the daemon the hook spawns is this one, and it is the version that
+# matters when the published CLI is older.
 bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" department notify --once --json
 ```
 

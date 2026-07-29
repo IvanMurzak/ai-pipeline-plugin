@@ -42,9 +42,16 @@ user's `permissions.allow`, a skill's `allowed-tools`, a subagent's `tools` list
 renaming it silently breaks every one of those. Stored OAuth credentials are also keyed by the server
 name (`claude mcp logout <name>` takes the name), so a renamed server is a NEW server with no grant:
 **every connected user re-consents, once.** This was deliberately sequenced as a tier-3 change
-(08-terminology.md §2, D10's revision) rather than shipped as an incidental tier-1 rename, and the
-plugin's `version` bump + changelog entry for the release that actually ships this key is coordinated
-with `c13` rather than happening in the same commit that edits this file.
+(08-terminology.md §2, D10's revision) rather than shipped as an incidental tier-1 rename.
+
+**The key reached installed users in plugin `0.85.0` (a12), not in the commit that renamed it.** That
+commit changed this file and `plugin.json`'s key without touching `plugin.json`'s `version`, and
+Claude Code caches an installed plugin by `name@version` — so every already-installed user kept the
+old manifest and the legacy key until the next bump, which was verified live before 0.85.0 (`claude
+mcp list` after `pipeline init` still reported `ai-pipeline-mesh`). If you rename this key again,
+**the version bump is part of the rename, not a follow-up.** The control plane's matching
+`serverInfo.name` rename (`c13`) is on the same release train, so the two halves agree in the field
+from 0.85.0 on.
 
 - `"type": "http"` is a **remote** Streamable HTTP server, not a stdio `command`. Claude Code performs
   its own OAuth 2.1 discovery + browser consent flow against a remote http/sse server that answers a
