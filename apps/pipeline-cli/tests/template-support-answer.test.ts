@@ -18,7 +18,7 @@
 import { test, expect, afterEach, afterAll } from 'bun:test';
 import { computePlan } from '../src/lib/plan';
 import { invokeNext } from '../src/commands/next';
-import { mkdtempSync, mkdirSync, cpSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, cpSync, rmSync, readFileSync, existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -342,7 +342,12 @@ test(
     expect(isAbsolute(out.docs_dir)).toBe(true);
     // Resolved against the CLONE's own root, not the template it was copied
     // from: a relative PP_DOCS_DIR must follow the pipeline, not its origin.
-    expect(out.docs_dir.startsWith(w.root)).toBe(true);
+    //
+    // Compared through realpathSync, NOT as strings: a Windows CI runner's TEMP
+    // is the 8.3 short form (C:\Users\RUNNER~1\…) while the script resolves its
+    // own location to the long form, so a `startsWith` on the raw paths is false
+    // for two names of the same directory. realpath normalises both.
+    expect(realpathSync(out.docs_dir)).toBe(realpathSync(join(w.root, 'sample-docs')));
     expect(out.candidates.length).toBeGreaterThan(0);
 
     const stepBody = readFileSync(join(w.root, 'steps', '02-select.md'), 'utf8');
