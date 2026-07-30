@@ -2,7 +2,7 @@
 
 ## End State
 
-A concise answer to the user's question, grounded in a local folder of docs and
+A concise, grounded answer to the user's question, from a local folder of docs,
 citing the source file it came from.
 
 ## Scope
