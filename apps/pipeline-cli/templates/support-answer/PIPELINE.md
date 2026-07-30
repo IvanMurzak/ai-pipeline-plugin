@@ -2,32 +2,43 @@
 
 ## End State
 
-A concise, grounded answer to the user's question, drawn from a local folder of
-docs and citing the exact source file it came from.
+A concise answer to the user's question, grounded in a local folder of docs and
+citing the source file it came from.
 
 ## Scope
 
 In:
 - BM25 retrieval over a local docs folder (read-only), agent selection of the
-  best source, and a grounded answer with a citation.
+  best source, and a cited answer.
 
 Out:
 - Writing to the docs or the user's code, network calls, and multi-source
-  synthesis (each answer is grounded in a single best source).
+  synthesis (one answer, one source).
 
 ## Project Context
 
 - Root: the consumer project this pipeline was cloned into.
-- Docs: a folder of `.md` / `.txt` files (`PP_DOCS_DIR`); a bundled
-  `sample-docs/` corpus ships so a bare run works with zero config.
+- Docs: `.md` / `.txt` files (`PP_DOCS_DIR`); a bundled `sample-docs/` corpus
+  ships so a bare run works with zero config.
 - Retrieval: `scripts/bm25_retrieve.ts` (Bun, stdlib-only, no network, no LLM);
-  it self-tests via `bun test scripts/tests/` from this pipeline root.
+  self-tests via `bun test scripts/tests/`. Step 01 is a `type: script` step —
+  in-process, no agent, no tokens.
+
+## Graph
+
+```json
+{
+"01-retrieve": {"goto": "02-select"},
+"02-select": {"goto": "03-answer"},
+"03-answer": {"done": true}
+}
+```
 
 ## Invariants
 
-- READ-ONLY: no step writes to the docs or the user's code; the pipeline touches
-  nothing outside its own run state.
-- Each answer is grounded in exactly ONE selected source file and cites it.
+- READ-ONLY: no step writes to the docs or the user's code; nothing outside the
+  run state is touched.
+- Each answer is grounded in exactly ONE source file and cites it.
 - No network and no external installs — pure local retrieval.
 
 ## Variables
