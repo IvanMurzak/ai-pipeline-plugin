@@ -4,6 +4,37 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## CLI 0.8.0 — the department surface a whole epic of fixes, and a starter pipeline that costs one step less
+
+The first CLI release since 0.7.0, carrying seven merged PRs plus the starter-template change
+below. Every `pipeline department` verb is affected, so upgrade before filing anything against
+0.7.0's behaviour.
+
+- **`serve` can bring a `claude-code` department online at all** (x32). It could not: `serve` kept
+  its own list of servable adapters, that list went stale when the engine module shipped, and the
+  command printed `✓ engine claude-code (supported)` and then refused the same manifest one screen
+  later. There is now ONE predicate behind both sentences.
+- **`serve --foreground` no longer calls a live local department "served from somewhere else"**
+  and exit 1 on a successful register+bind (x39), and `serve` verifies "● online" instead of
+  asserting it — a stopped supervisor used to still print it (x13).
+- **`status` shows who asked and what ran it** (x19/x44), read by shelling
+  `pipeline-runner journal` so it works when the runner service runs as another account —
+  previously every task rendered `?` on the happy path (x22). It also learned the machine-credential
+  rung, so a no-human setup no longer reads as permanently "offline" (x50), and every offline
+  fallback now states its reason.
+- **`retire` deletes in the cloud FIRST and unbinds locally only after** (x49). The old order left
+  a refused delete with the department callable in the cloud and unserved on the machine.
+- **`validate` reports the required `runtime:` fields from the engine registry** (x51), so it can
+  no longer accept a manifest `serve` refuses one command later, and it names what it structurally
+  could not check.
+- **Terminology:** `mesh`/`fleet` are gone from the CLI surface (a11). `pipeline mesh notify` still
+  works as a hidden deprecated alias for `pipeline department notify`.
+- **`support-answer` step 01 is now a `type: script` step.** Retrieval is deterministic software,
+  so it runs in-process with no agent and no LLM tokens — roughly 10–20k tokens off every run of
+  the starter pipeline. Steps 02 and 03 are unchanged and read the same output file. Routing moved
+  into a `## Graph` block, which is what lets a shipped template have a script step at all (a
+  sequential one needs an absolute `## Next`, and a template cannot know its own future path).
+
 ## plugin 0.85.0 — the MCP server rename reaches installed users; install is `pipeline init`
 
 Two things, one of which is not a documentation change despite living in a documentation release.
