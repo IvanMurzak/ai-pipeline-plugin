@@ -4,7 +4,7 @@
  * lock file; only filesystem reads and string parsing.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
 import { resolve, join, dirname, basename } from "node:path";
 
 /** Transcript opt-out switch (`PIPELINE_UI_TRANSCRIPTS`). ON BY DEFAULT.
@@ -906,21 +906,69 @@ export function streamJournalLines(
   path: string,
   onEvent: (ev: JournalEvent) => void,
 ): void {
-  if (!existsSync(path)) return;
-  let raw;
-  try {
-    raw = readFileSync(path, "utf-8");
-  } catch {
-    return;
-  }
-  for (const line of raw.split("\n")) {
-    const t = line.trim();
-    if (!t) continue;
+  forEachFileLine(path, (line) => {
     try {
-      onEvent(JSON.parse(t) as JournalEvent);
+      onEvent(JSON.parse(line) as JournalEvent);
     } catch {
       /* skip malformed */
     }
+  });
+}
+
+/** Size of one journal read. Big enough that a large shard costs few syscalls,
+ *  small enough that peak resident bytes are a rounding error next to a shard. */
+const LINE_READ_CHUNK_BYTES = 256 * 1024;
+
+/**
+ * Walk a file line by line with a bounded buffer, never holding the file (nor
+ * its line array) in memory.
+ *
+ * The previous implementation read the whole shard and `split("\n")` it, which
+ * this repo already flagged as a follow-up. It is worth doing: journals reach
+ * tens of megabytes (35 MB on one real project), a JS string of a 35 MB UTF-8
+ * file is ~70 MB on its own, and the line array multiplies that again — per
+ * project, per 60-second sweep. Measured on a real daemon that was an 846 MB
+ * working-set spike every minute against a 154 MB baseline.
+ *
+ * Blank lines are skipped; each line is delivered trimmed.
+ */
+export function forEachFileLine(path: string, onLine: (line: string) => void): void {
+  if (!existsSync(path)) return;
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return;
+  }
+  try {
+    const buf = Buffer.allocUnsafe(LINE_READ_CHUNK_BYTES);
+    // A chunk boundary can land mid-character; the streaming decoder carries
+    // those bytes to the next chunk instead of emitting a replacement char.
+    const decoder = new TextDecoder("utf-8");
+    let carry = "";
+    for (;;) {
+      let read: number;
+      try {
+        read = readSync(fd, buf, 0, buf.length, null);
+      } catch {
+        break;
+      }
+      if (read <= 0) break;
+      const chunk = carry + decoder.decode(buf.subarray(0, read), { stream: true });
+      let start = 0;
+      for (;;) {
+        const nl = chunk.indexOf("\n", start);
+        if (nl === -1) break;
+        const line = chunk.slice(start, nl).trim();
+        if (line) onLine(line);
+        start = nl + 1;
+      }
+      carry = chunk.slice(start);
+    }
+    const tail = (carry + decoder.decode()).trim();
+    if (tail) onLine(tail);
+  } finally {
+    closeSync(fd);
   }
 }
 

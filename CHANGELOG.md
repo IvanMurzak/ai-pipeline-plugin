@@ -4,6 +4,29 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## plugin 0.85.2 — the minute sweep stops re-reading 70 MB of journals it has already read
+
+0.85.1 stopped the daemon walking projects that no longer exist. This one stops it re-reading the
+ones that do. The 60-second sweep read and JSON-parsed EVERY shard of EVERY project's journal —
+71 MB on a real machine, 35 MB of it a single project — with `readFileSync` + `split("
+")`, which
+is a UTF-16 copy of the file plus an array of every line. Measured on the running daemon: an
+846 MB working-set spike (1056 MB private) once a minute against a 154 MB baseline.
+
+- **The journal walk is streamed.** `streamJournalLines` reads in 256 KB chunks with a carried
+  partial line and a streaming UTF-8 decoder, so a multi-byte character on a chunk boundary
+  survives intact. This was already flagged in the source as a follow-up. Measured over the two
+  real 64 MB journals, folding the same 212,126 events to the same result: peak RSS 284 MB → 158 MB,
+  and slightly faster (208 ms → 182 ms).
+- **A project whose journal has not moved is not swept at all.** The manager-stopped sweep is a
+  pure function of the journal, so its verdict cannot change while the file does not — unless it
+  left a decision pending (a `manager.stopped` whose driver may still die), which is tracked and
+  keeps that project on the every-minute path. Idle projects now cost one `stat` per shard.
+- **Journal poll interval 1 s → 2 s.**
+
+Between the two releases the fold does not touch idle journals at all, and the journals it does
+touch cost about half of what they did.
+
 ## plugin 0.85.1 — the dashboard daemon stops paying for every project the machine has ever seen
 
 The pipeline-ui daemon polled EVERY registered project every 400 ms, and swept each one four

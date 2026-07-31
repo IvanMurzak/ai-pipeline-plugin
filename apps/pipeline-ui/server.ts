@@ -25,6 +25,7 @@ import { spawn } from "node:child_process";
 import {
   capMap,
   deadProjectIds,
+  forEachFileLine,
   shouldPollJournal,
   listJournalShards,
   normalizePathForCompare,
@@ -740,6 +741,7 @@ function dropProject(pid: string): boolean {
   }
   journalTails.delete(pid);
   lastSeenPersistedAt.delete(pid);
+  sweptJournals.delete(pid);
   invalidatePipelineCache(entry.project_root);
   invalidateRunsCache(entry.project_root);
   frontmatterCache.invalidatePrefix(entry.project_root);
@@ -816,9 +818,9 @@ const journalTails = new Map<string, JournalTail>();        // pid → tail stat
 const projectWatchers = new Map<string, ReturnType<typeof fsWatch>[]>();
 
 /** Poll cadence for a project whose journal is moving. */
-const JOURNAL_POLL_MS = 1_000;
+const JOURNAL_POLL_MS = 2_000;
 /** Every Nth tick also sweeps the quiet projects, so a run that starts while
- *  fsWatch is asleep is still picked up within COLD_POLL_TICKS seconds. */
+ *  fsWatch is asleep is still picked up within COLD_POLL_TICKS ticks. */
 const COLD_POLL_TICKS = 5;
 /** How long a project stays on the fast tier after its journal last grew. */
 const HOT_PROJECT_WINDOW_MS = 5 * 60_000;
@@ -2223,9 +2225,12 @@ function sweepProjectLiveness(entry: ProjectEntry): void {
  * Idempotent: once we emit the abandonment `pipeline.halted`, the run_id is
  * terminal and is skipped on every subsequent sweep.
  */
-function sweepManagerStoppedRuns(entry: ProjectEntry): void {
+/** Returns true when the journal holds a `manager.stopped` whose verdict can
+ *  still change without the journal changing (its driver may die later), so
+ *  the caller knows this project must be re-swept even while idle. */
+function sweepManagerStoppedRuns(entry: ProjectEntry): boolean {
   const shards = listJournalShards(journalPath(entry));
-  if (shards.length === 0) return;
+  if (shards.length === 0) return false;
 
   const started = new Set<string>();
   const stopped = new Set<string>();
@@ -2235,23 +2240,17 @@ function sweepManagerStoppedRuns(entry: ProjectEntry): void {
 
   let sawManagerStopped = false;
   for (const shard of shards) {
-    let text: string;
-    try {
-      text = readFileSync(shard, "utf-8");
-    } catch {
-      continue;
-    }
-    for (const line of text.split("\n")) {
-      const t = line.trim();
-      if (!t) continue;
+    // Streamed, not readFileSync + split: this walks every shard of every
+    // project once a minute, and one real journal here is 35 MB.
+    forEachFileLine(shard, (t) => {
       let ev: { type?: string; run_id?: string; worktree?: string | null; data?: Record<string, unknown> };
       try {
         ev = JSON.parse(t);
       } catch {
-        continue;
+        return;
       }
       const rid = ev.run_id;
-      if (typeof rid !== "string" || !rid) continue;
+      if (typeof rid !== "string" || !rid) return;
       const d = ev.data ?? {};
       const ctx = (): { pipeline_name: string | null; iteration_path: string | null; worktree: string | null } => {
         let c = context.get(rid);
@@ -2290,12 +2289,12 @@ function sweepManagerStoppedRuns(entry: ProjectEntry): void {
         default:
           break;
       }
-    }
+    });
   }
 
   // Cheap exit for the overwhelming majority of journals: no manager.stopped
   // event means there is nothing event-driven to retire here.
-  if (!sawManagerStopped) return;
+  if (!sawManagerStopped) return false;
 
   const runsDir = join(entry.project_root, ".claude", "pipeline", ".runtime", "runs");
   // True when run_id still has a liveness lockfile naming a LIVE driving
@@ -2340,7 +2339,26 @@ function sweepManagerStoppedRuns(entry: ProjectEntry): void {
     );
     terminal.add(rid);
   }
+  return true;
 }
+
+/** Paths + sizes of a project's journal shards. Journals only ever grow, so an
+ *  unchanged fingerprint means no new events since the last look. */
+function journalFingerprint(entry: ProjectEntry): string {
+  let fp = "";
+  for (const shard of listJournalShards(journalPath(entry))) {
+    try {
+      fp += `${shard}:${statSync(shard).size};`;
+    } catch {
+      fp += `${shard}:?;`;
+    }
+  }
+  return fp;
+}
+
+/** project_id → {fingerprint at the last sweep, whether that sweep left a
+ *  decision pending}. */
+const sweptJournals = new Map<string, { fingerprint: string; pending: boolean }>();
 
 /**
  * Third abandonment trigger (design 06, edge case E5): a user-pressed Esc.
@@ -3728,7 +3746,17 @@ async function bootDaemon(): Promise<void> {
   // 60s (early-returns for the vast majority that have none).
   setInterval(() => {
     for (const e of Object.values(registry)) {
-      sweepManagerStoppedRuns(e);
+      // sweepManagerStoppedRuns walks every shard of this project's journal.
+      // Its inputs are the journal and — only once a manager.stopped exists —
+      // the liveness lockfiles, so a project whose journal has not moved AND
+      // which left no pending decision cannot produce a different verdict.
+      // Skipping those is what keeps ~70 MB of idle journals from being read
+      // and parsed once a minute.
+      const fingerprint = journalFingerprint(e);
+      const last = sweptJournals.get(e.project_id);
+      if (!last || last.pending || last.fingerprint !== fingerprint) {
+        sweptJournals.set(e.project_id, { fingerprint, pending: sweepManagerStoppedRuns(e) });
+      }
       sweepProjectLiveness(e);
       sweepInterruptedRuns(e);
       // Recovery rung T4 (design 04): the same shared backfill core the hook,
