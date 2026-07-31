@@ -1,16 +1,17 @@
 /**
- * Parity test — the three copies of resolveProjectRoot MUST return the same
- * result for the same input.
+ * Parity test — every copy of resolveProjectRoot MUST return the same result
+ * for the same input.
  *
- * Why three copies in the first place: each hook is spawned by Claude Code
- * as a standalone bun script (see CLAUDE.md and the comment block in
- * analytics_relay.ts:51). The hooks must not import from sibling .ts files
- * at runtime, so the canonical helper in apps/pipeline-ui/lib.ts is also
- * copied into hooks/pipeline_ui_relay.ts and hooks/analytics_relay.ts.
+ * Why copies exist at all: each hook is spawned by Claude Code as a standalone
+ * bun script (see CLAUDE.md and the comment block in analytics_relay.ts), and
+ * apps/pipeline-cli publishes standalone to npm — neither may import a sibling
+ * .ts at runtime. So the canonical helper in apps/pipeline-ui/lib.ts is copied
+ * into hooks/pipeline_ui_relay.ts, hooks/analytics_relay.ts,
+ * hooks/prompt_match_relay.ts and apps/pipeline-cli/src/lib/event.ts.
  *
- * This test runs identical fixtures through all three implementations and
- * fails if any copy drifts. If you change one, change all three — and run
- * this test to confirm the algorithms still agree.
+ * Three of those export their copy, so this test runs the REAL code. The two
+ * that do not are reimplemented verbatim below; the last test in this file
+ * greps all five sources so a copy cannot be silently forgotten.
  *
  *   bun test tests/resolve-parity.test.ts
  */
@@ -24,16 +25,37 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 
 import { resolveProjectRootFromCwd as canonical } from "../lib.ts";
+import { resolveProjectRoot as promptMatchCopy } from "../../../hooks/prompt_match_relay.ts";
+import { resolveProjectRoot as cliCopy } from "../../pipeline-cli/src/lib/event.ts";
 
-// --- Reimplementations copied verbatim from the two hook files. Update
-//     these copies when (and only when) the hook files change. The whole
-//     point is to detect drift between hook copies and the canonical lib.
+// --- Reimplementation copied verbatim from the two hook files that do not
+//     export theirs. Update this when (and only when) those files change.
 
-function resolveFromHookA(start: string): { project_root: string; worktree: string | null } {
+function submoduleWorktreeOfCopy(commonDir: string): string | null {
+  try {
+    const config = readFileSync(join(commonDir, "config"), "utf-8");
+    let inCore = false;
+    for (const rawLine of config.split("\n")) {
+      const line = rawLine.trim();
+      if (line.startsWith("[")) {
+        inCore = line.toLowerCase().startsWith("[core");
+        continue;
+      }
+      if (!inCore) continue;
+      const m = /^worktree\s*=\s*(.+)$/i.exec(line);
+      if (m?.[1]) return resolve(commonDir, m[1].trim());
+    }
+  } catch {
+    /* unreadable config */
+  }
+  return null;
+}
+
+function resolveFromHookCopy(start: string): { project_root: string; worktree: string | null } {
   let cur = resolve(start);
   for (let i = 0; i < 64; i++) {
     const git = join(cur, ".git");
@@ -49,11 +71,10 @@ function resolveFromHookA(start: string): { project_root: string; worktree: stri
             try {
               const commondir = readFileSync(commondirFile, "utf-8").trim();
               const common = resolve(gitdir, commondir);
-              const mainRoot =
-                common.endsWith(".git") || common.endsWith(`.git`)
-                  ? dirname(common)
-                  : common;
-              return { project_root: mainRoot, worktree: cur };
+              if (common.endsWith(".git")) return { project_root: dirname(common), worktree: cur };
+              const checkout = submoduleWorktreeOfCopy(common);
+              if (checkout) return { project_root: checkout, worktree: cur };
+              return { project_root: cur, worktree: null };
             } catch {
               /* no commondir */
             }
@@ -72,40 +93,9 @@ function resolveFromHookA(start: string): { project_root: string; worktree: stri
   return { project_root: resolve(start), worktree: null };
 }
 
-function resolveFromHookB(start: string): { project_root: string; worktree: string | null } {
-  let cur = resolve(start);
-  for (let i = 0; i < 64; i++) {
-    const git = join(cur, ".git");
-    try {
-      const s = statSync(git);
-      if (s.isDirectory()) return { project_root: cur, worktree: null };
-      if (s.isFile()) {
-        try {
-          const content = readFileSync(git, "utf-8").trim();
-          if (content.startsWith("gitdir:")) {
-            const gitdir = resolve(cur, content.slice(7).trim());
-            const commondirFile = join(gitdir, "commondir");
-            try {
-              const commondir = readFileSync(commondirFile, "utf-8").trim();
-              const common = resolve(gitdir, commondir);
-              const mainRoot = common.endsWith(".git") ? dirname(common) : common;
-              return { project_root: mainRoot, worktree: cur };
-            } catch {
-              /* no commondir */
-            }
-          }
-        } catch {
-          /* unreadable */
-        }
-      }
-    } catch {
-      /* no .git here */
-    }
-    const parent = dirname(cur);
-    if (parent === cur) break;
-    cur = parent;
-  }
-  return { project_root: resolve(start), worktree: null };
+/** Every implementation, run over the same input. */
+function allCopies(cwd: string): Array<{ project_root: string; worktree: string | null }> {
+  return [canonical(cwd), promptMatchCopy(cwd), cliCopy(cwd), resolveFromHookCopy(cwd)];
 }
 
 // --- Fixtures
@@ -120,22 +110,15 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe("resolveProjectRoot parity (3 copies must agree)", () => {
+describe("resolveProjectRoot parity (all copies must agree)", () => {
   test("plain repo: .git is a directory", () => {
     const proj = join(root, "plain");
     mkdirSync(join(proj, ".git", "objects"), { recursive: true });
     mkdirSync(join(proj, "src"), { recursive: true });
 
-    const expectedRoot = resolve(proj);
     const cwd = join(proj, "src");
-
-    const canon = canonical(cwd);
-    const a = resolveFromHookA(cwd);
-    const b = resolveFromHookB(cwd);
-
-    expect(canon).toEqual({ project_root: expectedRoot, worktree: null });
-    expect(a).toEqual(canon);
-    expect(b).toEqual(canon);
+    const expected = { project_root: resolve(proj), worktree: null };
+    for (const got of allCopies(cwd)) expect(got).toEqual(expected);
   });
 
   test("worktree: .git is a file with gitdir + commondir", () => {
@@ -150,26 +133,86 @@ describe("resolveProjectRoot parity (3 copies must agree)", () => {
     writeFileSync(join(gitdir, "commondir"), "../..");
     writeFileSync(join(wt, ".git"), `gitdir: ${gitdir}`);
 
-    const canon = canonical(wt);
-    const a = resolveFromHookA(wt);
-    const b = resolveFromHookB(wt);
+    const expected = { project_root: resolve(main), worktree: resolve(wt) };
+    for (const got of allCopies(wt)) expect(got).toEqual(expected);
+  });
 
-    expect(canon.project_root).toBe(resolve(main));
-    expect(canon.worktree).toBe(resolve(wt));
-    expect(a).toEqual(canon);
-    expect(b).toEqual(canon);
+  // Regression: a worktree of a SUBMODULE resolves its commondir to
+  // <repo>/.git/modules/<name>, which is not a working tree. Every copy used to
+  // return that path, so each worktree of a submodule registered as its own
+  // project — under a path inside .git — instead of folding into the submodule
+  // it belongs to. Seen live: two such projects in a 174-entry registry.
+  test("submodule worktree: folds into the submodule's own checkout", () => {
+    const parent = join(root, "parent");
+    const checkout = join(parent, "public", "sub");
+    const moduleDir = join(parent, ".git", "modules", "public", "sub");
+    mkdirSync(checkout, { recursive: true });
+    mkdirSync(moduleDir, { recursive: true });
+    writeFileSync(
+      join(moduleDir, "config"),
+      [
+        "[core]",
+        "\trepositoryformatversion = 0",
+        "\tworktree = ../../../../public/sub",
+        '[remote "origin"]',
+        "\turl = https://example.invalid/sub",
+      ].join("\n"),
+    );
+
+    const wt = join(root, "sub-worktree");
+    mkdirSync(wt, { recursive: true });
+    const gitdir = join(moduleDir, "worktrees", "sub-worktree");
+    mkdirSync(gitdir, { recursive: true });
+    writeFileSync(join(gitdir, "commondir"), "../..");
+    writeFileSync(join(wt, ".git"), `gitdir: ${gitdir}`);
+
+    const expected = { project_root: resolve(checkout), worktree: resolve(wt) };
+    for (const got of allCopies(wt)) expect(got).toEqual(expected);
+  });
+
+  test("submodule worktree with no core.worktree: stands alone, never a path inside .git", () => {
+    const parent = join(root, "parent2");
+    const moduleDir = join(parent, ".git", "modules", "orphan");
+    mkdirSync(moduleDir, { recursive: true });
+    writeFileSync(join(moduleDir, "config"), "[core]\n\tbare = false\n");
+
+    const wt = join(root, "orphan-worktree");
+    mkdirSync(wt, { recursive: true });
+    const gitdir = join(moduleDir, "worktrees", "orphan-worktree");
+    mkdirSync(gitdir, { recursive: true });
+    writeFileSync(join(gitdir, "commondir"), "../..");
+    writeFileSync(join(wt, ".git"), `gitdir: ${gitdir}`);
+
+    for (const got of allCopies(wt)) {
+      expect(got).toEqual({ project_root: resolve(wt), worktree: null });
+      expect(got.project_root).not.toContain(`.git${sep}modules`);
+    }
   });
 
   test("no .git anywhere: returns the start path", () => {
     const proj = join(root, "no-git");
     mkdirSync(proj, { recursive: true });
 
-    const canon = canonical(proj);
-    const a = resolveFromHookA(proj);
-    const b = resolveFromHookB(proj);
+    const expected = { project_root: resolve(proj), worktree: null };
+    for (const got of allCopies(proj)) expect(got).toEqual(expected);
+  });
+});
 
-    expect(canon).toEqual({ project_root: resolve(proj), worktree: null });
-    expect(a).toEqual(canon);
-    expect(b).toEqual(canon);
+describe("no copy is left behind", () => {
+  const pluginRoot = resolve(import.meta.dir, "..", "..", "..");
+  const copies = [
+    "apps/pipeline-ui/lib.ts",
+    "hooks/pipeline_ui_relay.ts",
+    "hooks/analytics_relay.ts",
+    "hooks/prompt_match_relay.ts",
+    "apps/pipeline-cli/src/lib/event.ts",
+  ];
+
+  test("every source carrying a resolver also carries the submodule branch", () => {
+    for (const rel of copies) {
+      const src = readFileSync(join(pluginRoot, rel), "utf-8");
+      expect(src).toContain("function submoduleWorktreeOf");
+      expect(src).toContain("Submodule worktree: common is");
+    }
   });
 });

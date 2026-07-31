@@ -110,6 +110,35 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+/** The main working tree recorded in a submodule's module directory.
+ *
+ *  A worktree of a SUBMODULE resolves its commondir to `<repo>/.git/modules/
+ *  <name>`, which is not a working tree at all — git records the submodule's
+ *  checkout there as `core.worktree`. Without this, every worktree of a
+ *  submodule registers as its own project under a path inside `.git`.
+ *
+ *  COPY of apps/pipeline-ui/lib.ts:submoduleWorktreeOf — hooks cannot import
+ *  from a sibling .ts at runtime. tests/resolve-parity.test.ts fails on drift. */
+function submoduleWorktreeOf(commonDir: string): string | null {
+  try {
+    const config = readFileSync(join(commonDir, "config"), "utf-8");
+    let inCore = false;
+    for (const rawLine of config.split("\n")) {
+      const line = rawLine.trim();
+      if (line.startsWith("[")) {
+        inCore = line.toLowerCase().startsWith("[core");
+        continue;
+      }
+      if (!inCore) continue;
+      const m = /^worktree\s*=\s*(.+)$/i.exec(line);
+      if (m?.[1]) return resolve(commonDir, m[1].trim());
+    }
+  } catch {
+    /* unreadable config → not a submodule module dir we can resolve */
+  }
+  return null;
+}
+
 function resolveProjectRoot(start: string): { project_root: string; worktree: string | null } {
   let cur = resolve(start);
   for (let i = 0; i < 64; i++) {
@@ -126,8 +155,13 @@ function resolveProjectRoot(start: string): { project_root: string; worktree: st
             if (existsSync(commondirFile)) {
               const commondir = readFileSync(commondirFile, "utf-8").trim();
               const common = resolve(gitdir, commondir);
-              const mainRoot = common.endsWith(".git") ? dirname(common) : common;
-              return { project_root: mainRoot, worktree: cur };
+              if (common.endsWith(".git")) return { project_root: dirname(common), worktree: cur };
+              // Submodule worktree: common is `<repo>/.git/modules/<name>`.
+              const checkout = submoduleWorktreeOf(common);
+              if (checkout) return { project_root: checkout, worktree: cur };
+              // Unknown parent — treat this worktree as its own project rather
+              // than registering a path inside `.git`.
+              return { project_root: cur, worktree: null };
             }
           }
         } catch (e) {

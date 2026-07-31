@@ -26,6 +26,7 @@ import {
   capMap,
   deadProjectIds,
   forEachFileLine,
+  gitInternalProjectIds,
   shouldPollJournal,
   listJournalShards,
   normalizePathForCompare,
@@ -765,12 +766,21 @@ function dropProject(pid: string): boolean {
  */
 function pruneRegistry(): number {
   const dead = deadProjectIds(registry, existsSync);
-  for (const pid of dead) dropProject(pid);
-  if (dead.length) {
+  // Roots inside a `.git` directory are not working trees; they were written
+  // by the submodule-worktree resolution bug and no checkout lives there. The
+  // next session in that worktree re-registers it against the submodule's real
+  // checkout, which is the whole point of dropping them.
+  const bogus = gitInternalProjectIds(registry);
+  const drop = new Set([...dead, ...bogus]);
+  for (const pid of drop) dropProject(pid);
+  if (drop.size) {
     saveRegistry(registry);
-    log(`pruned ${dead.length} project(s) whose root no longer exists`);
+    log(
+      `pruned ${drop.size} project(s): ${dead.length} with a vanished root, ` +
+        `${bogus.length} rooted inside .git`,
+    );
   }
-  return dead.length;
+  return drop.size;
 }
 
 /** Trim the machine-global bindings journal. Goes through the mirror service

@@ -246,6 +246,39 @@ export function resolveStepModel(
  * git worktrees. Mirrors hooks/pipeline_ui_relay.ts and analytics_relay.ts;
  * keep these in sync per CLAUDE.md.
  */
+/**
+ * The main working tree recorded in a submodule's module directory.
+ *
+ * A worktree of a SUBMODULE resolves its commondir to `<repo>/.git/modules/
+ * <name>`, which is not a working tree at all — git records the submodule's
+ * checkout there as `core.worktree`. Without this, every worktree of a
+ * submodule registered as its own project under a path inside `.git`, which is
+ * exactly the "same project shows up several times" symptom.
+ *
+ * Returns null when the directory has no readable config or no core.worktree.
+ * MUST stay identical to the copies in hooks/*.ts and apps/pipeline-cli —
+ * tests/resolve-parity.test.ts fails on drift.
+ */
+export function submoduleWorktreeOf(commonDir: string): string | null {
+  try {
+    const config = readFileSync(join(commonDir, "config"), "utf-8");
+    let inCore = false;
+    for (const rawLine of config.split("\n")) {
+      const line = rawLine.trim();
+      if (line.startsWith("[")) {
+        inCore = line.toLowerCase().startsWith("[core");
+        continue;
+      }
+      if (!inCore) continue;
+      const m = /^worktree\s*=\s*(.+)$/i.exec(line);
+      if (m?.[1]) return resolve(commonDir, m[1].trim());
+    }
+  } catch {
+    /* unreadable config → not a submodule module dir we can resolve */
+  }
+  return null;
+}
+
 export function resolveProjectRootFromCwd(start: string): {
   project_root: string;
   worktree: string | null;
@@ -265,8 +298,13 @@ export function resolveProjectRootFromCwd(start: string): {
             if (existsSync(commondirFile)) {
               const commondir = readFileSync(commondirFile, "utf-8").trim();
               const common = resolve(gitdir, commondir);
-              const mainRoot = common.endsWith(".git") ? dirname(common) : common;
-              return { project_root: mainRoot, worktree: cur };
+              if (common.endsWith(".git")) return { project_root: dirname(common), worktree: cur };
+              // Submodule worktree: common is `<repo>/.git/modules/<name>`.
+              const checkout = submoduleWorktreeOf(common);
+              if (checkout) return { project_root: checkout, worktree: cur };
+              // Unknown parent — treat this worktree as its own project rather
+              // than registering a path inside `.git`.
+              return { project_root: cur, worktree: null };
             }
           }
         } catch {
@@ -1427,4 +1465,27 @@ export function shouldPollJournal(
   if (coldSweep) return true;
   if (lastChangeAt === undefined) return false;
   return now - lastChangeAt < hotWindowMs;
+}
+
+/**
+ * Ids of registry entries whose root is not a working tree at all — a path
+ * inside a `.git` directory.
+ *
+ * These come from the submodule-worktree resolution bug: a worktree of a
+ * submodule resolved to `<repo>/.git/modules/<name>`, so it registered as its
+ * own project under a path no checkout lives at. Dropping them is safe and
+ * self-healing — the next session in that worktree registers it correctly,
+ * folded into the submodule's real checkout.
+ */
+export function gitInternalProjectIds(
+  registry: Record<string, { project_root: string }>,
+): string[] {
+  const bogus: string[] = [];
+  for (const [pid, entry] of Object.entries(registry)) {
+    if (!entry?.project_root) continue;
+    // Both separators: resolve() yields backslashes on Windows, forward
+    // slashes elsewhere, and a registry file can outlive a move between them.
+    if (resolve(entry.project_root).split(/[\\/]/).includes(".git")) bogus.push(pid);
+  }
+  return bogus;
 }

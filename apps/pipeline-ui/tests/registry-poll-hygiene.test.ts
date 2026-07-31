@@ -12,7 +12,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { deadProjectIds, shouldPollJournal } from "../lib.ts";
+import { deadProjectIds, gitInternalProjectIds, shouldPollJournal } from "../lib.ts";
 
 describe("deadProjectIds", () => {
   const registry = {
@@ -33,6 +33,28 @@ describe("deadProjectIds", () => {
   test("leaves a malformed entry alone rather than guessing", () => {
     const broken = { weird: {} as { project_root: string } };
     expect(deadProjectIds(broken, () => false)).toEqual([]);
+  });
+});
+
+// Regression: a worktree of a submodule resolved to <repo>/.git/modules/<name>
+// and registered as its own project at a path no checkout lives at. Two such
+// entries were live in a 174-project registry.
+describe("gitInternalProjectIds", () => {
+  test("flags roots that sit inside a .git directory", () => {
+    const registry = {
+      real: { project_root: "C:/Projects/AI/ai-pipeline/public/ai-pipeline-plugin" },
+      bogus: { project_root: "C:/Projects/AI/ai-pipeline/.git/modules/public/ai-pipeline-plugin" },
+      alsoBogus: { project_root: "/home/x/repo/.git/modules/sub" },
+    };
+    expect(gitInternalProjectIds(registry).sort()).toEqual(["alsoBogus", "bogus"]);
+  });
+
+  test("does not flag a project whose name merely contains .git-ish text", () => {
+    const registry = {
+      a: { project_root: "C:/Projects/my.github.io" },
+      b: { project_root: "C:/Projects/gitlab-runner" },
+    };
+    expect(gitInternalProjectIds(registry)).toEqual([]);
   });
 });
 

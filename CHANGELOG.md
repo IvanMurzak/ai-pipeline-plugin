@@ -4,6 +4,29 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## plugin 0.85.3 — a worktree of a submodule is the same project again
+
+A worktree of a SUBMODULE registered as its own project, at a path no checkout lives at.
+
+`resolveProjectRoot` follows a worktree's `commondir` and treats the result's parent as the main
+working tree when it ends in `.git`. For a submodule worktree it does not: commondir resolves to
+`<repo>/.git/modules/<name>`, a module directory, and every copy of the resolver returned that
+path verbatim. Two such entries were live in a 174-project registry, for example
+`C:/Projects/AI/ai-pipeline/.git/modules/public/ai-pipeline-plugin` — a "project" that is
+neither the submodule's checkout nor the worktree, and that no other session ever joins.
+
+- **Submodule worktrees fold into the submodule's own checkout.** Git records it in the module
+  directory as `core.worktree`; the resolver now reads it, so `…/public/ai-pipeline-plugin` and any
+  worktree of it are one project with the worktree carried as a tag, exactly like a worktree of a
+  plain repo already was.
+- **When the checkout cannot be determined** (no `core.worktree`), the worktree stands alone as its
+  own project instead of registering a path inside `.git`.
+- **Registry entries rooted inside `.git` are pruned** at boot alongside the vanished ones, so the
+  bogus projects an older build recorded disappear and re-register correctly.
+- The fix is applied to all five copies of the resolver (the canonical one, three hooks, and the
+  CLI's), and the parity test now runs four of them for real, adds submodule fixtures, and greps
+  all five sources so a copy cannot be silently missed again.
+
 ## plugin 0.85.2 — the minute sweep stops re-reading 70 MB of journals it has already read
 
 0.85.1 stopped the daemon walking projects that no longer exist. This one stops it re-reading the
