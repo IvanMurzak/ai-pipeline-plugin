@@ -4,6 +4,32 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## plugin 0.85.4 — a run's measurements outlive the worktree it ran in
+
+Run a pipeline from inside a git worktree and its measurements were written into that worktree —
+`<worktree>/.claude/pipeline/.stats/<pipeline>/…` — so `git worktree remove` destroyed them at
+exactly the moment the run they measured finished. They were unreadable even while they existed:
+every reader (the dashboard's stats sweep, the Stop-hook token backfill, `pipeline stats`) resolves
+a project through the worktree-to-main mapping and so only ever looked in the main checkout.
+
+The CLI already applies the right rule to worktrees it creates itself — for an `isolation: external`
+run the bookkeeping is main-scoped (D6). This extends the same rule to a worktree the CLI did not
+create: Claude Code's own worktree sessions, parallel-wave worktrees, `.claude/worktrees/<name>/`.
+
+- **`.stats` is anchored to the MAIN checkout.** A pipeline root inside a worktree resolves to its
+  equivalent in the main working tree, so `runs.jsonl`, `SUMMARY.md` and the per-run
+  `runs/<id>.log` timeline are written once, in the surviving project, whichever checkout executed
+  the run. Verified end to end: run inside a worktree, `git worktree remove --force`, artifacts
+  still there.
+- **The readers were moved with the writer.** `findStatsProjectRoot` — the one walk the Stop-hook
+  relay and the run-init kick both use — maps a worktree checkout to its main one too. Without
+  that half, a worktree run's records would be written in one place and enriched in another, which
+  is to say never enriched at all.
+- **Unchanged: `.runtime/<run>/`** (next.json, records, outputs, the attempt ledger). That is the
+  run's live state, its lifetime genuinely is the worktree's, and for an external run it is
+  deliberately gitignored inside the worktree so finalize cannot commit it. The events journal was
+  already main-anchored and stays so.
+
 ## plugin 0.85.3 — a worktree of a submodule is the same project again
 
 A worktree of a SUBMODULE registered as its own project, at a path no checkout lives at.
