@@ -4,6 +4,38 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## plugin 0.85.1 — the dashboard daemon stops paying for every project the machine has ever seen
+
+The pipeline-ui daemon polled EVERY registered project every 400 ms, and swept each one four
+times a minute. Nothing ever removed a project from its registry — the SessionStart hook adds one
+and it stays for the life of the machine — so an install that has run the test suites a few times
+accumulates thousands of deleted temp directories and keeps walking all of them. Measured on a
+real machine: 666 registered projects, 494 of them already gone; ~1.6k filesystem calls a second,
+three quarters of them on paths that could not produce an event, every one through the AV filter
+driver. The worker held 5.8% of a core continuously and sawtoothed ~490 MB every 60 s
+(139 MB → 615 MB → 139 MB).
+
+It was never a leak — baseline memory and handle counts are flat — but the cost grew with
+accumulated history rather than with work, and it survived reboots because the registry is a file.
+
+- **The registry is pruned.** Entries whose project root no longer exists are dropped at boot and
+  every 30 minutes, tearing down their watchers, journal tail and cache entries with them.
+  Re-registration is automatic on the next session in that directory, so a temporarily unreachable
+  root costs one re-add and nothing else.
+- **The journal poll is tiered, and its tick is 1 s** (was 400 ms). A project whose journal moved
+  in the last 5 minutes is polled every tick; the quiet majority is visited on a cold sweep every
+  5th tick. `fs.watch` still delivers the fast path — the poll is only its Windows safety net.
+- **Per-project caches are capped.** The per-run caches were already bounded; the per-project ones
+  were implicitly bounded by "how many projects can there be", which turned out to be 666.
+- **The machine-global bindings journal is compacted** at boot and every 6 hours, keeping its
+  newest records. It is append-only, nothing trimmed it, and it had reached 6.5 MB / 11,755 lines —
+  which the daemon re-parses whenever it is asked about a run it has not indexed yet. The mirror
+  tailer's read offset is resynced with the rewritten file so it never re-emits what it already
+  mirrored.
+- **The worker's console is created hidden** — it is spawned through `node:child_process` with
+  `windowsHide` rather than `Bun.spawn`, which has no such option. Hygiene for a detached child,
+  matching what the SessionStart hook already does for the supervisor.
+
 ## CLI 0.8.0 — the department surface a whole epic of fixes, and a starter pipeline that costs one step less
 
 The first CLI release since 0.7.0, carrying seven merged PRs plus the starter-template change
