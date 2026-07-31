@@ -4,6 +4,35 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## plugin 0.85.5 — the supervisor upgrades itself
+
+A version handoff upgraded the WORKER only. The supervisor kept running whatever code it booted
+with for as long as the machine stayed up, so a fix inside `supervisor.ts` could never reach anyone
+who already had a daemon running — and the SessionStart hook could not see the problem either,
+because the lock only ever reported the worker's install. Seen live during 0.85.1: a worker on
+0.85.1 supervised by a 0.85.0 supervisor, hours after the upgrade, which is exactly why that
+release's hidden-console fix appeared not to have shipped.
+
+The handoff request already names the new worker script, and the new supervisor is its sibling — so
+the outgoing supervisor had everything it needed to hand over all along.
+
+- **A version handoff now replaces the whole daemon.** The outgoing supervisor spawns the successor
+  from the new install (detached, hidden, same log files), passes it the port to reclaim so open
+  browser tabs survive, and exits WITHOUT spawning a worker — the successor does that. Since the
+  worker already discovers a new install by itself (its 30s poll + the `installed_plugins.json`
+  watcher), an upgrade now propagates end-to-end with no session restart and no user action.
+- **The port travels with the handoff** in the supervisor's own variable, not the worker-scoped
+  `PIPELINE_UI_RECLAIM_PORT` — that one is deliberately ignored for a first worker, so reusing it
+  would have silently done nothing.
+- **The lock reports `supervisor_root`.** The SessionStart hook reconciles on it, so a supervisor
+  left behind on an older install is fixed even when the worker is already current — the one state
+  the old check could not represent.
+- **Falls back to the previous behaviour** when there is nothing to replace (same install) or the
+  successor script is missing: the supervisor just spawns the new worker, exactly as before.
+
+Verified on two real installs: boot from A, hand off to B, and B's supervisor takes over with a
+healthy worker on the reclaimed port running B's code, while A's supervisor exits.
+
 ## plugin 0.85.4 — a run's measurements outlive the worktree it ran in
 
 Run a pipeline from inside a git worktree and its measurements were written into that worktree —

@@ -27,8 +27,8 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 
 const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
@@ -41,6 +41,19 @@ const LOCK_PATH = join(HOME_DIR, "daemon.lock");
 const HANDOFF_PATH = join(HOME_DIR, "worker-handoff.json");
 const WORKER_STOP_PATH = join(HOME_DIR, "worker-stop");
 const OWN_WORKER = join(import.meta.dir, "server.ts");
+/** This supervisor's own script — the thing a version handoff must replace. */
+const OWN_SCRIPT = join(import.meta.dir, "supervisor.ts");
+/** Install dir this supervisor runs from, handed to the worker so it can stamp
+ *  `supervisor_root` into the lock. Without it the SessionStart hook can only
+ *  see the WORKER's version and a stale supervisor stays invisible. */
+const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..");
+
+/** Port the outgoing supervisor asks its successor to reclaim across a
+ *  self-handoff. Deliberately NOT `PIPELINE_UI_RECLAIM_PORT`: that one belongs
+ *  to a worker spawn and is explicitly ignored for the FIRST worker, precisely
+ *  so an inherited value cannot be mistaken for our own. This one is set only
+ *  by a supervisor that is handing over, so its presence IS the intent. */
+const SUPERVISOR_RECLAIM_ENV = "PIPELINE_UI_SUPERVISOR_RECLAIM_PORT";
 
 // Crash-loop guard: if the worker dies this many times within the window
 // without ever cleanly running, stop respawning and exit so we don't spin
@@ -91,6 +104,72 @@ function consumeStopSentinel(): boolean {
   return true;
 }
 
+/** Normalize for cross-process path comparison — Windows is case-insensitive
+ *  and mixes separators. Mirrors the helper in hooks/pipeline_ui_relay.ts. */
+function samePath(a: string, b: string): boolean {
+  const norm = (p: string): string => {
+    const n = resolve(p).replaceAll("\\", "/");
+    return process.platform === "win32" ? n.toLowerCase() : n;
+  };
+  return norm(a) === norm(b);
+}
+
+/**
+ * Replace THIS supervisor with the one shipped alongside `targetWorker`.
+ *
+ * A version handoff used to upgrade the worker only: the supervisor kept
+ * running whatever code it booted with, for as long as the machine stayed up,
+ * so any fix inside supervisor.ts never reached a user who already had a
+ * daemon running. (Observed live: a worker on 0.85.1 supervised by a 0.85.0
+ * supervisor, hours after the upgrade.)
+ *
+ * The handoff already names the new worker script, and the new supervisor is
+ * its sibling — so the outgoing supervisor has everything it needs to hand
+ * over: spawn the successor detached, pass it the port to reclaim, and exit
+ * WITHOUT spawning a worker (the successor does that).
+ *
+ * Returns false when there is nothing to replace (same install) or the
+ * successor script is missing — the caller then keeps its current behaviour
+ * and spawns the new worker itself, which is strictly the old semantics.
+ */
+function handOffToNewSupervisor(targetWorker: string, reclaimPort: number | null): boolean {
+  const successor = join(dirname(targetWorker), "supervisor.ts");
+  if (samePath(successor, OWN_SCRIPT)) return false; // same install — worker-only handoff
+  if (!existsSync(successor)) {
+    log(`successor supervisor missing (${successor}); staying on this one`);
+    return false;
+  }
+
+  const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+  delete env.PIPELINE_UI_RECLAIM_PORT; // belongs to a worker spawn, not to us
+  if (reclaimPort !== null) env[SUPERVISOR_RECLAIM_ENV] = String(reclaimPort);
+  else delete env[SUPERVISOR_RECLAIM_ENV];
+
+  // Append rather than truncate: a supervisor handoff is rare, and when one
+  // goes wrong the trail that led to it is exactly what is worth having.
+  let outFd: number | null = null;
+  let errFd: number | null = null;
+  try { outFd = openSync(join(HOME_DIR, "daemon.stdout.log"), "a"); } catch {}
+  try { errFd = openSync(join(HOME_DIR, "daemon.stderr.log"), "a"); } catch {}
+  try {
+    const child = spawn(process.execPath, [successor], {
+      detached: true,
+      stdio: ["ignore", outFd ?? "ignore", errFd ?? "ignore"],
+      env,
+      windowsHide: true,
+    });
+    child.unref();
+    log(`handed off to successor supervisor ${successor} (pid ${child.pid})`);
+    return true;
+  } catch (e) {
+    log(`failed to spawn successor supervisor: ${e}`);
+    return false;
+  } finally {
+    if (outFd !== null) { try { closeSync(outFd); } catch {} }
+    if (errFd !== null) { try { closeSync(errFd); } catch {} }
+  }
+}
+
 async function main(): Promise<void> {
   mkdirSync(HOME_DIR, { recursive: true });
   // Clear any stale handoff / stop sentinel from a previous daemon generation
@@ -101,8 +180,18 @@ async function main(): Promise<void> {
   let targetScript = OWN_WORKER;
   // Always start the FIRST worker on a fresh port — a PIPELINE_UI_RECLAIM_PORT
   // possibly inherited from an ancestor's env is not ours to reclaim. Reclaim
-  // is set only by our own handoff/crash logic below.
+  // is set only by our own handoff/crash logic below. The ONE exception is a
+  // port handed over by the supervisor we are replacing (its own env var, set
+  // only by a deliberate handoff), so open browser tabs survive the swap.
   let reclaimPort: number | null = null;
+  const inherited = Number(process.env[SUPERVISOR_RECLAIM_ENV] ?? "");
+  if (Number.isInteger(inherited) && inherited > 0) {
+    reclaimPort = inherited;
+    log(`reclaiming port ${inherited} from the supervisor we replaced`);
+  }
+  // Consume it: it describes this boot only, and every child we spawn inherits
+  // our environment.
+  delete process.env[SUPERVISOR_RECLAIM_ENV];
   let child: ChildProcess | null = null;
   let shuttingDown = false;
   const crashes: number[] = [];
@@ -119,6 +208,9 @@ async function main(): Promise<void> {
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
       PIPELINE_UI_SUPERVISOR_PID: String(process.pid),
+      // The worker stamps this into the lock so the SessionStart hook can see
+      // a STALE SUPERVISOR, not just a stale worker.
+      PIPELINE_UI_SUPERVISOR_ROOT: OWN_PLUGIN_ROOT,
     };
     if (reclaimPort !== null) env.PIPELINE_UI_RECLAIM_PORT = String(reclaimPort);
     else delete env.PIPELINE_UI_RECLAIM_PORT;
@@ -159,6 +251,11 @@ async function main(): Promise<void> {
         targetScript = handoff.target_script;
       }
       reclaimPort = handoff.reclaim_port ?? lastKnownPort();
+      // A version handoff replaces the WHOLE daemon, this process included —
+      // otherwise supervisor.ts fixes never reach a machine whose daemon is
+      // already up. The successor spawns the new worker; we must not also do
+      // it, or the port would be contended by two workers.
+      if (handOffToNewSupervisor(targetScript, reclaimPort)) return;
       continue;
     }
 

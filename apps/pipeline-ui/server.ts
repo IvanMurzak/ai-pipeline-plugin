@@ -1104,6 +1104,13 @@ interface DaemonLock {
    *  alone just makes the supervisor respawn it (crash recovery). Absent when
    *  the worker runs unsupervised (direct server.ts launch, e.g. tests). */
   supervisor_pid?: number;
+  /** Install dir the SUPERVISOR runs from. A version handoff replaces the
+   *  worker, so the supervisor can be running older code than the worker it
+   *  manages — invisible from `plugin_root` alone, and observed live (a 0.85.1
+   *  worker under a 0.85.0 supervisor). Reported so the SessionStart hook can
+   *  reconcile a stale supervisor too. Absent when unsupervised or when the
+   *  supervisor predates this field. */
+  supervisor_root?: string;
 }
 
 // Set by supervisor.ts when it spawns this process as its worker. Drives the
@@ -1114,6 +1121,12 @@ const SUPERVISOR_PID = (() => {
   return Number.isInteger(raw) && raw > 0 ? raw : null;
 })();
 const SUPERVISED = SUPERVISOR_PID !== null;
+/** Install dir of the supervisor that spawned us, when it told us (see the
+ *  `supervisor_root` lock field). */
+const SUPERVISOR_ROOT = (() => {
+  const raw = (process.env.PIPELINE_UI_SUPERVISOR_ROOT ?? "").trim();
+  return raw ? raw : null;
+})();
 // Where the worker drops its handoff request for the supervisor to pick up.
 const HANDOFF_PATH = join(HOME_DIR, "worker-handoff.json");
 // Sentinel telling the supervisor NOT to respawn — written before a DELIBERATE
@@ -1145,6 +1158,7 @@ function writeLock(port: number): void {
     host: HOST,
     plugin_root: PLUGIN_ROOT,
     ...(SUPERVISOR_PID !== null ? { supervisor_pid: SUPERVISOR_PID } : {}),
+    ...(SUPERVISOR_ROOT !== null ? { supervisor_root: SUPERVISOR_ROOT } : {}),
   };
   writeFileSync(LOCK_PATH, JSON.stringify(lock, null, 2));
 }

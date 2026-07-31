@@ -80,6 +80,12 @@ interface DaemonLock {
    *  stop a supervised daemon you must kill the supervisor too, else it
    *  respawns the worker. Absent for unsupervised / pre-Phase-3 daemons. */
   supervisor_pid?: number;
+  /** Install dir the SUPERVISOR runs from. A version handoff replaces the
+   *  worker, so the supervisor can be running older code than the worker it
+   *  manages — a state `plugin_root` alone cannot show, and one seen live (a
+   *  0.85.1 worker under a 0.85.0 supervisor, hours after the upgrade). Absent
+   *  from locks written by a supervisor that predates the field. */
+  supervisor_root?: string;
 }
 
 interface HealthBody {
@@ -379,10 +385,23 @@ async function bruteForceRestart(lock: DaemonLock): Promise<void> {
 async function reconcileVersion(lock: DaemonLock, expectedRoot: string): Promise<DaemonLock> {
   let daemonRoot: string | null = lock.plugin_root ?? null;
 
-  // Fast path: lock already tells us the root and it matches — no HTTP, no
-  // version read, just two normalized string compares.
-  if (daemonRoot && normalizePath(daemonRoot) === normalizePath(expectedRoot)) {
+  // A supervisor left behind on an older install is its own mismatch: the
+  // worker upgrades on every handoff, the supervisor did not, and nothing else
+  // ever notices. Reconciling on it makes supervisor.ts fixes reachable at all.
+  const staleSupervisor =
+    typeof lock.supervisor_root === "string" &&
+    lock.supervisor_root.length > 0 &&
+    normalizePath(lock.supervisor_root) !== normalizePath(expectedRoot);
+
+  // Fast path: lock already tells us both roots and they match — no HTTP, no
+  // version read, just normalized string compares.
+  if (daemonRoot && normalizePath(daemonRoot) === normalizePath(expectedRoot) && !staleSupervisor) {
     return lock;
+  }
+  if (staleSupervisor) {
+    log(
+      `supervisor running from ${lock.supervisor_root} but ${expectedRoot} is installed — reconciling`,
+    );
   }
 
   let daemonVersion: string | null = lock.plugin_version ?? null;
@@ -408,6 +427,9 @@ async function reconcileVersion(lock: DaemonLock, expectedRoot: string): Promise
     const expectedVersion = readVersionAt(expectedRoot);
     mismatch = !!daemonVersion && !!expectedVersion && daemonVersion !== expectedVersion;
   }
+  // A current worker under a stale supervisor still needs the handoff — that
+  // is exactly the state a worker-only upgrade leaves behind.
+  if (staleSupervisor) mismatch = true;
   if (!mismatch) return lock;
 
   log(
