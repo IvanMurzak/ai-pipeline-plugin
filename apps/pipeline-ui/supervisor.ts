@@ -26,6 +26,7 @@
  * risky — see CLAUDE.md.)
  */
 
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -102,7 +103,7 @@ async function main(): Promise<void> {
   // possibly inherited from an ancestor's env is not ours to reclaim. Reclaim
   // is set only by our own handoff/crash logic below.
   let reclaimPort: number | null = null;
-  let child: ReturnType<typeof Bun.spawn> | null = null;
+  let child: ChildProcess | null = null;
   let shuttingDown = false;
   const crashes: number[] = [];
 
@@ -123,16 +124,24 @@ async function main(): Promise<void> {
     else delete env.PIPELINE_UI_RECLAIM_PORT;
 
     log(`spawning worker ${targetScript}${reclaimPort !== null ? ` (reclaim ${reclaimPort})` : ""}`);
-    child = Bun.spawn({
-      cmd: [process.execPath, targetScript],
+    // node:child_process rather than Bun.spawn, which has no windowsHide: the
+    // worker then allocated its own console, and on Windows 11 - where the
+    // default terminal is Windows Terminal - that console surfaces as a real
+    // VISIBLE window titled with bun's exe path. Closing it kills the worker,
+    // which we dutifully respawn, so it reads as a window that refuses to go
+    // away. The SessionStart hook already spawns THIS process with
+    // windowsHide, which is why the supervisor never had one.
+    child = spawn(process.execPath, [targetScript], {
       env,
       // Inherit so the worker's boot line + logs flow to whatever the launcher
       // redirected this supervisor's stdout/stderr to (the daemon log files).
-      stdout: "inherit",
-      stderr: "inherit",
-      stdin: "ignore",
+      stdio: ["ignore", "inherit", "inherit"],
+      windowsHide: true,
     });
-    const code = await child.exited;
+    const code = await new Promise<number>((resolveExit) => {
+      child!.once("exit", (exitCode) => resolveExit(exitCode ?? 0));
+      child!.once("error", () => resolveExit(-1));
+    });
     if (shuttingDown) return;
 
     // Decision is driven by sentinel files, NOT the exit code — the worker's

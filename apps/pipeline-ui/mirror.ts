@@ -33,9 +33,12 @@
  */
 
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
+  rmSync,
   writeFileSync,
   statSync,
   openSync,
@@ -127,6 +130,61 @@ export function defaultBindingsPath(): string {
   // POSIX otherwise.
   const home = process.env.USERPROFILE ?? process.env.HOME ?? homedir();
   return join(home, ".claude", "pipeline-ui", "active-mirror-bindings.jsonl");
+}
+
+/** Ceiling for the machine-global bindings journal. */
+export const BINDINGS_MAX_LINES = 4000;
+
+/**
+ * Trim the append-only bindings journal to its newest `maxLines` records.
+ *
+ * Nothing ever trimmed this file: the PostToolUse hook appends one record per
+ * bound tool call, machine-wide, for the life of the machine. Measured on a
+ * real install it had reached 6.5 MB / 11,755 lines — and server.ts parses the
+ * whole file whenever it is asked about a run it has not indexed yet.
+ *
+ * Dropping the oldest records is safe: a binding only matters while its run's
+ * transcript is still being mirrored, and MirrorService holds the live ones in
+ * memory. Rewrite is temp-file + rename, and anything the hook appended while
+ * we were rewriting is carried over before the swap, so a concurrent append is
+ * not lost. Returns how many records were dropped.
+ */
+export function compactBindingsFile(
+  path = defaultBindingsPath(),
+  maxLines = BINDINGS_MAX_LINES,
+): number {
+  if (!existsSync(path)) return 0;
+  let sizeBefore: number;
+  let records: string[];
+  try {
+    sizeBefore = statSync(path).size;
+    records = readFileSync(path, "utf-8")
+      .split("\n")
+      .filter((line) => line.trim().length > 0);
+  } catch {
+    return 0;
+  }
+  if (records.length <= maxLines) return 0;
+
+  const kept = records.slice(-maxLines);
+  const tmp = `${path}.compact-${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, `${kept.join("\n")}\n`, "utf-8");
+    const sizeNow = statSync(path).size;
+    if (sizeNow > sizeBefore) {
+      const late = readByteRange(path, sizeBefore, sizeNow - sizeBefore);
+      if (late) appendFileSync(tmp, late);
+    }
+    renameSync(tmp, path);
+  } catch {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      /* best-effort */
+    }
+    return 0;
+  }
+  return records.length - kept.length;
 }
 
 /** Parse a binding-file record from a single line. Returns null for
@@ -425,6 +483,22 @@ export class MirrorService {
   tickForTest(): void {
     this.tickAll();
     this.gc();
+  }
+
+  /** Compact the shared bindings journal, then resync this service's read
+   *  offset to the rewritten file. Without the resync the next tail would see
+   *  a smaller file, treat it as rotated, and re-ingest every record it had
+   *  already applied. Runs regardless of `enabled` — the hook appends to that
+   *  file whether or not mirroring is on. */
+  compactBindings(maxLines = BINDINGS_MAX_LINES): number {
+    const removed = compactBindingsFile(this.bindingsFile, maxLines);
+    if (removed <= 0) return 0;
+    try {
+      this.bindingsOffset = statSync(this.bindingsFile).size;
+    } catch {
+      this.bindingsOffset = 0;
+    }
+    return removed;
   }
 
   // ------------------------------------------------------------------

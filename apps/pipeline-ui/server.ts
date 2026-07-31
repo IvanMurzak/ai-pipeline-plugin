@@ -24,6 +24,8 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import {
   capMap,
+  deadProjectIds,
+  shouldPollJournal,
   listJournalShards,
   normalizePathForCompare,
   parseIterationSections,
@@ -53,7 +55,7 @@ import {
   handleListTranscripts,
   handleReadTranscript,
 } from "./transcripts.ts";
-import { MirrorService, defaultBindingsPath } from "./mirror.ts";
+import { MirrorService, compactBindingsFile, defaultBindingsPath } from "./mirror.ts";
 import {
   handleListPipelines,
   handleLaunchRun,
@@ -90,6 +92,17 @@ import {
   type RunTranscriptRef,
 } from "./transcript-stats.ts";
 
+// The per-RUN caches below are already bounded with capMap(…,
+// RUN_STATS_CACHE_MAX). The per-PROJECT ones were not: they are keyed by
+// project root and so were implicitly bounded by "how many projects can there
+// be", which turned out to be 666 on a real machine (every temp dir a test
+// suite ever registered, forever). Pruning the registry fixes the cause; these
+// ceilings make the caches safe regardless of how the registry grows.
+/** Per-project caches holding small values. */
+const PROJECT_CACHE_MAX = 200;
+/** Per-project caches whose VALUE is itself an index of many records. */
+const HEAVY_PROJECT_CACHE_MAX = 32;
+
 // scanPipelines wrapper with a short TTL cache keyed by project root. The
 // underlying walk is O(N) in the pipeline tree and was being run on every
 // /api/state, /api/pipeline, /api/iteration, AND every file.changed-induced
@@ -107,6 +120,7 @@ function scanPipelines(projectRoot: string): PipelineInfo[] {
   if (hit && Date.now() - hit.at < PIPELINE_CACHE_TTL_MS) return hit.data;
   const data = scanPipelinesRaw(projectRoot);
   pipelineCache.set(projectRoot, { at: Date.now(), data });
+  capMap(pipelineCache, PROJECT_CACHE_MAX);
   return data;
 }
 
@@ -215,6 +229,9 @@ function bindingsIndex(projectRoot: string, knownRunId?: string): Map<string, Ru
   }
   const idx = indexRunTranscripts(text, projectRoot);
   bindingsIndexCache.set(projectRoot, { size, idx });
+  // Each value holds one entry per run of that project, so this is the
+  // heaviest per-project cache in the daemon.
+  capMap(bindingsIndexCache, HEAVY_PROJECT_CACHE_MAX);
   return idx;
 }
 
@@ -229,6 +246,7 @@ function allRunSummaries(entry: ProjectEntry): RunSummary[] {
   if (hit && Date.now() - hit.at < RUN_SUMMARIES_TTL_MS) return hit.data;
   const data = summarizeRunsFromShards(listJournalShards(journalPath(entry)));
   runSummariesCache.set(entry.project_root, { at: Date.now(), data });
+  capMap(runSummariesCache, HEAVY_PROJECT_CACHE_MAX);
   return data;
 }
 
@@ -700,6 +718,70 @@ function registerProject(
   return entry;
 }
 
+/**
+ * Remove one project and everything attached to it: watchers (descriptors +
+ * SSE noise), journal tail, and the per-project cache entries that would
+ * otherwise linger in their Maps forever. Does NOT save the registry —
+ * callers batch that. Returns false when the id was unknown.
+ */
+function dropProject(pid: string): boolean {
+  const entry = registry[pid];
+  if (!entry) return false;
+  const watchers = projectWatchers.get(pid);
+  if (watchers) {
+    for (const w of watchers) {
+      try {
+        w.close();
+      } catch {
+        /* best-effort */
+      }
+    }
+    projectWatchers.delete(pid);
+  }
+  journalTails.delete(pid);
+  lastSeenPersistedAt.delete(pid);
+  invalidatePipelineCache(entry.project_root);
+  invalidateRunsCache(entry.project_root);
+  frontmatterCache.invalidatePrefix(entry.project_root);
+  delete registry[pid];
+  return true;
+}
+
+/**
+ * Drop registry entries whose project root no longer exists on disk.
+ *
+ * Nothing ever removed one: a project is registered by the SessionStart hook
+ * and then stays for the life of the machine. A machine that has run the test
+ * suites a few times accumulates thousands of dead temp directories, and the
+ * journal poll plus the four 60s sweeps walk every single one of them forever.
+ * Measured on a real install: 666 registered, 494 of them gone.
+ *
+ * Dropping a vanished root is safe because registration is automatic — the
+ * hook re-registers on the next session in that directory — so the worst case
+ * for a root that is merely unreachable (unmounted share) is that it comes
+ * back the next time it is actually used.
+ */
+function pruneRegistry(): number {
+  const dead = deadProjectIds(registry, existsSync);
+  for (const pid of dead) dropProject(pid);
+  if (dead.length) {
+    saveRegistry(registry);
+    log(`pruned ${dead.length} project(s) whose root no longer exists`);
+  }
+  return dead.length;
+}
+
+/** Trim the machine-global bindings journal. Goes through the mirror service
+ *  when it exists so its read offset is resynced with the rewritten file. */
+function compactBindings(): void {
+  try {
+    const removed = mirrorService ? mirrorService.compactBindings() : compactBindingsFile();
+    if (removed > 0) log(`compacted bindings journal: dropped ${removed} old record(s)`);
+  } catch (e) {
+    log(`bindings compaction failed: ${e}`);
+  }
+}
+
 // --------------------------------------------------------------------
 // Event journal tailing + file watcher
 // --------------------------------------------------------------------
@@ -724,10 +806,28 @@ interface JournalTail {
   path: string;
   offset: number;
   partial: string;
+  /** ms of the last read that actually found new bytes. Drives the poll
+   *  tiering below: a journal nobody is writing to does not need a stat
+   *  every second. 0 until the journal first grows. */
+  lastChangeAt: number;
 }
 
 const journalTails = new Map<string, JournalTail>();        // pid → tail state
 const projectWatchers = new Map<string, ReturnType<typeof fsWatch>[]>();
+
+/** Poll cadence for a project whose journal is moving. */
+const JOURNAL_POLL_MS = 1_000;
+/** Every Nth tick also sweeps the quiet projects, so a run that starts while
+ *  fsWatch is asleep is still picked up within COLD_POLL_TICKS seconds. */
+const COLD_POLL_TICKS = 5;
+/** How long a project stays on the fast tier after its journal last grew. */
+const HOT_PROJECT_WINDOW_MS = 5 * 60_000;
+let journalPollTick = 0;
+
+/** How often vanished projects are swept out of the registry. */
+const REGISTRY_PRUNE_INTERVAL_MS = 30 * 60_000;
+/** How often the machine-global bindings journal is compacted. */
+const BINDINGS_COMPACT_INTERVAL_MS = 6 * 60 * 60_000;
 
 // MirrorService is created lazily on daemon boot — see bootDaemon below.
 // Forward-declared here so readJournalIncremental can notify it of
@@ -751,7 +851,7 @@ function readJournalIncremental(entry: ProjectEntry): void {
   const pid = entry.project_id;
   let tail = journalTails.get(pid);
   if (!tail) {
-    tail = { path, offset: 0, partial: "" };
+    tail = { path, offset: 0, partial: "", lastChangeAt: 0 };
     journalTails.set(pid, tail);
   }
   let size: number;
@@ -777,6 +877,7 @@ function readJournalIncremental(entry: ProjectEntry): void {
   const carryIn = tail.partial;
   tail.offset = to;
   tail.partial = "";
+  tail.lastChangeAt = Date.now();
 
   const fd = Bun.file(path);
   fd.slice(from, to)
@@ -1270,28 +1371,12 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       if (!registry[body.project_id]) {
         return Response.json({ ok: true, removed: false });
       }
-      // Tear down watchers so the dropped project stops producing SSE noise.
-      const watchers = projectWatchers.get(body.project_id);
-      if (watchers) {
-        for (const w of watchers) {
-          try {
-            w.close();
-          } catch {
-            /* best-effort */
-          }
-        }
-        projectWatchers.delete(body.project_id);
-      }
-      journalTails.delete(body.project_id);
-      // Clear the pipeline-tree and runs caches for this project too.
-      // Without this, re-registering at the same project_root within the
-      // TTL window would serve a stale pipeline list / stale RunSummary[],
-      // and even after TTL the entries linger in their Maps forever — an
-      // unbounded leak when the harness churns many temp projects.
-      invalidatePipelineCache(registry[body.project_id].project_root);
-      invalidateRunsCache(registry[body.project_id].project_root);
-      frontmatterCache.invalidatePrefix(registry[body.project_id].project_root);
-      delete registry[body.project_id];
+      // Tears down watchers (so the dropped project stops producing SSE
+      // noise) and clears its cache entries — without that, re-registering
+      // the same root within the TTL window serves a stale pipeline list,
+      // and the entries linger in their Maps forever when the harness churns
+      // many temp projects.
+      dropProject(body.project_id);
       saveRegistry(registry);
       return Response.json({ ok: true, removed: true });
     } catch (e) {
@@ -1342,6 +1427,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       const shards = listJournalShards(journalPath(entry));
       summaries = summarizeRunsFromShards(shards).slice(0, limit);
       runsCache.set(cacheKey, { at: Date.now(), data: summaries });
+      capMap(runsCache, PROJECT_CACHE_MAX);
     }
     return Response.json({ runs: summaries, total: summaries.length });
   }
@@ -3666,11 +3752,38 @@ async function bootDaemon(): Promise<void> {
   setInterval(() => reconcileToNewestInstalled(), 30_000);
 
   // Periodic journal poll as fs.watch safety net. Windows fsWatch is flaky
-  // for in-place appends; a tight poll keeps event-to-UI latency under a
-  // second even when the watcher misses entirely.
+  // for in-place appends; the poll keeps event-to-UI latency bounded even when
+  // the watcher misses entirely.
+  //
+  // Tiered, because this used to stat EVERY registered project every 400ms.
+  // On a real machine that was 666 projects — ~1.6k filesystem calls a second,
+  // three quarters of them on paths that no longer existed, every one of them
+  // through the AV filter driver. A project whose journal actually moved
+  // recently is polled every tick; the quiet majority is checked every
+  // COLD_POLL_TICKS ticks, with fsWatch still delivering the fast path.
   setInterval(() => {
-    for (const entry of Object.values(registry)) readJournalIncremental(entry);
-  }, 400);
+    journalPollTick += 1;
+    const coldSweep = journalPollTick % COLD_POLL_TICKS === 0;
+    const now = Date.now();
+    for (const entry of Object.values(registry)) {
+      const tail = journalTails.get(entry.project_id);
+      if (shouldPollJournal(tail?.lastChangeAt, now, coldSweep, HOT_PROJECT_WINDOW_MS)) {
+        readJournalIncremental(entry);
+      }
+    }
+  }, JOURNAL_POLL_MS);
+
+  // Registry hygiene: projects whose directory is gone stay in the file
+  // forever otherwise, and every one of them is walked by the poll above and
+  // by the 60s sweeps.
+  pruneRegistry();
+  setInterval(() => pruneRegistry(), REGISTRY_PRUNE_INTERVAL_MS);
+
+  // The bindings journal is append-only and machine-global; nothing trimmed it,
+  // so it reached 6.5 MB / 11.7k lines on a working machine and every
+  // not-yet-indexed run re-parsed the whole thing.
+  compactBindings();
+  setInterval(() => compactBindings(), BINDINGS_COMPACT_INTERVAL_MS);
 
   // Idle-shutdown.
   setInterval(() => {

@@ -1334,3 +1334,49 @@ export function stepTimingsForRun(events: JournalEvent[]): StepTiming[] {
   }
   return [...slots.values()];
 }
+
+/**
+ * Ids of registry entries whose project root no longer exists.
+ *
+ * The daemon registers a project the first time a session opens in it and
+ * never removed one again, so a machine that has run the test suites collects
+ * thousands of vanished temp directories — each of which the journal poll and
+ * the 60s sweeps then walk on every tick, forever. Measured on a real install:
+ * 666 registered, 494 gone.
+ *
+ * `exists` is injected so this stays a pure function; the daemon passes
+ * existsSync.
+ */
+export function deadProjectIds(
+  registry: Record<string, { project_root: string }>,
+  exists: (path: string) => boolean,
+): string[] {
+  const dead: string[] = [];
+  for (const [pid, entry] of Object.entries(registry)) {
+    if (!entry?.project_root) continue;
+    if (!exists(entry.project_root)) dead.push(pid);
+  }
+  return dead;
+}
+
+/**
+ * Whether the journal poll should stat this project on this tick.
+ *
+ * The poll exists because Windows fsWatch drops in-place appends, but polling
+ * every registered project every tick made its cost scale with everything the
+ * machine had ever seen rather than with what is running. A project whose
+ * journal moved within `hotWindowMs` stays on the every-tick fast path;
+ * everything else is only visited on the periodic cold sweep.
+ *
+ * `lastChangeAt` is undefined for a project whose journal has never been read.
+ */
+export function shouldPollJournal(
+  lastChangeAt: number | undefined,
+  now: number,
+  coldSweep: boolean,
+  hotWindowMs: number,
+): boolean {
+  if (coldSweep) return true;
+  if (lastChangeAt === undefined) return false;
+  return now - lastChangeAt < hotWindowMs;
+}
