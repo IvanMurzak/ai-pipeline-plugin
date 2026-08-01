@@ -13,14 +13,21 @@ bun add -g @baizor/pipeline
 pipeline init
 ```
 
-`pipeline init` is the whole setup. It installs this plugin into Claude Code for you (it shells out to `claude plugin marketplace add IvanMurzak/ai-pipeline-plugin` + `claude plugin install pipeline@ai-pipeline`), clones a starter pipeline into `./.claude/pipeline/support-answer`, starts the local dashboard, and offers to run that starter pipeline right there — so the install ends with a pipeline that has already run on your machine. Every step is idempotent (a re-run prints a `✓` per already-satisfied step and changes nothing) and independently skippable: `--no-plugin`, `--no-ui`, `--no-run`, plus `--yes` / `--json` for scripted setups, and `pipeline init <template>` to start from a different template (`pipeline clone --list` shows them). If Claude Code was already open when you ran it, restart it — a running session does not pick up a newly installed plugin.
+`pipeline init` is the whole setup. It opens your browser once for a single consent screen, connects this project to your account, installs this plugin into Claude Code for you (it shells out to `claude plugin marketplace add IvanMurzak/ai-pipeline-plugin` + `claude plugin install pipeline@ai-pipeline`), clones a starter pipeline into `./.claude/pipeline/support-answer`, enrols this machine as a runner, starts the local dashboard, and offers to run that starter pipeline right there — so the install ends with a pipeline that has already run on your machine. Every step is idempotent (a re-run prints a `✓` per already-satisfied step and changes nothing) and independently skippable: `--no-plugin`, `--no-ui`, `--no-run`, `--no-runner`, plus `--yes` / `--json` for scripted setups, and `pipeline init <template>` to start from a different template (`pipeline clone --list` shows them). If Claude Code was already open when you ran it, restart it — a running session does not pick up a newly installed plugin.
+
+**It connects to the cloud by default, and that is the only network step.** Nothing about your code or your keys goes with it: the control plane coordinates runs and shows you their status, and by default receives metadata only — statuses, timings, token counts — filtered on your machine before anything is sent. You do not need an account first; if you have none, signing in creates one, and your first organization is created for you. Two escape hatches, and neither is buried in `--help`:
+
+- **`pipeline init --local`** does everything above except the cloud. No browser, no account, nothing sent to ai-pipeline.dev.
+- A **failed or declined** connect is a warning, not an error. `init` finishes locally and exits 0; `pipeline cloud connect` picks it up later.
+
+`--server`, `--org` and `--project` are passed through to that connect. Under `--json` no browser is ever opened: set `PIPELINE_MACHINE_TOKEN` to connect non-interactively (CI, bots, agents), or the cloud step is skipped with a stated reason and the rest still runs.
 
 Two prerequisites, and `init` is explicit about both:
 
 - **Bun.** The CLI's executable is TypeScript, so Bun is required, not preferred. `pipeline init` stops immediately with the install URL if `bun` isn't found.
 - **Claude Code, installed and authenticated** with your own subscription or API key. Pipeline steps are executed by `claude`; it is your account that runs them and your account that pays for them. If `claude` isn't on `PATH`, `init` says so, skips the plugin install and the starter run, and still exits 0 — the clone and the dashboard are done, and you re-run `pipeline init` once Claude Code is there.
 
-The same two commands with real terminal output, start to finish: [Get started](https://ai-pipeline.dev/docs/getting-started). It needs no account and sends nothing to ai-pipeline.dev.
+The same two commands with real terminal output, start to finish: [Get started](https://ai-pipeline.dev/docs/getting-started).
 
 **Manual alternative.** Installing the plugin is one step of `init`. If you already have the CLI — or you want the plugin on its own, without a starter pipeline or a dashboard — run that step by hand from inside Claude Code instead:
 
@@ -755,8 +762,8 @@ Separate from pipelines: a **department** is an agent somebody else runs, on som
 
 | Page | Covers |
 |---|---|
-| [Get started](https://ai-pipeline.dev/docs/getting-started) | `bun add -g` → `pipeline init` → a completed local run. No account; nothing leaves the machine. |
-| [Connect the cloud](https://ai-pipeline.dev/docs/connect-the-cloud) | `pipeline cloud connect` — one browser approval, no token typed or pasted — and what the Free plan includes. |
+| [Get started](https://ai-pipeline.dev/docs/getting-started) | `bun add -g` → `pipeline init` → one browser approval → a completed run on your account. `--local` for the same thing with no cloud at all. |
+| [Connect the cloud](https://ai-pipeline.dev/docs/connect-the-cloud) | What `init` did for you, on its own: `pipeline cloud connect` — one browser approval, no token typed or pasted — and what the Free plan includes. |
 | [Use a department](https://ai-pipeline.dev/docs/use-a-department) | `/mcp`, delegating in plain language, and what happens when a department asks you something back. |
 | [Build a department](https://ai-pipeline.dev/docs/build-a-department) | `department.yml`, then `new` / `validate` / `serve` / `status`, and running the same department on another machine. |
 | [Privacy](https://ai-pipeline.dev/docs/privacy-tiers) | Field by field, what leaves your machine once any of this is connected. |
