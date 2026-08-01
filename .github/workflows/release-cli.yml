@@ -1,57 +1,80 @@
-# Publishes @baizor/pipeline to npm via npm Trusted Publishing (OIDC).
+# Cuts a release from this repo: verify, publish, tag.
 #
-# This workflow does NOT authenticate with any npm token. It relies on the
-# `id-token: write` permission below so npm's OIDC-based Trusted Publishing
-# can issue a short-lived, workflow-scoped credential at publish time.
+# MANUAL ONLY. It does not fire on a pushed tag or a published GitHub Release —
+# this workflow CREATES the release rather than reacting to one, so a release
+# cannot exist that these checks never passed. Previously a human made the
+# Release by hand and the workflow ran afterwards: the tag was already public
+# while the suite was still running, and a red run left a released version
+# nobody could unrelease.
 #
-# REQUIRES an owner-only, one-time setup performed outside this repo: the
-# Trusted Publisher config for this package must be added on npmjs.com
-# (package Settings -> Trusted Publishers -> GitHub Actions, pointing at
-# IvanMurzak/ai-pipeline-plugin + this workflow file, release-cli.yml). Until
-# that is wired up, the "Publish to npm" step below WILL FAIL with an auth
-# error — that is expected and is not a bug in this workflow.
+# TWO INDEPENDENTLY-VERSIONED ARTIFACTS live here, which is why `target` is an
+# input rather than something inferred:
 #
-# The first-ever publish of this package was done manually by the owner via
-# `npm publish --otp=...`, before Trusted Publishing was configured. This
-# workflow is intended to handle every release from here on.
+#   cli     -> the npm package @baizor/pipeline (apps/pipeline-cli), tag cli-v*
+#   plugin  -> the Claude Code plugin itself (.claude-plugin/plugin.json), tag v*
 #
-# Runs on manual dispatch or when a GitHub Release is published. It
-# intentionally does NOT trigger on push/pull_request — see ci.yml for that.
-name: Release CLI
+# A plugin release publishes NOTHING to npm — it is a git tag, because that is
+# what the marketplace resolves. Firing a publish for it would fail red on an
+# already-published version, which is exactly what the old `startsWith(tag,
+# 'cli-v')` guard existed to prevent; making the target explicit removes the
+# guess instead of guarding it.
+#
+# npm auth is npm Trusted Publishing (OIDC) — no npm token anywhere in this
+# file. It needs an owner-only, one-time setup on npmjs.com (package Settings
+# -> Trusted Publishers -> GitHub Actions, pointing at
+# IvanMurzak/ai-pipeline-plugin + this workflow file). Without it the publish
+# step fails with an auth error; that is configuration, not a bug here.
+#
+# ⚠ THE FILENAME IS LOAD-BEARING. npm pins Trusted Publishing to a workflow
+# PATH, and this one is registered as `release-cli.yml`. The file is no longer
+# CLI-only — it cuts plugin releases too — but renaming it to match would break
+# every npm publish until the Trusted Publisher config is edited by hand on
+# npmjs.com. An inaccurate filename is the cheaper of those two. The `name:`
+# below is free to be accurate: npm does not read it.
+name: Release
 
 on:
-  workflow_dispatch: {}
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "What to release"
+        type: choice
+        options: [cli, plugin]
+        required: true
+      version:
+        description: "Version to release. Must match the target's manifest exactly — a mismatch fails the run."
+        required: true
+      dry_run:
+        description: "Rehearse: run every check, publish and tag NOTHING."
+        type: boolean
+        default: false
 
 permissions:
   id-token: write # OIDC token for npm Trusted Publishing
-  contents: read
+  contents: write # create the git tag + GitHub Release
+
+concurrency:
+  group: release-${{ inputs.target }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
-    # Guard: this repo cuts two independently-versioned release types — CLI
-    # releases tagged `cli-v*` and plugin releases tagged `v*`. Only cli-v*
-    # releases may publish the CLI; a plugin-only release must not fire an
-    # npm publish attempt (it would fail red on the already-published
-    # version). Manual workflow_dispatch stays allowed (no tag to check).
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'cli-v')
+  # ── Gate ────────────────────────────────────────────────────────────────────
+  # Everything that can say NO lives here, and it publishes nothing.
+  verify:
+    name: Verify
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/pipeline-cli
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need tags + history
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      # Pin the toolchain explicitly rather than trusting whatever the
-      # GitHub-hosted runner image happens to ship. npm Trusted Publishing
-      # requires Node >= 22.14.0 and npm >= 11.5.1 (per npm's docs); the
-      # setup-node action's bundled npm may still be older than that even at
-      # this Node version, hence the separate npm upgrade step below.
       - uses: actions/setup-node@v4
         with:
           node-version: "22.14.0"
@@ -60,30 +83,149 @@ jobs:
       - name: Ensure npm >= 11.5.1 (required for Trusted Publishing/OIDC)
         run: npm install -g npm@^11.5.1
 
-      - name: Verify toolchain versions
+      - name: Commit is on main
         run: |
-          node --version
-          npm --version
-          bun --version
+          git fetch origin main --quiet
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$GITHUB_SHA is not an ancestor of origin/main"; exit 1; }
 
-      # No committed lockfile exists yet for apps/pipeline-cli, so this is a
-      # plain install rather than --frozen-lockfile. Switch to
-      # --frozen-lockfile once a bun.lock is committed for this package.
+      # The input is intent; the manifest is fact. Disagreement means the
+      # operator believes they are shipping something they are not.
+      - name: Version matches the target's manifest
+        id: version
+        run: |
+          IN="${{ inputs.version }}"; IN="${IN#v}"; IN="${IN#cli-v}"
+          if [ "${{ inputs.target }}" = "cli" ]; then
+            MANIFEST="apps/pipeline-cli/package.json"; PREFIX="cli-v"
+          else
+            MANIFEST=".claude-plugin/plugin.json"; PREFIX="v"
+          fi
+          ACTUAL="$(node -p "require('./$MANIFEST').version")"
+          if [ "$ACTUAL" != "$IN" ]; then
+            echo "::error::input version '$IN' != $MANIFEST '$ACTUAL'"; exit 1
+          fi
+          echo "value=$ACTUAL" >> "$GITHUB_OUTPUT"
+          echo "tag=${PREFIX}${ACTUAL}" >> "$GITHUB_OUTPUT"
+          echo "releasing ${{ inputs.target }} $ACTUAL as ${PREFIX}${ACTUAL}"
+
+      - name: Tag does not exist (and, for cli, the version is not on npm)
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::tag $TAG already exists"; exit 1
+          fi
+          if [ "${{ inputs.target }}" = "cli" ]; then
+            V="${{ steps.version.outputs.value }}"
+            if npm view "@baizor/pipeline@$V" version >/dev/null 2>&1; then
+              echo "::error::@baizor/pipeline@$V is already on npm"; exit 1
+            fi
+          fi
+
+      # The plugin manifest is what Claude Code caches by name@version. A
+      # malformed one installs as nothing, and the failure surfaces at a user's
+      # machine rather than here.
+      - name: Plugin manifest parses
+        run: node -e 'const m=require("./.claude-plugin/plugin.json"); if(!m.name||!m.version) throw new Error("plugin.json missing name/version"); console.log(m.name+"@"+m.version)'
+
       - name: Install dependencies
+        working-directory: apps/pipeline-cli
         run: bun install
 
-      # Sequential suite on purpose: CI runners are uncontended, unlike local
-      # dev machines where the parallel `test` script is used instead.
-      - name: Test
+      # Sequential on purpose: CI runners are uncontended, unlike local dev
+      # machines where the parallel `test` script is used (and where the
+      # git-worktree suites flake under 8-worker load).
+      - name: Test (pipeline-cli)
+        working-directory: apps/pipeline-cli
         run: bun run test:seq
 
-      # No build step here on purpose: this package's bin ships straight from
-      # src (see package.json "bin": "./src/cli.ts") — there is no dist/
-      # output to compile before publish.
-      #
-      # No NODE_AUTH_TOKEN / npm token of any kind here on purpose — auth is
-      # handled entirely by OIDC Trusted Publishing via the id-token
-      # permission above. --provenance and --access public are kept explicit
-      # (belt-and-braces) even though publishConfig.access is already "public".
+      # The lesson this repo actually learned: a green release job is not proof
+      # the artifact is usable. `npm pack` produces the EXACT tarball publish
+      # would upload — unpack it and assert what a consumer runs is inside.
+      # This package's `bin` points straight at raw TypeScript under src/, so a
+      # `files` mistake is invisible until someone's `bun add -g` fails.
+      - name: Pack and inspect the real tarball
+        if: ${{ inputs.target == 'cli' }}
+        working-directory: apps/pipeline-cli
+        run: |
+          TARBALL="$(npm pack --silent)"
+          echo "packed $TARBALL"
+          mkdir -p /tmp/verify && tar -xzf "$TARBALL" -C /tmp/verify
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const pkg = require("./package.json");
+            const root = "/tmp/verify/package";
+            const bins = typeof pkg.bin === "string" ? { [pkg.name]: pkg.bin } : (pkg.bin ?? {});
+            const missing = Object.entries(bins).filter(([, p]) => !fs.existsSync(path.join(root, p)));
+            if (missing.length) {
+              console.error("::error::bin entries missing from the tarball: " + JSON.stringify(missing));
+              process.exit(1);
+            }
+            // Templates ship INSIDE the package and are resolved against the
+            // CLI source, so a tarball without them makes `pipeline init` fail
+            // on a fresh install while working perfectly from a checkout.
+            const templates = path.join(root, "templates");
+            if (!fs.existsSync(templates) || fs.readdirSync(templates).length === 0) {
+              console.error("::error::templates/ is missing or empty in the tarball");
+              process.exit(1);
+            }
+            console.log("bins + templates present:", fs.readdirSync(templates).join(", "));
+          '
+
+  # ── Release ─────────────────────────────────────────────────────────────────
+  release:
+    name: Publish + tag
+    needs: verify
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Ensure npm >= 11.5.1
+        run: npm install -g npm@^11.5.1
+
+      - name: Install dependencies
+        if: ${{ inputs.target == 'cli' }}
+        working-directory: apps/pipeline-cli
+        run: bun install
+
+      # No build step: this package's bin ships straight from src (package.json
+      # "bin" -> ./src/cli.ts), so there is no dist/ to compile first.
+      # No NODE_AUTH_TOKEN — auth is OIDC Trusted Publishing.
       - name: Publish to npm (Trusted Publishing / OIDC)
+        if: ${{ inputs.target == 'cli' }}
+        working-directory: apps/pipeline-cli
         run: npm publish --provenance --access public
+
+      # Cut AFTER a successful publish (for cli): a tag with no package behind
+      # it is a release nobody can install, and the harder one to clean up.
+      - name: Tag and create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            --target "$GITHUB_SHA"
+
+      - name: Verify the published version resolves
+        if: ${{ inputs.target == 'cli' }}
+        env:
+          V: ${{ needs.verify.outputs.version }}
+        run: |
+          for i in 1 2 3 4 5 6; do
+            if npm view "@baizor/pipeline@$V" version >/dev/null 2>&1; then
+              echo "npm serves $V"; exit 0
+            fi
+            echo "not visible yet, retrying ($i)"; sleep 10
+          done
+          echo "::error::published, but npm does not serve $V"; exit 1
