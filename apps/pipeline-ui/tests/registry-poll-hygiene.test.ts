@@ -42,8 +42,8 @@ describe("deadProjectIds", () => {
 describe("gitInternalProjectIds", () => {
   test("flags roots that sit inside a .git directory", () => {
     const registry = {
-      real: { project_root: "C:/Projects/AI/ai-pipeline/public/pipeline-claude" },
-      bogus: { project_root: "C:/Projects/AI/ai-pipeline/.git/modules/public/pipeline-claude" },
+      real: { project_root: "C:/Projects/AI/ai-pipeline/public/plugin/pipeline-claude" },
+      bogus: { project_root: "C:/Projects/AI/ai-pipeline/.git/modules/public/plugin/pipeline-claude" },
       alsoBogus: { project_root: "/home/x/repo/.git/modules/sub" },
     };
     expect(gitInternalProjectIds(registry).sort()).toEqual(["alsoBogus", "bogus"]);
