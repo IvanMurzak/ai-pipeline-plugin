@@ -1,6 +1,6 @@
 # pipeline
 
-Repository: [`IvanMurzak/ai-pipeline-plugin`](https://github.com/IvanMurzak/ai-pipeline-plugin). This is the source for the installable Claude Code plugin `pipeline` — the manifest, six agents, skills, hooks, and the bundled `pipeline` CLI + local dashboard UI under `apps/`. Looking for the optional remote runner that lets connected compute pick up work dispatched by a pipeline? That lives in the sibling repo [`IvanMurzak/pipeline-runner`](https://github.com/IvanMurzak/pipeline-runner).
+Repository: [`IvanMurzak/pipeline-claude`](https://github.com/IvanMurzak/pipeline-claude). This is the source for the installable Claude Code plugin `pipeline` — the manifest, six agents, skills, hooks, and the bundled `pipeline` CLI + local dashboard UI under `apps/`. Looking for the optional remote runner that lets connected compute pick up work dispatched by a pipeline? That lives in the sibling repo [`IvanMurzak/pipeline-runner`](https://github.com/IvanMurzak/pipeline-runner).
 
 Claude Code plugin for designing and executing long-chain AI workflows as ordered, self-contained iteration files under the consumer project's `.claude/pipeline/` directory. Ships six coordinated agents — one that designs pipelines, a depth-0 `/pipeline:run` supervisor + a `pipeline-manager` orchestrator + per-step `step-executor`s that run them, one that feeds discovered knowledge back into the pipeline's own docs, one that extracts heavy procedural blocks out of iteration markdown into per-pipeline Python scripts so each fresh-context run pays fewer tokens, and a cheap Haiku disambiguator for matching tasks to pipelines.
 
@@ -13,7 +13,7 @@ bun add -g @baizor/pipeline
 pipeline init
 ```
 
-`pipeline init` is the whole setup. It opens your browser once for a single consent screen, connects this project to your account, installs this plugin into Claude Code for you (it shells out to `claude plugin marketplace add IvanMurzak/ai-pipeline-plugin` + `claude plugin install pipeline@ai-pipeline`), clones a starter pipeline into `./.claude/pipeline/support-answer`, enrols this machine as a runner, and offers to run that starter pipeline right there — so the install ends with a pipeline that has already run on your machine. Every step is idempotent (a re-run prints a `✓` per already-satisfied step and changes nothing) and independently skippable: `--no-plugin`, `--no-run`, `--no-runner`, plus `--yes` / `--json` for scripted setups, and `pipeline init <template>` to start from a different template (`pipeline clone --list` shows them). If Claude Code was already open when you ran it, restart it — a running session does not pick up a newly installed plugin.
+`pipeline init` is the whole setup. It opens your browser once for a single consent screen, connects this project to your account, installs this plugin into Claude Code for you (it shells out to `claude plugin marketplace add IvanMurzak/pipeline-claude-marketplace` + `claude plugin install pipeline@pipeline-claude`), clones a starter pipeline into `./.claude/pipeline/support-answer`, enrols this machine as a runner, and offers to run that starter pipeline right there — so the install ends with a pipeline that has already run on your machine. Every step is idempotent (a re-run prints a `✓` per already-satisfied step and changes nothing) and independently skippable: `--no-plugin`, `--no-run`, `--no-runner`, plus `--yes` / `--json` for scripted setups, and `pipeline init <template>` to start from a different template (`pipeline clone --list` shows them). If Claude Code was already open when you ran it, restart it — a running session does not pick up a newly installed plugin.
 
 **It connects to the cloud by default, and that is the only network step.** Nothing about your code or your keys goes with it: the control plane coordinates runs and shows you their status, and by default receives metadata only — statuses, timings, token counts — filtered on your machine before anything is sent. You do not need an account first; if you have none, signing in creates one, and your first organization is created for you. Two escape hatches, and neither is buried in `--help`:
 
@@ -32,7 +32,7 @@ The same two commands with real terminal output, start to finish: [Get started](
 **Manual alternative.** Installing the plugin is one step of `init`. If you already have the CLI — or you want the plugin on its own, without a starter pipeline — run that step by hand from inside Claude Code instead:
 
 ```
-/plugin marketplace add IvanMurzak/ai-pipeline-plugin
+/plugin marketplace add IvanMurzak/pipeline-claude-marketplace
 /plugin install pipeline@ai-pipeline
 ```
 

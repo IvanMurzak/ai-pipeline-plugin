@@ -1,9 +1,9 @@
 {
-  "name": "ai-pipeline",
+  "name": "pipeline-claude",
   "owner": {
     "name": "IvanMurzak"
   },
-  "description": "Self-hosted marketplace for the pipeline plugin — long-chain AI workflow design, execution, and self-improvement for Claude Code.",
+  "description": "Self-hosted marketplace for the Pipeline Claude plugin — long-chain AI workflow design, execution, and self-improvement.",
   "plugins": [
     {
       "name": "pipeline",

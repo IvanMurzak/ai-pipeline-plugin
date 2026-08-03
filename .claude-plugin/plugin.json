@@ -5,7 +5,7 @@
   "author": {
     "name": "IvanMurzak"
   },
-  "repository": "https://github.com/IvanMurzak/ai-pipeline-plugin",
+  "repository": "https://github.com/IvanMurzak/pipeline-claude",
   "license": "MIT",
   "keywords": [
     "pipeline",
