@@ -67,7 +67,7 @@ beforeAll(async () => {
   // and a pre-seeded events.jsonl so /api/state has data to return.
   const tmp = mkdtempSync(join(tmpdir(), "pipeline-ui-srv-"));
   projectRoot = tmp;
-  const pipeRoot = join(tmp, ".claude", "pipeline");
+  const pipeRoot = join(tmp, ".pipeline");
 
   mkdirSync(join(pipeRoot, "alpha", "steps"), { recursive: true });
   writeFileSync(
@@ -347,7 +347,7 @@ describe("daemon HTTP surface", () => {
           session_id: null,
           data,
         }) + "\n";
-      const journal = join(projectRoot, ".claude", "pipeline", ".runtime", "events.jsonl");
+      const journal = join(projectRoot, ".pipeline", ".runtime", "events.jsonl");
       appendFileSync(journal, ev("pipeline.started", { pipeline_name: "alpha", first_iteration_path: "x" }), "utf-8");
       appendFileSync(journal, ev("iteration.started", { iteration_path: "01-warmup.md", index: 1 }), "utf-8");
 
@@ -377,8 +377,8 @@ describe("daemon HTTP surface", () => {
   });
 
   describe("liveness sweep (dead-run detection)", () => {
-    const journal = () => join(projectRoot, ".claude", "pipeline", ".runtime", "events.jsonl");
-    const runsDir = () => join(projectRoot, ".claude", "pipeline", ".runtime", "runs");
+    const journal = () => join(projectRoot, ".pipeline", ".runtime", "events.jsonl");
+    const runsDir = () => join(projectRoot, ".pipeline", ".runtime", "runs");
     const seedRun = (runId: string) => {
       const ev = (type: string, data: Record<string, unknown>) =>
         JSON.stringify({
@@ -458,8 +458,8 @@ describe("daemon HTTP surface", () => {
   });
 
   describe("manager.stopped dead-run detection (event-driven, Phase 2)", () => {
-    const journal = () => join(projectRoot, ".claude", "pipeline", ".runtime", "events.jsonl");
-    const runsDir = () => join(projectRoot, ".claude", "pipeline", ".runtime", "runs");
+    const journal = () => join(projectRoot, ".pipeline", ".runtime", "events.jsonl");
+    const runsDir = () => join(projectRoot, ".pipeline", ".runtime", "runs");
     const ev = (runId: string, type: string, data: Record<string, unknown>) =>
       JSON.stringify({
         schema: 3, ts: new Date().toISOString(), type,

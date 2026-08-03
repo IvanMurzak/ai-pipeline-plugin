@@ -220,7 +220,7 @@ export class Harness {
         `test fixture missing at ${FIXTURE_DIR} — did you run from the right cwd?`,
       );
     }
-    const target = join(toRoot, ".claude", "pipeline", "test-pipeline");
+    const target = join(toRoot, ".pipeline", "test-pipeline");
     mkdirSync(target, { recursive: true });
     mkdirSync(join(target, "steps"), { recursive: true });
     // Copy PIPELINE.md
@@ -242,7 +242,7 @@ export class Harness {
   // -----------------------------------------------------------------
 
   /**
-   * Append one event to <project>/.pipelines/.runtime/events.jsonl.
+   * Append one event to <project>/.pipeline/.runtime/events.jsonl.
    * Mirrors `pipeline event` exactly; same field names, same coercion behavior.
    */
   emitEvent(
@@ -252,7 +252,7 @@ export class Harness {
     data: EventData = {},
     opts: { worktree?: string | null; parentRunId?: string | null; sessionId?: string | null } = {},
   ): void {
-    const runtime = join(proj.project_root, ".claude", "pipeline", ".runtime");
+    const runtime = join(proj.project_root, ".pipeline", ".runtime");
     mkdirSync(runtime, { recursive: true });
     const event: JournalEvent = {
       schema: SCHEMA_VERSION,
@@ -278,7 +278,7 @@ export class Harness {
     runId: string | null,
     data: EventData = {},
   ): void {
-    const runtime = join(proj.project_root, ".claude", "pipeline", ".runtime");
+    const runtime = join(proj.project_root, ".pipeline", ".runtime");
     mkdirSync(runtime, { recursive: true });
     const event = {
       schema: 1,
@@ -475,7 +475,7 @@ export class Harness {
 
   /** Read the on-disk events.jsonl directly (sanity check the writer path). */
   readJournal(proj: TempProject): JournalEvent[] {
-    const path = join(proj.project_root, ".claude", "pipeline", ".runtime", "events.jsonl");
+    const path = join(proj.project_root, ".pipeline", ".runtime", "events.jsonl");
     if (!existsSync(path)) return [];
     const out: JournalEvent[] = [];
     const text = readFileSync(path, "utf-8");

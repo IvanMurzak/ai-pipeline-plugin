@@ -65,7 +65,7 @@ afterAll(() => {
 beforeEach(() => {
   // Fresh per-test project root so events.jsonl is isolated.
   projectRoot = mkdtempSync(join(tmpRoot, "proj-"));
-  runtimeDir = join(projectRoot, ".claude", "pipeline", ".runtime");
+  runtimeDir = join(projectRoot, ".pipeline", ".runtime");
   mkdirSync(runtimeDir, { recursive: true });
   eventsPath = join(runtimeDir, "events.jsonl");
   delete process.env.PIPELINE_UI_RUN_ID;
@@ -100,7 +100,7 @@ function readEvents(): JournalEvent[] {
 }
 
 function iterationPath(pipelineName: string, file = "03-do-the-thing.md"): string {
-  return join(projectRoot, ".claude", "pipeline", pipelineName, "steps", file);
+  return join(projectRoot, ".pipeline", pipelineName, "steps", file);
 }
 
 /** A Path-C pipeline-manager spawn — the run anchor. The supervisor's
@@ -242,7 +242,7 @@ describe("parseManagerSpawn / parseWorkerSpawn (pure parsers)", () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.iterationPath).toBe(source);
     expect(parsed!.pipelineName).toBe("demo");
-    expect(parsed!.pipelineRoot).toBe(join(projectRoot, ".claude", "pipeline", "demo"));
+    expect(parsed!.pipelineRoot).toBe(join(projectRoot, ".pipeline", "demo"));
   });
 
   test("a manager is NOT parsed as a worker, and vice versa", () => {
@@ -261,7 +261,7 @@ describe("parseManagerSpawn / parseWorkerSpawn (pure parsers)", () => {
     expect(parseWorkerSpawn({ subagent_type: "pipeline-designer", prompt: `Execute pipeline iteration: ${iter}` })).toBeNull();
   });
 
-  test("path outside .pipelines/*/steps/ returns null", () => {
+  test("path outside .pipeline/*/steps/ returns null", () => {
     expect(
       parseManagerSpawn({
         subagent_type: "pipeline-manager",
@@ -334,7 +334,7 @@ describe("handlePostToolUse synthesizes Path-C RUN-LEVEL lifecycle (manager anch
     expect(synth[0].data).toEqual({
       pipeline_name: "demo",
       first_iteration_path: iter,
-      pipeline_root: join(projectRoot, ".claude", "pipeline", "demo"),
+      pipeline_root: join(projectRoot, ".pipeline", "demo"),
       default_model: null,
     });
     // pipeline.completed shape.
@@ -358,7 +358,7 @@ describe("handlePostToolUse synthesizes Path-C RUN-LEVEL lifecycle (manager anch
         data: {
           pipeline_name: "demo",
           first_iteration_path: iter,
-          pipeline_root: join(projectRoot, ".claude", "pipeline", "demo"),
+          pipeline_root: join(projectRoot, ".pipeline", "demo"),
           default_model: null,
         },
       }) + "\n",
@@ -440,7 +440,7 @@ describe("handlePostToolUse synthesizes Path-C RUN-LEVEL lifecycle (manager anch
         data: {
           pipeline_name: "demo",
           first_iteration_path: iter,
-          pipeline_root: join(projectRoot, ".claude", "pipeline", "demo"),
+          pipeline_root: join(projectRoot, ".pipeline", "demo"),
           default_model: null,
         },
       }) + "\n",
@@ -481,7 +481,7 @@ describe("handlePostToolUse synthesizes Path-C RUN-LEVEL lifecycle (manager anch
     const started = events.find((e) => e.type === "pipeline.started")!;
     expect(started.data.pipeline_name).toBe("nested-demo");
     expect(started.data.pipeline_root).toBe(
-      join(projectRoot, ".claude", "pipeline", "nested-demo"),
+      join(projectRoot, ".pipeline", "nested-demo"),
     );
     expect(started.data.first_iteration_path).toBe(iter);
   });
@@ -530,7 +530,7 @@ describe("handlePostToolUse synthesizes Path-C RUN-LEVEL lifecycle (manager anch
     expect(events[0].data.success).toBe(false);
   });
 
-  test("iteration path outside .pipelines/*/steps/ → no synthesis", () => {
+  test("iteration path outside .pipeline/*/steps/ → no synthesis", () => {
     handlePostToolUse(
       {
         hook_event_name: "PostToolUse",

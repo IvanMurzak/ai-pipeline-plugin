@@ -4,8 +4,8 @@
  *
  * Single shared HTTP server (one per machine, one port) that:
  *   - Maintains a registry of consumer projects in ~/.claude/pipeline-ui/projects.json
- *   - Tails each project's .pipelines/.runtime/events.jsonl
- *   - Watches each project's .pipelines/** for file changes
+ *   - Tails each project's .pipeline/.runtime/events.jsonl
+ *   - Watches each project's .pipeline/** for file changes
  *   - Broadcasts a unified event stream via Server-Sent Events
  *   - Serves the React UI bundle from ./dist
  *
@@ -854,7 +854,7 @@ const lastSeenPersistedAt = new Map<string, number>();      // pid → ms
 const LAST_SEEN_PERSIST_INTERVAL_MS = 60_000;
 
 function journalPath(entry: ProjectEntry): string {
-  return join(entry.project_root, ".claude", "pipeline", ".runtime", "events.jsonl");
+  return join(entry.project_root, ".pipeline", ".runtime", "events.jsonl");
 }
 
 function readJournalIncremental(entry: ProjectEntry): void {
@@ -955,7 +955,7 @@ function readJournalIncremental(entry: ProjectEntry): void {
 
 function attachProjectWatchers(entry: ProjectEntry): void {
   const pid = entry.project_id;
-  const pipelineDir = join(entry.project_root, ".claude", "pipeline");
+  const pipelineDir = join(entry.project_root, ".pipeline");
   const runtimeDir = join(pipelineDir, ".runtime");
 
   // Make sure runtime dir exists so we can watch it.
@@ -1601,7 +1601,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       return new Response("invalid rel", { status: 400 });
     }
     // Resolve the pipeline via scanPipelines so we honor nested category
-    // folders (e.g. .pipelines/workflows/<name>/) instead of guessing
+    // folders (e.g. .pipeline/workflows/<name>/) instead of guessing
     // a flat layout. Optional &root= disambiguates duplicate basenames.
     const pipelines = scanPipelines(entry.project_root);
     const pipeline = findPipelineByNameAndRoot(pipelines, name, url.searchParams.get("root"));
@@ -1694,7 +1694,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     return handleListDriveRuns(url, getProject);
   }
 
-  // --- Pipeline editor (editor.ts) — guarded writes INSIDE .pipelines only.
+  // --- Pipeline editor (editor.ts) — guarded writes INSIDE .pipeline only.
   if (pathname === "/api/editor/list" && req.method === "GET") {
     return handleEditorList(url, editorDeps);
   }
@@ -1822,7 +1822,7 @@ interface ChatSessionRecord {
  */
 function recordChatSession(projectRoot: string, rec: ChatSessionRecord): void {
   try {
-    const runtime = join(projectRoot, ".claude", "pipeline", ".runtime");
+    const runtime = join(projectRoot, ".pipeline", ".runtime");
     mkdirSync(runtime, { recursive: true });
     appendFileSync(
       join(runtime, "chat-sessions.jsonl"),
@@ -1839,7 +1839,7 @@ function recordChatSession(projectRoot: string, rec: ChatSessionRecord): void {
  * null when the run isn't ours or the file doesn't exist.
  */
 function loadChatSession(projectRoot: string, runId: string): ChatSessionRecord | null {
-  const path = join(projectRoot, ".claude", "pipeline", ".runtime", "chat-sessions.jsonl");
+  const path = join(projectRoot, ".pipeline", ".runtime", "chat-sessions.jsonl");
   if (!existsSync(path)) return null;
   try {
     const text = readFileSync(path, "utf-8");
@@ -1860,7 +1860,7 @@ function loadChatSession(projectRoot: string, runId: string): ChatSessionRecord 
 }
 
 /**
- * Append one SDK message to `<projectRoot>/.pipelines/.runtime/chat-messages.jsonl`
+ * Append one SDK message to `<projectRoot>/.pipeline/.runtime/chat-messages.jsonl`
  * tagged with our run_id AND broadcast it over the daemon's SSE stream so
  * every connected browser tab (not just the one that initiated /api/chat)
  * gets live updates. Without the broadcast, opening a chat in tab B that's
@@ -1927,7 +1927,7 @@ function appendChatMessagePart(
   const source = opts.source ?? "sdk";
   const ts = opts.ts ?? new Date().toISOString();
   try {
-    const runtime = join(projectRoot, ".claude", "pipeline", ".runtime");
+    const runtime = join(projectRoot, ".pipeline", ".runtime");
     mkdirSync(runtime, { recursive: true });
     const path = join(runtime, "chat-messages.jsonl");
     rotateIfLarge(path, CHAT_MESSAGES_ROTATE_AT);
@@ -1963,7 +1963,7 @@ function appendChatMessagePart(
 }
 
 /**
- * Append a single event to `<projectRoot>/.pipelines/.runtime/events.jsonl`.
+ * Append a single event to `<projectRoot>/.pipeline/.runtime/events.jsonl`.
  * Mirrors the schema written by `pipeline event` (apps/pipeline-cli/src/lib/event.ts)
  * so the UI / journal tail consumes chat-driven events the same way it consumes
  * /pipeline:run-driven ones.
@@ -1978,7 +1978,7 @@ function emitJournalEvent(
   worktree: string | null = null,
 ): void {
   try {
-    const runtime = join(projectRoot, ".claude", "pipeline", ".runtime");
+    const runtime = join(projectRoot, ".pipeline", ".runtime");
     mkdirSync(runtime, { recursive: true });
     const evt = {
       schema: SCHEMA_VERSION,
@@ -2104,7 +2104,7 @@ function reconcileDeadChatRunsAtBoot(): void {
   for (const entry of Object.values(registry)) {
     try {
       const chatPath = join(
-        entry.project_root, ".claude", "pipeline", ".runtime", "chat-sessions.jsonl",
+        entry.project_root, ".pipeline", ".runtime", "chat-sessions.jsonl",
       );
       if (!existsSync(chatPath)) continue;
       const chatRunIds = new Set<string>();
@@ -2170,7 +2170,7 @@ function reconcileDeadChatRunsAtBoot(): void {
  * nested blocker (which legitimately stops + later re-spawns the manager).
  */
 function sweepProjectLiveness(entry: ProjectEntry): void {
-  const runsDir = join(entry.project_root, ".claude", "pipeline", ".runtime", "runs");
+  const runsDir = join(entry.project_root, ".pipeline", ".runtime", "runs");
   if (!existsSync(runsDir)) return;
   let files: string[];
   try {
@@ -2320,7 +2320,7 @@ function sweepManagerStoppedRuns(entry: ProjectEntry): boolean {
   // event means there is nothing event-driven to retire here.
   if (!sawManagerStopped) return false;
 
-  const runsDir = join(entry.project_root, ".claude", "pipeline", ".runtime", "runs");
+  const runsDir = join(entry.project_root, ".pipeline", ".runtime", "runs");
   // True when run_id still has a liveness lockfile naming a LIVE driving
   // process. In Path B the /pipeline:run supervisor (depth 0) owns the run
   // and keeps this lockfile across nested-blocker poll-waits — during which
@@ -2430,7 +2430,7 @@ const BACKFILL_SWEEP_BUDGET_MS = 3000;
  * clean, so they cost one small read per minute and nothing else.
  */
 function sweepStatsBackfill(entry: ProjectEntry): void {
-  const statsDir = join(entry.project_root, ".claude", "pipeline", ".stats");
+  const statsDir = join(entry.project_root, ".pipeline", ".stats");
   if (!existsSync(statsDir)) return;
 
   let hasPending = false;
@@ -3064,7 +3064,7 @@ function handleChatMessages(url: URL): Response {
   // Inline shard discovery so we don't need to expose a generic helper —
   // pattern: <stem>-*.jsonl in the .runtime/ dir, sorted lex (chronological
   // because stamps are ISO-ish). Then append the current file last.
-  const runtimeDir = join(entry.project_root, ".claude", "pipeline", ".runtime");
+  const runtimeDir = join(entry.project_root, ".pipeline", ".runtime");
   const shards: string[] = [];
   if (existsSync(runtimeDir)) {
     try {
@@ -3120,7 +3120,7 @@ async function handleListChatSessions(_req: Request, url: URL): Promise<Response
   if (!pid) return new Response("missing project_id", { status: 400 });
   const entry = registry[pid];
   if (!entry) return new Response("unknown project", { status: 404 });
-  const path = join(entry.project_root, ".claude", "pipeline", ".runtime", "chat-sessions.jsonl");
+  const path = join(entry.project_root, ".pipeline", ".runtime", "chat-sessions.jsonl");
   if (!existsSync(path)) return Response.json({ sessions: [] });
   const seen = new Set<string>();
   const out: ChatSessionRecord[] = [];

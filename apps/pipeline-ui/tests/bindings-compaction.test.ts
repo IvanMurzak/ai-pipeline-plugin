@@ -50,7 +50,7 @@ function record(n: number, transcriptPath = join(dir, `t-${n}.jsonl`)): string {
     project_root: projectRoot,
     worktree: null,
     pipeline_name: "demo",
-    iteration_path: join(projectRoot, ".claude", "pipeline", "demo", "steps", "01-x.md"),
+    iteration_path: join(projectRoot, ".pipeline", "demo", "steps", "01-x.md"),
     start_ts: "2026-05-23T10:00:00.000Z",
     kind: "bypass-spawn",
     schema: 1,

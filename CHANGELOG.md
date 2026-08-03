@@ -36,7 +36,7 @@ healthy worker on the reclaimed port running B's code, while A's supervisor exit
 ## plugin 0.85.4 — a run's measurements outlive the worktree it ran in
 
 Run a pipeline from inside a git worktree and its measurements were written into that worktree —
-`<worktree>/.pipelines/.stats/<pipeline>/…` — so `git worktree remove` destroyed them at
+`<worktree>/.pipeline/.stats/<pipeline>/…` — so `git worktree remove` destroyed them at
 exactly the moment the run they measured finished. They were unreadable even while they existed:
 every reader (the dashboard's stats sweep, the Stop-hook token backfill, `pipeline stats`) resolves
 a project through the worktree-to-main mapping and so only ever looked in the main checkout.

@@ -121,7 +121,7 @@ async function pollRun(runId: string, until: (r: DriveRunSnap) => boolean, maxMs
 
 beforeAll(async () => {
   projectRoot = mkdtempSync(join(tmpdir(), "pui-launch-proj-"));
-  const pipeBase = join(projectRoot, ".claude", "pipeline");
+  const pipeBase = join(projectRoot, ".pipeline");
 
   // demo: two plain sequential steps.
   demoRoot = join(pipeBase, "demo");
@@ -593,10 +593,10 @@ describe("auth helpers (pure)", () => {
 
   test("isInsidePipelinesDir + parseDriveFinal guards", () => {
     const proj = resolve(tmpdir(), "p");
-    expect(isInsidePipelinesDir(proj, join(proj, ".claude", "pipeline", "x"))).toBe(true);
-    expect(isInsidePipelinesDir(proj, join(proj, ".claude", "pipeline"))).toBe(true);
+    expect(isInsidePipelinesDir(proj, join(proj, ".pipeline", "x"))).toBe(true);
+    expect(isInsidePipelinesDir(proj, join(proj, ".pipeline"))).toBe(true);
     expect(isInsidePipelinesDir(proj, proj)).toBe(false);
-    expect(isInsidePipelinesDir(proj, join(proj, ".claude", "pipeline", "..", "..", "secrets"))).toBe(false);
+    expect(isInsidePipelinesDir(proj, join(proj, ".pipeline", "..", "..", "secrets"))).toBe(false);
     expect(parseDriveFinal('{"status":"completed"}')).toEqual({ status: "completed" });
     expect(parseDriveFinal("noise\n{\n  \"status\": \"blocked\"\n}")).toEqual({ status: "blocked" });
     expect(parseDriveFinal("")).toBeNull();

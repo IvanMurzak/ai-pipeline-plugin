@@ -11,7 +11,7 @@
 //   POST   /api/editor/validate                          — {project_id, pipeline_root} → computePlan errors/warnings
 //
 // WRITE-SCOPE CONTRACT (defense in depth, tested):
-//   - every path is RELATIVE to <project>/.pipelines and must resolve
+//   - every path is RELATIVE to <project>/.pipeline and must resolve
 //     back inside it (no `..`, no absolute paths, symlink-agnostic resolve);
 //   - runtime/measurement dot-dirs (.runtime, .stats, .feedback) are
 //     read-and-write FORBIDDEN — the run machinery owns them;
@@ -63,7 +63,7 @@ export function resolveEditorPath(projectRoot: string, rel: string): { full: str
   if (!ALLOWED_EXT.has(extOf(norm))) {
     return { error: new Response(`extension not editable (allowed: ${[...ALLOWED_EXT].join(" ")})`, { status: 403 }) };
   }
-  const base = resolve(projectRoot, ".claude", "pipeline");
+  const base = resolve(projectRoot, ".pipeline");
   const full = resolve(base, norm);
   // Shared daemon path normalizer — containment checks must not each grow
   // their own Windows case-fold variant.
@@ -76,7 +76,7 @@ export function resolveEditorPath(projectRoot: string, rel: string): { full: str
 /** Relative (to the pipelines dir) editable files of one pipeline root:
  *  PIPELINE.md, root-level context modules, steps/**, scripts/**. */
 export function listEditableFiles(projectRoot: string, pipelineRoot: string): string[] {
-  const base = resolve(projectRoot, ".claude", "pipeline");
+  const base = resolve(projectRoot, ".pipeline");
   const root = resolve(pipelineRoot);
   const out: string[] = [];
   const relOf = (p: string) => p.slice(base.length + 1).replaceAll("\\", "/");
@@ -273,7 +273,7 @@ export async function handleEditorCreateStep(req: Request, deps: EditorDeps): Pr
   }
   deps.invalidate(entry.project_root);
   deps.broadcast({ type: "file.changed", data: { project_id: body.project_id, path: filename } });
-  const base = resolve(entry.project_root, ".claude", "pipeline");
+  const base = resolve(entry.project_root, ".pipeline");
   return Response.json({ ok: true, rel: full.slice(base.length + 1).replaceAll("\\", "/"), filename });
 }
 

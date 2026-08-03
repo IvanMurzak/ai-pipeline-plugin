@@ -69,7 +69,7 @@ afterAll(() => {
 
 beforeEach(() => {
   projectRoot = mkdtempSync(join(tmpRoot, "proj-"));
-  runtimeDir = join(projectRoot, ".claude", "pipeline", ".runtime");
+  runtimeDir = join(projectRoot, ".pipeline", ".runtime");
   mkdirSync(runtimeDir, { recursive: true });
   eventsPath = join(runtimeDir, "events.jsonl");
   // Isolate the home dir so the test never touches the developer's real
@@ -123,7 +123,7 @@ function writeBinding(rec: Partial<MirrorBinding>): void {
     project_root: projectRoot,
     worktree: null,
     pipeline_name: "demo",
-    iteration_path: join(projectRoot, ".claude", "pipeline", "demo", "steps", "01.md"),
+    iteration_path: join(projectRoot, ".pipeline", "demo", "steps", "01.md"),
     start_ts: new Date().toISOString(),
     kind: "chain-controller",
     schema: 1,
@@ -264,7 +264,7 @@ describe("handlePostToolUse — tool.called run_id attribution", () => {
   test("Path-B Agent spawn binds tool.called to the chain-controller's owned run_id", () => {
     // Pre-seed events.jsonl with a pipeline.started so findChainController
     // RunId returns the owned run_id for this iteration.
-    const iter = join(projectRoot, ".claude", "pipeline", "demo", "steps", "01-warmup.md");
+    const iter = join(projectRoot, ".pipeline", "demo", "steps", "01-warmup.md");
     const fakeStarted = {
       schema: 3,
       ts: new Date().toISOString(),
@@ -274,7 +274,7 @@ describe("handlePostToolUse — tool.called run_id attribution", () => {
       run_id: "run-chain-1",
       parent_run_id: null,
       session_id: null,
-      data: { pipeline_name: "demo", first_iteration_path: iter, pipeline_root: join(projectRoot, ".claude", "pipeline", "demo") },
+      data: { pipeline_name: "demo", first_iteration_path: iter, pipeline_root: join(projectRoot, ".pipeline", "demo") },
     };
     appendFileSync(eventsPath, JSON.stringify(fakeStarted) + "\n", "utf-8");
 

@@ -1,6 +1,6 @@
 ---
 name: clone
-description: Scaffold a ready-made pipeline into this project by copying a bundled template into ./.pipelines/<name>/. Use to bootstrap a working pipeline (e.g. support-answer, ship-feature, example-minimal) without authoring one from scratch. Also lists the available templates with --list.
+description: Scaffold a ready-made pipeline into this project by copying a bundled template into ./.pipeline/<name>/. Use to bootstrap a working pipeline (e.g. support-answer, ship-feature, example-minimal) without authoring one from scratch. Also lists the available templates with --list.
 user-invocable: true
 allowed-tools: Bash
 argument-hint: <template-name>  (or --list to see all)
@@ -13,7 +13,7 @@ they have a working pipeline to run and adapt — no authoring required, and no
 `bun add -g @baizor/pipeline` needed, because you invoke the CLI that ships INSIDE
 this plugin.
 
-The template lands at `<cwd>/.pipelines/<name>/` — inside the **consumer
+The template lands at `<cwd>/.pipeline/<name>/` — inside the **consumer
 project**, never the plugin install dir. The template SOURCE ships with the plugin;
 the CLI resolves it relative to its own location, so cloning works identically from
 a plugin install and a global npm install.
@@ -49,7 +49,7 @@ skill's `allowed-tools` is `Bash` only, which enforces that.)
 2. **Interpret the exit code and report:**
    - `0` — cloned (or `--list` / `--help`). Relay the CLI's output: the template
      name and the file list it printed. Then tell the user how to run it (step 3).
-   - `1` — refused: `./.pipelines/<name>/` already exists (or the copy
+   - `1` — refused: `./.pipeline/<name>/` already exists (or the copy
      failed). Relay the CLI's message; offer `--force` to overwrite (which replaces
      the folder entirely) if that's what they want. Do not force it yourself.
    - `2` — usage: no name, unknown template, or a bad flag. The CLI prints the list
@@ -58,7 +58,7 @@ skill's `allowed-tools` is `Bash` only, which enforces that.)
 3. **On a successful clone, tell the user briefly how to run it.** Keep it short:
    - Launch it from the local **Pipeline UI** (on by default) — a Launch form lets
      them set options and start the run, or
-   - Run it directly: `/pipeline:run <cwd>/.pipelines/<name>/steps/01-*.md`.
+   - Run it directly: `/pipeline:run <cwd>/.pipeline/<name>/steps/01-*.md`.
    - For the **`support-answer`** template specifically, mention that it takes two
      pipeline variables — `PP_QUESTION` (the question to answer) and `PP_DOCS_DIR`
      (the folder to retrieve over) — which they can fill in on the UI Launch form
@@ -72,5 +72,5 @@ skill's `allowed-tools` is `Bash` only, which enforces that.)
 - The available templates are whatever `... clone --list` prints — do not hardcode
   the list here; it grows over time.
 - This skill never edits the template after cloning. If the user wants to adapt it,
-  they edit the files under `./.pipelines/<name>/` themselves, or use
+  they edit the files under `./.pipeline/<name>/` themselves, or use
   `/pipeline:design` for a brand-new pipeline.

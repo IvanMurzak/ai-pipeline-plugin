@@ -1,6 +1,6 @@
 ---
 name: optimize
-description: USER-INVOKED ONLY (e.g. on a weekly schedule) — review the pipeline run measurements under .pipelines/.stats/ (durations, outcomes, tokens, tool failures), inspect run logs where something regressed or repeatedly failed, and apply targeted improvements to specific pipelines via pipeline-improver. Never auto-invoke this skill; it exists so measurement review costs zero tokens until the user explicitly asks for it.
+description: USER-INVOKED ONLY (e.g. on a weekly schedule) — review the pipeline run measurements under .pipeline/.stats/ (durations, outcomes, tokens, tool failures), inspect run logs where something regressed or repeatedly failed, and apply targeted improvements to specific pipelines via pipeline-improver. Never auto-invoke this skill; it exists so measurement review costs zero tokens until the user explicitly asks for it.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read, Bash, Glob, Grep, Agent, AskUserQuestion
@@ -11,7 +11,7 @@ argument-hint: "[pipeline-name … | leave empty to review everything]"
 
 You are running the **periodic optimization pass** over the measurement files the stats system
 (pure software, `PIPELINE_STATS_ENABLED`, default on) has been writing under
-`<project>/.pipelines/.stats/`. The user invokes this deliberately (typically weekly).
+`<project>/.pipeline/.stats/`. The user invokes this deliberately (typically weekly).
 `$ARGUMENTS` may narrow the pass to specific pipelines; empty means review everything.
 
 ## Token discipline
@@ -83,7 +83,7 @@ which only the user can trigger (`disable-model-invocation: true`). Keep the pas
 
 ## Boundaries
 
-- Blast radius: pipeline folders only (`.pipelines/**`) — never consumer code, never the
+- Blast radius: pipeline folders only (`.pipeline/**`) — never consumer code, never the
   plugin install, never `.stats/` contents (the evidence is append-only; do not "clean" it).
 - This skill NEVER runs pipelines and NEVER deletes measurement files.
 - If `.stats/` shows tokens `pending` everywhere, note that enrichment happens when a

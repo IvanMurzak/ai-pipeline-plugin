@@ -54,7 +54,7 @@ function writeStep(modelLine: string | null): void {
 
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "pipeline-ui-model-"));
-  pipelineRoot = join(root, ".claude", "pipeline", "alpha");
+  pipelineRoot = join(root, ".pipeline", "alpha");
   mkdirSync(join(pipelineRoot, "steps"), { recursive: true });
   firstStepPath = join(pipelineRoot, "steps", "01-hello.md");
 });

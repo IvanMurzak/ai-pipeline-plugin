@@ -61,7 +61,7 @@ afterAll(() => {
 
 beforeEach(() => {
   projectRoot = mkdtempSync(join(tmpRoot, "proj-"));
-  runtimeDir = join(projectRoot, ".claude", "pipeline", ".runtime");
+  runtimeDir = join(projectRoot, ".pipeline", ".runtime");
   mkdirSync(runtimeDir, { recursive: true });
   eventsPath = join(runtimeDir, "events.jsonl");
   homeRoot = mkdtempSync(join(tmpRoot, "home-"));
@@ -107,7 +107,7 @@ function writeBinding(rec: Partial<MirrorBinding>): void {
     project_root: projectRoot,
     worktree: null,
     pipeline_name: "demo",
-    iteration_path: join(projectRoot, ".claude", "pipeline", "demo", "steps", "01.md"),
+    iteration_path: join(projectRoot, ".pipeline", "demo", "steps", "01.md"),
     start_ts: new Date().toISOString(),
     kind: "chain-controller",
     schema: 1,

@@ -71,16 +71,16 @@ function encodeProjectDir(absPath: string): string {
 }
 
 function runsJsonl(root: string): string {
-  return join(root, ".claude", "pipeline", ".stats", "demo", "runs.jsonl");
+  return join(root, ".pipeline", ".stats", "demo", "runs.jsonl");
 }
 
 /** A project tree with one .stats record; `tokens` decides dirty vs clean. */
 function makeProject(prefix: string, runId: string, tokens: unknown): string {
   const root = mkdtempSync(join(tmpdir(), prefix));
-  mkdirSync(join(root, ".claude", "pipeline", ".stats", "demo", "runs"), { recursive: true });
+  mkdirSync(join(root, ".pipeline", ".stats", "demo", "runs"), { recursive: true });
   writeFileSync(runsJsonl(root), record(runId, tokens) + "\n", "utf-8");
   writeFileSync(
-    join(root, ".claude", "pipeline", ".stats", "demo", "runs", `${runId}.log`),
+    join(root, ".pipeline", ".stats", "demo", "runs", `${runId}.log`),
     `run ${runId} — demo — COMPLETED\n`,
     "utf-8",
   );

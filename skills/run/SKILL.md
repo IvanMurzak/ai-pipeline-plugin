@@ -54,13 +54,13 @@ A pipeline and each iteration may also opt into a **reasoning effort** via the O
 
 ## Prerequisites
 
-- A pipeline exists under the current project's `./.pipelines/` (typically authored with `/pipeline:design`).
+- A pipeline exists under the current project's `./.pipeline/` (typically authored with `/pipeline:design`).
 - `$1` is either the absolute path to an iteration file under `<pipeline>/steps/` (usually `steps/01-*.md`, to start a FRESH run — this always mints a NEW run_id, even when the path is a later iteration), OR `--resume [<run_id>]` to re-enter an EXISTING run under its ORIGINAL run_id (see "Resume Procedure") — the only way to continue a dead session's run without orphaning its state.
 - The current working directory is the consumer project's root — all file edits performed by iterations land here.
 
 ## UI event emissions (pipeline-ui)
 
-You emit the **run-level lifecycle** to `<project>/.pipelines/.runtime/events.jsonl`; the per-iteration events (`iteration.*`, `improver.*`, `script_creator.*`, `worktree.*`) are auto-emitted in-process by the `pipeline next` CLI the manager drives (the manager itself emits only the retrospective's improver/script events). Because the whole run shares one `session_id`, the mirror binding you register below lets the daemon correlate the manager's and step-executors' tool calls to this run. Emissions are best-effort — never let a failure halt the run.
+You emit the **run-level lifecycle** to `<project>/.pipeline/.runtime/events.jsonl`; the per-iteration events (`iteration.*`, `improver.*`, `script_creator.*`, `worktree.*`) are auto-emitted in-process by the `pipeline next` CLI the manager drives (the manager itself emits only the retrospective's improver/script events). Because the whole run shares one `session_id`, the mirror binding you register below lets the daemon correlate the manager's and step-executors' tool calls to this run. Emissions are best-effort — never let a failure halt the run.
 
 **One-time setup at the start of the Procedure:** generate a 12-char run id, e.g. `bun -e "console.log(require('crypto').randomBytes(6).toString('hex'))"`. Capture the literal value (e.g. `abc123def456`).
 
@@ -86,8 +86,8 @@ The writer pops `run_id`, `parent_run_id`, and `session_id` out of the kv args a
 
 ## Procedure
 
-1. **Detect the resume form first.** If the invocation is `--resume` or `--resume <run_id>` (with or without a trailing run id — never a path), do NOT treat it as an iteration path: follow the **Resume Procedure** below instead, which re-joins this Procedure at step 5.1 once it has resolved `current_iteration` and the run's id. Otherwise, if `$1` is empty, ask the user which iteration file to start at (suggest `./.pipelines/<pipeline>/steps/01-*.md`). Do not proceed without a path.
-2. Verify the file exists and is under the current project's `.pipelines/` tree. If not, stop and ask the user to confirm the path.
+1. **Detect the resume form first.** If the invocation is `--resume` or `--resume <run_id>` (with or without a trailing run id — never a path), do NOT treat it as an iteration path: follow the **Resume Procedure** below instead, which re-joins this Procedure at step 5.1 once it has resolved `current_iteration` and the run's id. Otherwise, if `$1` is empty, ask the user which iteration file to start at (suggest `./.pipeline/<pipeline>/steps/01-*.md`). Do not proceed without a path.
+2. Verify the file exists and is under the current project's `.pipeline/` tree. If not, stop and ask the user to confirm the path.
 3. **Derive the pipeline name and root from the path — do not read iteration content.** Walk up from the iteration file: the parent is `steps/` (or a nested sub-step folder — keep walking until you reach `steps/`), and the parent of `steps/` is the pipeline root; its basename is the pipeline name. Show a one-line banner:
 
    ```
@@ -166,19 +166,19 @@ Triggered by step 1 when the invocation is `--resume` (list candidates) or `--re
 
 **`<pipeline-root>/.runtime/<id>/next.json`'s `phase` field is the SINGLE AUTHORITY on resumability.** `phase: "terminal"` (run finished, `done` or `halt`) — or a missing/unparseable file — means dead; anything else (`await-*` or `blocked`) means the run can be re-entered. The `.stats` SUMMARY "In-flight or crashed runs" section is for DISCOVERY ONLY, to help the human recall run ids — it is NEVER the refusal criterion: a crashed run's `.stats` entry is an unflushed timeline buffer, not a finalized record, so its mere presence or absence proves nothing about resumability.
 
-1. **With an id** (`--resume <run_id>`): `Glob` `./.pipelines/*/.runtime/<run_id>/next.json` (existence only; at most one match across all pipelines in this project).
-   - No match → refuse: "No run found with id `<run_id>`. Start fresh: `/pipeline:run ./.pipelines/<pipeline>/steps/01-*.md`." Stop — do not proceed to step 4.
+1. **With an id** (`--resume <run_id>`): `Glob` `./.pipeline/*/.runtime/<run_id>/next.json` (existence only; at most one match across all pipelines in this project).
+   - No match → refuse: "No run found with id `<run_id>`. Start fresh: `/pipeline:run ./.pipeline/<pipeline>/steps/01-*.md`." Stop — do not proceed to step 4.
    - Match found → go to step 3.
 
 2. **Without an id** (bare `--resume`): discover candidates, then ask — this is the ONLY branch that reads more than one `next.json`.
-   - `Glob` `./.pipelines/*/.runtime/*/next.json`. For each match, `Read` the file (a small orchestration-cursor JSON, not iteration content) and keep it only when it parses AND `phase !== "terminal"`.
-   - No non-terminal candidates → tell the user there is nothing to resume and suggest starting fresh (`/pipeline:run ./.pipelines/<pipeline>/steps/01-*.md`). Stop.
+   - `Glob` `./.pipeline/*/.runtime/*/next.json`. For each match, `Read` the file (a small orchestration-cursor JSON, not iteration content) and keep it only when it parses AND `phase !== "terminal"`.
+   - No non-terminal candidates → tell the user there is nothing to resume and suggest starting fresh (`/pipeline:run ./.pipeline/<pipeline>/steps/01-*.md`). Stop.
    - One or more candidates → list them, one line each: `<pipeline-name> · <run_id> · currently at <current_step_id or current_path> · <phase>` (append `(blocked on an external delegation — resuming will re-attempt this iteration)` when `phase === "blocked"`, so the user can choose knowingly). Optionally cross-reference the `.stats` SUMMARY "In-flight or crashed runs" section (`bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" stats`) to add a human-friendly "idle for Nh" hint — informational only, never filtering. Ask the user which to resume, or whether to start fresh instead. **This ask is user step 1 of the ≤2-step budget.**
    - On the user's answer (step 2): if they chose to start fresh, stop this flow and use the ordinary Procedure (step 1 onward) instead. If they chose a candidate, you already have its `next.json` content from this pass — skip the re-`Read` in step 3 and continue at step 4 with that id and state.
 
 3. **Load and validate `next.json`** (skip when step 2 already read it): `Read` `<matched-path>`.
    - Unparseable → treat exactly like "missing" (refuse as in step 1).
-   - `phase === "terminal"` → refuse: "Run `<run_id>` already finished (status: `<status>`). It can't be resumed — start a fresh run instead: `/pipeline:run <current_path, or ./.pipelines/<pipeline>/steps/01-*.md if current_path is null>`." Stop.
+   - `phase === "terminal"` → refuse: "Run `<run_id>` already finished (status: `<status>`). It can't be resumed — start a fresh run instead: `/pipeline:run <current_path, or ./.pipeline/<pipeline>/steps/01-*.md if current_path is null>`." Stop.
    - Otherwise, continue to step 4.
 
 4. **Derive run context from the matched path and the state — no `PIPELINE.md` read, no `steps/**` read.** From `<pipeline-root>/.runtime/<run_id>/next.json`: `pipeline_root` = `<pipeline-root>` (two path segments up from `next.json`), `pipeline_name` = its basename. From the state JSON: `current_iteration = current_path` (per 08.3, the single authority — this is why the resume path never re-derives it from a fresh plan or manifest read), `pipeline_default_model = default_model` (already resolved and persisted at run init; reusing it — instead of re-`Read`ing `PIPELINE.md` frontmatter — is what keeps this path from adding a manifest read on top of the one `next.json` read).

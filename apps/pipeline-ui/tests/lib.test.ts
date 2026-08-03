@@ -217,9 +217,9 @@ describe("scanPipelines + pipelineInfoFromDir", () => {
     tmpRoot = mkdtempSync(join(tmpdir(), "pipeline-ui-scan-"));
     // Project layout — flat pipelines AND nested category pipelines, plus
     // a noise dir without PIPELINE.md so we exercise both code paths.
-    const pipeRoot = join(tmpRoot, ".claude", "pipeline");
+    const pipeRoot = join(tmpRoot, ".pipeline");
 
-    // Flat pipeline at .pipelines/flat-one/
+    // Flat pipeline at .pipeline/flat-one/
     mkdirSync(join(pipeRoot, "flat-one", "steps"), { recursive: true });
     writeFileSync(
       join(pipeRoot, "flat-one", "PIPELINE.md"),
@@ -237,7 +237,7 @@ describe("scanPipelines + pipelineInfoFromDir", () => {
       "utf-8",
     );
 
-    // Nested category: .pipelines/workflows/nested-one/
+    // Nested category: .pipeline/workflows/nested-one/
     mkdirSync(
       join(pipeRoot, "workflows", "nested-one", "steps"),
       { recursive: true },
@@ -272,11 +272,11 @@ describe("scanPipelines + pipelineInfoFromDir", () => {
     // Add a misleading dir INSIDE the existing pipeline that also has
     // PIPELINE.md — we should NOT treat it as a separate pipeline because
     // visit() stops descending once it finds PIPELINE.md.
-    mkdirSync(join(tmpRoot, ".claude", "pipeline", "flat-one", "scripts"), {
+    mkdirSync(join(tmpRoot, ".pipeline", "flat-one", "scripts"), {
       recursive: true,
     });
     writeFileSync(
-      join(tmpRoot, ".claude", "pipeline", "flat-one", "scripts", "PIPELINE.md"),
+      join(tmpRoot, ".pipeline", "flat-one", "scripts", "PIPELINE.md"),
       "# Fake\n",
       "utf-8",
     );
@@ -315,7 +315,7 @@ describe("scanPipelines — target families + step_models", () => {
   let tmpRoot: string;
   beforeAll(() => {
     tmpRoot = mkdtempSync(join(tmpdir(), "pipeline-ui-family-"));
-    const pipeRoot = join(tmpRoot, ".claude", "pipeline");
+    const pipeRoot = join(tmpRoot, ".pipeline");
 
     // Family HUB with shared steps (02 carries a frontmatter model).
     const hub = join(pipeRoot, "workflows", "family-hub");

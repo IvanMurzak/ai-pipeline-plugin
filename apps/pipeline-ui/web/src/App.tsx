@@ -594,7 +594,7 @@ export function App() {
                         <Workflow size={12} /> Pipelines
                       </span>
                     ),
-                    count: state?.pipelines.length,
+                    count: state?.pipeline.length,
                   },
                 ]}
               />
@@ -612,7 +612,7 @@ export function App() {
                     {selection.leftTab === "runs" ? (
                       <RunList
                         runs={runs}
-                        pipelines={state?.pipelines ?? []}
+                        pipelines={state?.pipeline ?? []}
                         selectedRunId={selectedRun?.run_id ?? null}
                         resumableRunIds={resumableRunIds}
                         onSelect={selectRunMobile}
@@ -621,7 +621,7 @@ export function App() {
                       />
                     ) : (
                       <PipelineTree
-                        pipelines={state?.pipelines ?? []}
+                        pipelines={state?.pipeline ?? []}
                         runs={runs}
                         selectedPipelineRoot={selectedPipeline?.pipeline_root ?? null}
                         onSelect={selectPipelineMobile}
@@ -837,7 +837,7 @@ export function App() {
         <MobileNav value={mobilePane} onChange={setMobilePane} activeCount={activeCount} />
 
         {/* Connection-state detection has no dashboard data seam yet (no
-            `.pipelines/cloud.json` field on ProjectEntry/ProjectState),
+            `.pipeline/cloud.json` field on ProjectEntry/ProjectState),
             so `connected` is intentionally left unset — the CTA always
             renders its static invite face. See cloudConnect.ts's module doc
             for the flagged follow-up. Gated on having at least one known

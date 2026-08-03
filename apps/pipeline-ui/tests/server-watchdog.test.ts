@@ -38,7 +38,7 @@ function bindingsPath(): string {
 }
 
 function journalPath(): string {
-  return join(projectRoot, ".claude", "pipeline", ".runtime", "events.jsonl");
+  return join(projectRoot, ".pipeline", ".runtime", "events.jsonl");
 }
 
 function ev(runId: string, type: string, data: Record<string, unknown>, ts: string): string {
@@ -132,7 +132,7 @@ async function waitForLock(maxMs = 8000): Promise<void> {
 
 beforeAll(async () => {
   projectRoot = mkdtempSync(join(tmpdir(), "pui-wd-proj-"));
-  const pipeRoot = join(projectRoot, ".claude", "pipeline");
+  const pipeRoot = join(projectRoot, ".pipeline");
   mkdirSync(join(pipeRoot, "alpha", "steps"), { recursive: true });
   writeFileSync(join(pipeRoot, "alpha", "PIPELINE.md"), "# Pipeline: alpha\n\n## End State\nDone.\n", "utf-8");
   writeFileSync(join(pipeRoot, "alpha", "steps", "01-warmup.md"), "# 01\n## Goal\nGo.\n", "utf-8");

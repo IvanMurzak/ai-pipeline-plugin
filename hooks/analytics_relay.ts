@@ -40,7 +40,7 @@
  *
  * Stop:
  *   Tails the session's transcript file from a cursor stored in
- *   `<project>/.pipelines/.runtime/transcripts/<session>.offset`,
+ *   `<project>/.pipeline/.runtime/transcripts/<session>.offset`,
  *   sums the `usage` fields of any new assistant turns, and emits one
  *   `turn.usage` event with { input_tokens, output_tokens,
  *   cache_read_tokens, cache_creation_tokens }.
@@ -70,7 +70,7 @@
  *   carried run_id=null — making the UI's RUN_ANALYTICS panel render zero
  *   tools, zero agents, zero tokens for any actively-running pipeline.
  *
- * Gated: skips entirely if the current cwd has no `.pipelines/`.
+ * Gated: skips entirely if the current cwd has no `.pipeline/`.
  *
  * Never blocks Claude Code — always exits 0.
  */
@@ -211,22 +211,22 @@ function resolveProjectRoot(start: string): { project_root: string; worktree: st
   return { project_root: resolve(start), worktree: null };
 }
 
-/** True when a `.pipelines` directory exists at `start` or any
+/** True when a `.pipeline` directory exists at `start` or any
  *  ancestor up to and including `stopAt` (the resolved project root). This
  *  is the hook's "is this a pipeline project?" gate. It is deliberately
  *  depth- and worktree-independent: it fires whether the session sits at
- *  the project root, deep inside `.pipelines/<name>/steps/…`, or
+ *  the project root, deep inside `.pipeline/<name>/steps/…`, or
  *  inside a git worktree checked out under `.claude/worktrees/<name>/`.
  *  Bounding the walk at `stopAt` (the git root — the MAIN repo for a
  *  worktree, since resolveProjectRoot resolves it via commondir) keeps a
- *  stray `.pipelines` far up the tree (e.g. in $HOME) from making
+ *  stray `.pipeline` far up the tree (e.g. in $HOME) from making
  *  every unrelated session look like a pipeline project. Event routing and
  *  the worktree tag are a SEPARATE concern owned by resolveProjectRoot. */
 function hasPipelineDirUpTo(start: string, stopAt: string): boolean {
   let cur = resolve(start);
   const stop = resolve(stopAt);
   for (let i = 0; i < 64; i++) {
-    if (existsSync(join(cur, ".claude", "pipeline"))) return true;
+    if (existsSync(join(cur, ".pipeline"))) return true;
     if (cur === stop) break;
     const parent = dirname(cur);
     if (parent === cur) break;
@@ -236,7 +236,7 @@ function hasPipelineDirUpTo(start: string, stopAt: string): boolean {
 }
 
 function ensureRuntimeDir(projectRoot: string): string {
-  const runtime = join(projectRoot, ".claude", "pipeline", ".runtime");
+  const runtime = join(projectRoot, ".pipeline", ".runtime");
   mkdirSync(runtime, { recursive: true });
   return runtime;
 }
@@ -448,7 +448,7 @@ function parseIterationIndex(filename: string): number {
  *  For a manager spawn the iteration path comes from the supervisor's
  *  `current_iteration = <abs>` line; for a worker spawn it comes from the
  *  `Execute pipeline iteration: <abs>` line. Both resolve to a path under
- *  `.pipelines/<name>/steps/`, which is what we need to derive the
+ *  `.pipeline/<name>/steps/`, which is what we need to derive the
  *  pipeline name/root for the synthesized `pipeline.started` payload and
  *  the mirror binding. `resolvedModel` is taken from the legacy per-tier
  *  worker-name suffix when present (always null for a manager spawn, which
@@ -496,9 +496,9 @@ function parseSpawn(
   const pipelineRoot = dirname(cur);
   if (!pipelineRoot) return null;
 
-  // Defensive: confirm we landed under a .pipelines/ tree.
+  // Defensive: confirm we landed under a .pipeline/ tree.
   const lower = pipelineRoot.replace(/\\/g, "/").toLowerCase();
-  if (!lower.includes("/.pipelines/")) return null;
+  if (!lower.includes("/.pipeline/")) return null;
 
   const resolvedModel = (subagentMatch[1] as "haiku" | "sonnet" | "opus" | undefined) ?? null;
 
@@ -557,7 +557,7 @@ function findChainControllerRunId(
   iterationPath: string,
   projectRoot: string,
 ): string | null {
-  const journalPath = join(projectRoot, ".claude", "pipeline", ".runtime", "events.jsonl");
+  const journalPath = join(projectRoot, ".pipeline", ".runtime", "events.jsonl");
   if (!existsSync(journalPath)) return null;
   let text: string;
   try {
@@ -777,7 +777,7 @@ function isBindingTooOld(startTs: string): boolean {
  *  tail. */
 function collectTerminatedRunIds(projectRoot: string): Set<string> {
   const out = new Set<string>();
-  const journalPath = join(projectRoot, ".claude", "pipeline", ".runtime", "events.jsonl");
+  const journalPath = join(projectRoot, ".pipeline", ".runtime", "events.jsonl");
   if (!existsSync(journalPath)) return out;
   let text: string;
   try {
@@ -1028,7 +1028,7 @@ function synthesizeBypassEnd(
  *  per spawn (sha1 of tool_use_id), so a full scan cannot false-match. */
 function journalHasPipelineStarted(runId: string, projectRoot: string): boolean {
   if (!runId) return false;
-  const journalPath = join(projectRoot, ".claude", "pipeline", ".runtime", "events.jsonl");
+  const journalPath = join(projectRoot, ".pipeline", ".runtime", "events.jsonl");
   if (!existsSync(journalPath)) return false;
   let text: string;
   try {
@@ -1722,17 +1722,17 @@ async function main(): Promise<void> {
   const cwd = process.cwd();
   // Resolve the project root FIRST (this also maps a git worktree to its
   // MAIN repo + records the worktree tag), then gate by walking up from
-  // cwd for ANY `.pipelines` ancestor up to that root. The session
+  // cwd for ANY `.pipeline` ancestor up to that root. The session
   // may sit BELOW the project root — cd'd into
-  // `.pipelines/<name>/steps/…` (hand-orchestrating a pipeline) or
+  // `.pipeline/<name>/steps/…` (hand-orchestrating a pipeline) or
   // inside a worktree under `.claude/worktrees/<name>/` (Claude Code spawns
-  // subagents there). Gating on a single `cwd/.pipelines` (or even
-  // `project_root/.pipelines`) would miss those; the walk-up makes
+  // subagents there). Gating on a single `cwd/.pipeline` (or even
+  // `project_root/.pipeline`) would miss those; the walk-up makes
   // the gate depth- and worktree-independent. Events still route to
   // project_root (the main repo for a worktree).
   const { project_root, worktree } = resolveProjectRoot(cwd);
   if (!hasPipelineDirUpTo(cwd, project_root)) {
-    log(`no .pipelines from ${cwd} up to project root ${project_root}, skipping`);
+    log(`no .pipeline from ${cwd} up to project root ${project_root}, skipping`);
     return;
   }
 

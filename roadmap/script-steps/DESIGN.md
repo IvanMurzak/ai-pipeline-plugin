@@ -500,7 +500,7 @@ whitespace-free — the schema test asserts it).
   processes — execution lives in the command layer / `script-step.ts`,
   injected seams for tests (a `ProcessRunner` seam like `GitRunner`).
 - The plugin stays read-only at runtime; everything written lands under the
-  consumer project's `.pipelines/**`.
+  consumer project's `.pipeline/**`.
 - Scripts inherit the sandbox/permission envelope of the Bash call that runs
   `pipeline next` (document; recommend allowlisting) — same trust boundary as
   worktree hooks (consumer-authored code in the consumer project).

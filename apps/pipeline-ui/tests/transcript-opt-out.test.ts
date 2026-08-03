@@ -159,8 +159,8 @@ describe("hook: PIPELINE_UI_TRANSCRIPTS gates ONLY transcript work", () => {
     // transcript switch in isolation.
     delete process.env.PIPELINE_UI_ENABLED;
     projectRoot = mkdtempSync(join(tmpRoot, "proj-"));
-    mkdirSync(join(projectRoot, ".claude", "pipeline", ".runtime"), { recursive: true });
-    eventsPath = join(projectRoot, ".claude", "pipeline", ".runtime", "events.jsonl");
+    mkdirSync(join(projectRoot, ".pipeline", ".runtime"), { recursive: true });
+    eventsPath = join(projectRoot, ".pipeline", ".runtime", "events.jsonl");
     bindingsPath = join(homeDir, ".claude", "pipeline-ui", "active-mirror-bindings.jsonl");
   });
 
@@ -192,7 +192,7 @@ describe("hook: PIPELINE_UI_TRANSCRIPTS gates ONLY transcript work", () => {
   }
 
   function managerPre(transcriptPath: string): Record<string, unknown> {
-    const iter = join(projectRoot, ".claude", "pipeline", "demo", "steps", "01-x.md");
+    const iter = join(projectRoot, ".pipeline", "demo", "steps", "01-x.md");
     return {
       hook_event_name: "PreToolUse",
       tool_name: "Task",
@@ -278,7 +278,7 @@ describe("MirrorService: chat mirror honours PIPELINE_UI_TRANSCRIPTS", () => {
     const dir = mkdtempSync(join(tmpRoot, "b-"));
     bindingsPath = join(dir, "active-mirror-bindings.jsonl");
     projectRoot = mkdtempSync(join(tmpRoot, "proj-"));
-    mkdirSync(join(projectRoot, ".claude", "pipeline", ".runtime"), { recursive: true });
+    mkdirSync(join(projectRoot, ".pipeline", ".runtime"), { recursive: true });
     captured = [];
   });
 
@@ -305,7 +305,7 @@ describe("MirrorService: chat mirror honours PIPELINE_UI_TRANSCRIPTS", () => {
       project_root: projectRoot,
       worktree: null,
       pipeline_name: "demo",
-      iteration_path: join(projectRoot, ".claude", "pipeline", "demo", "steps", "01-x.md"),
+      iteration_path: join(projectRoot, ".pipeline", "demo", "steps", "01-x.md"),
       start_ts: "2026-05-23T10:00:00.000Z",
       kind: "bypass-spawn",
       schema: 1,
@@ -360,11 +360,11 @@ describe("hook master switch PIPELINE_UI_ENABLED=0 → all off", () => {
   function makeProject(): { projectRoot: string; homeDir: string; eventsPath: string; bindingsPath: string } {
     const projectRoot = mkdtempSync(join(tmpRoot, "proj-"));
     const homeDir = mkdtempSync(join(tmpRoot, "home-"));
-    mkdirSync(join(projectRoot, ".claude", "pipeline", ".runtime"), { recursive: true });
+    mkdirSync(join(projectRoot, ".pipeline", ".runtime"), { recursive: true });
     return {
       projectRoot,
       homeDir,
-      eventsPath: join(projectRoot, ".claude", "pipeline", ".runtime", "events.jsonl"),
+      eventsPath: join(projectRoot, ".pipeline", ".runtime", "events.jsonl"),
       bindingsPath: join(homeDir, ".claude", "pipeline-ui", "active-mirror-bindings.jsonl"),
     };
   }

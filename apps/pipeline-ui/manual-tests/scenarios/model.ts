@@ -88,7 +88,7 @@ function buildFixture(
   stepModel: string | null,
 ): FixturePaths {
   const root = mkdtempSync(join(tmpdir(), `pipe-model-${label}-`));
-  const pipelineRoot = join(root, ".claude", "pipeline", `model-${label}`);
+  const pipelineRoot = join(root, ".pipeline", `model-${label}`);
   mkdirSync(join(pipelineRoot, "steps"), { recursive: true });
 
   const pipelineFm =

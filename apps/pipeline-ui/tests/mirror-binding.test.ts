@@ -71,7 +71,7 @@ beforeEach(() => {
   process.env.HOME = homeDir;
   process.env.USERPROFILE = homeDir;
   projectRoot = mkdtempSync(join(tmpRoot, "proj-"));
-  runtimeDir = join(projectRoot, ".claude", "pipeline", ".runtime");
+  runtimeDir = join(projectRoot, ".pipeline", ".runtime");
   mkdirSync(runtimeDir, { recursive: true });
   eventsPath = join(runtimeDir, "events.jsonl");
   bindingsPath = join(homeDir, ".claude", "pipeline-ui", "active-mirror-bindings.jsonl");
@@ -111,7 +111,7 @@ function readBindings(): Binding[] {
 }
 
 function iterationPath(pipelineName: string, file = "03-do-the-thing.md"): string {
-  return join(projectRoot, ".claude", "pipeline", pipelineName, "steps", file);
+  return join(projectRoot, ".pipeline", pipelineName, "steps", file);
 }
 
 interface PayloadOpts {
@@ -248,7 +248,7 @@ describe("appendMirrorBinding writer (PostToolUse path) — manager anchor", () 
         data: {
           pipeline_name: "demo",
           first_iteration_path: iter,
-          pipeline_root: join(projectRoot, ".claude", "pipeline", "demo"),
+          pipeline_root: join(projectRoot, ".pipeline", "demo"),
           default_model: null,
         },
       }) + "\n",

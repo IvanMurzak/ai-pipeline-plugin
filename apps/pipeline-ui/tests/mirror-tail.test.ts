@@ -60,7 +60,7 @@ beforeEach(() => {
   bindingsDir = mkdtempSync(join(tmpRoot, "bindings-"));
   bindingsPath = join(bindingsDir, "active-mirror-bindings.jsonl");
   projectRoot = mkdtempSync(join(tmpRoot, "proj-"));
-  mkdirSync(join(projectRoot, ".claude", "pipeline", ".runtime"), { recursive: true });
+  mkdirSync(join(projectRoot, ".pipeline", ".runtime"), { recursive: true });
   captured = [];
   appendChat = (pr, rid, msg, opts) => {
     captured.push({ projectRoot: pr, runId: rid, msg, ts: opts.ts });
@@ -136,7 +136,7 @@ function bindingRecord(transcriptPath: string, overrides: Partial<MirrorBindingR
     project_root: projectRoot,
     worktree: null,
     pipeline_name: "demo",
-    iteration_path: join(projectRoot, ".claude", "pipeline", "demo", "steps", "01-x.md"),
+    iteration_path: join(projectRoot, ".pipeline", "demo", "steps", "01-x.md"),
     start_ts: "2026-05-23T10:00:00.000Z",
     kind: "bypass-spawn",
     schema: 1,

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { buildAiFixPrompt, handleGetAiFixJob, handleStartAiFix } from "../aifix.ts";
 
 test("buildAiFixPrompt embeds the pipeline root, every issue, and the write-scope rule", () => {
-  const root = "C:/proj/.pipelines/demo";
+  const root = "C:/proj/.pipeline/demo";
   const p = buildAiFixPrompt(root, ["manifest missing End State", "step 02 has no Next"]);
   expect(p).toContain(root);
   expect(p).toContain("- manifest missing End State");
@@ -45,7 +45,7 @@ test("start validates inputs before spawning anything", async () => {
       await handleStartAiFix(
         mk({
           project_id: "p1",
-          pipeline_root: "C:/definitely/not/a/project/.pipelines/demo",
+          pipeline_root: "C:/definitely/not/a/project/.pipeline/demo",
           issues: ["a"],
         }),
         deps,

@@ -36,7 +36,7 @@ const RUN_B = "foldrunb01";
 const t = (s: string) => `2026-07-22T10:${s}.000Z`;
 
 function journal(): string {
-  return join(projectRoot, ".claude", "pipeline", ".runtime", "events.jsonl");
+  return join(projectRoot, ".pipeline", ".runtime", "events.jsonl");
 }
 
 function ev(runId: string, type: string, data: Record<string, unknown>, ts: string): string {
@@ -118,13 +118,13 @@ async function waitForHealth(maxMs = 8000): Promise<void> {
 
 beforeAll(async () => {
   projectRoot = mkdtempSync(join(tmpdir(), "pui-fe-proj-"));
-  mkdirSync(join(projectRoot, ".claude", "pipeline", "alpha", "steps"), { recursive: true });
+  mkdirSync(join(projectRoot, ".pipeline", "alpha", "steps"), { recursive: true });
   writeFileSync(
-    join(projectRoot, ".claude", "pipeline", "alpha", "PIPELINE.md"),
+    join(projectRoot, ".pipeline", "alpha", "PIPELINE.md"),
     "# Pipeline: alpha\n\n## End State\nDone.\n",
     "utf-8",
   );
-  mkdirSync(join(projectRoot, ".claude", "pipeline", ".runtime"), { recursive: true });
+  mkdirSync(join(projectRoot, ".pipeline", ".runtime"), { recursive: true });
   writeFileSync(journal(), "", "utf-8");
 
   // Run A: two steps with disjoint windows.

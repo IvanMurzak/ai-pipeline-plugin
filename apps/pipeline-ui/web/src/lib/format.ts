@@ -35,8 +35,8 @@ export function durationMs(ms: number): string {
 
 export function pipelineNameFromIterationPath(p: string | null | undefined): string | null {
   if (!p) return null;
-  // Handles both flat (.pipelines/<name>/steps/) and category-nested
-  // (.pipelines/<category>/<name>/steps/) layouts. We always take the
+  // Handles both flat (.pipeline/<name>/steps/) and category-nested
+  // (.pipeline/<category>/<name>/steps/) layouts. We always take the
   // last directory component immediately preceding /steps/ as the pipeline
   // name — that matches what scanPipelines uses for pipeline_name.
   const norm = p.replaceAll("\\", "/");

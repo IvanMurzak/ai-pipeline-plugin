@@ -64,7 +64,7 @@ beforeEach(() => {
   process.env.HOME = homeDir;
   process.env.USERPROFILE = homeDir;
   projectRoot = mkdtempSync(join(tmpRoot, "proj-"));
-  mkdirSync(join(projectRoot, ".claude", "pipeline", ".runtime"), { recursive: true });
+  mkdirSync(join(projectRoot, ".pipeline", ".runtime"), { recursive: true });
   bindingsPath = join(homeDir, ".claude", "pipeline-ui", "active-mirror-bindings.jsonl");
   captured = [];
   appendChat = (_pr, _rid, msg) => {

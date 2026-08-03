@@ -3,7 +3,7 @@
 //
 // Endpoints (wired into server.ts handleApi):
 //   GET  /api/pipelines?project_id=      — launchable-pipeline catalog: every
-//        pipeline root under <project>/.pipelines (incl. targets/<t>),
+//        pipeline root under <project>/.pipeline (incl. targets/<t>),
 //        each with its computePlan() steps + resolved models so the UI can
 //        offer per-step model overrides before launch.
 //   POST /api/runs/launch                — {project_id, pipeline_root, task_text?,
@@ -25,7 +25,7 @@
 // a daemon restart (the in-memory map is a cache, not the source of truth).
 //
 // WRITE-SCOPE CONTRACT: this module writes ONLY under a registered project's
-// .pipelines/ tree (runtime artifacts of the run), never anywhere else
+// .pipeline/ tree (runtime artifacts of the run), never anywhere else
 // in the consumer project. pipeline_root is validated to resolve inside the
 // project's pipelines dir before anything is spawned or written.
 //
@@ -173,7 +173,7 @@ const SKIP_DIRS = new Set(["steps", "scripts", "node_modules"]);
  *  launchable pipeline, dot-dirs (.runtime/.stats/.hooks/.feedback/.common) are
  *  skipped. */
 export function listPipelineRoots(projectRoot: string): Array<{ name: string; root: string }> {
-  const base = join(projectRoot, ".claude", "pipeline");
+  const base = join(projectRoot, ".pipeline");
   const out: Array<{ name: string; root: string }> = [];
   const walk = (dir: string, relParts: string[], depth: number): void => {
     if (depth > 5) return;
@@ -308,7 +308,7 @@ export function handleListPipelines(url: URL, getProject: GetProject): Response 
  *  daemon's shared path normalizer (normalizePathForCompare) — containment
  *  checks must not each grow their own Windows case-fold variant. */
 export function isInsidePipelinesDir(projectRoot: string, pipelineRoot: string): boolean {
-  const nBase = normalizePathForCompare(resolve(projectRoot, ".claude", "pipeline"));
+  const nBase = normalizePathForCompare(resolve(projectRoot, ".pipeline"));
   const nTarget = normalizePathForCompare(pipelineRoot);
   return nTarget === nBase || nTarget.startsWith(nBase + "/");
 }
@@ -319,7 +319,7 @@ function snapshot(run: DriveRun): DriveRunSnapshot {
 }
 
 function pipelineNameOf(projectRoot: string, pipelineRoot: string): string {
-  const base = resolve(projectRoot, ".claude", "pipeline").replaceAll("\\", "/");
+  const base = resolve(projectRoot, ".pipeline").replaceAll("\\", "/");
   const root = resolve(pipelineRoot).replaceAll("\\", "/");
   const inside = normalizePathForCompare(root).startsWith(normalizePathForCompare(base) + "/");
   return inside ? root.slice(base.length + 1) : root;

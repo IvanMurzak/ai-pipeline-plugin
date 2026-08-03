@@ -40,12 +40,12 @@ afterEach(() => {
 
 function makeProject(): string {
   const root = mkdtempSync(join(tmpRoot, "proj-"));
-  mkdirSync(join(root, ".claude", "pipeline", "demo", "steps"), { recursive: true });
+  mkdirSync(join(root, ".pipeline", "demo", "steps"), { recursive: true });
   return root;
 }
 
 function journalPath(root: string): string {
-  return join(root, ".claude", "pipeline", ".runtime", "events.jsonl");
+  return join(root, ".pipeline", ".runtime", "events.jsonl");
 }
 
 function readEvents(root: string): Record<string, unknown>[] {
@@ -207,7 +207,7 @@ describe("gate ordering (the load-bearing case)", () => {
  * `resolveProjectRoot` + `hasPipelineDirUpTo`.
  *
  * Observable proof: with debug on, the gate that stopped the hook names itself.
- * Seeing the opt-out line WITHOUT the "no .pipelines from …" line means
+ * Seeing the opt-out line WITHOUT the "no .pipeline from …" line means
  * the walk was never reached.
  */
 describe("gate ordering — the opt-out short-circuit stays cheap", () => {
@@ -225,14 +225,14 @@ describe("gate ordering — the opt-out short-circuit stays cheap", () => {
     expect(r.stderr).toContain("PIPELINE_UI_ENABLED explicitly opted out");
     // The cwd gate logs this line whenever it runs and finds nothing. Its
     // absence is the assertion: the walk never happened.
-    expect(r.stderr).not.toContain("no .pipelines from");
+    expect(r.stderr).not.toContain("no .pipeline from");
   });
 
   test("UI enabled ⇒ the same event DOES reach the cwd gate", () => {
     const bare = mkdtempSync(join(tmpRoot, "cheap-on-"));
     const r = spawnHookVerbose(bare, { PIPELINE_UI_ENABLED: "1" }, toolPayload);
     expect(r.status).toBe(0);
-    expect(r.stderr).toContain("no .pipelines from");
+    expect(r.stderr).toContain("no .pipeline from");
   });
 
   test("a Notification still reaches the walk with the UI opted out", () => {

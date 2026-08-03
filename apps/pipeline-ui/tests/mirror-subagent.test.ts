@@ -66,7 +66,7 @@ beforeEach(() => {
   bindingsDir = mkdtempSync(join(tmpRoot, "bindings-"));
   bindingsPath = join(bindingsDir, "active-mirror-bindings.jsonl");
   projectRoot = mkdtempSync(join(tmpRoot, "proj-"));
-  mkdirSync(join(projectRoot, ".claude", "pipeline", ".runtime"), { recursive: true });
+  mkdirSync(join(projectRoot, ".pipeline", ".runtime"), { recursive: true });
   captured = [];
   appendChat = (_pr, rid, msg) => {
     captured.push({ runId: rid, uuid: (msg as { uuid?: string }).uuid });
@@ -277,7 +277,7 @@ describe("MirrorService: subagent chasing", () => {
       project_root: projectRoot,
       worktree: null,
       pipeline_name: "demo",
-      iteration_path: join(projectRoot, ".claude", "pipeline", "demo", "steps", "01.md"),
+      iteration_path: join(projectRoot, ".pipeline", "demo", "steps", "01.md"),
       start_ts: nowIso(-5000),
       kind: "chain-controller",
       schema: 1,
@@ -333,7 +333,7 @@ describe("MirrorService: subagent chasing", () => {
       project_root: projectRoot,
       worktree: null,
       pipeline_name: "demo",
-      iteration_path: join(projectRoot, ".claude", "pipeline", "demo", "steps", "01.md"),
+      iteration_path: join(projectRoot, ".pipeline", "demo", "steps", "01.md"),
       start_ts: nowIso(-5000),
       kind: "chain-controller",
       schema: 1,
@@ -366,7 +366,7 @@ describe("MirrorService: subagent chasing", () => {
       project_root: projectRoot,
       worktree: null,
       pipeline_name: "demo",
-      iteration_path: join(projectRoot, ".claude", "pipeline", "demo", "steps", "01.md"),
+      iteration_path: join(projectRoot, ".pipeline", "demo", "steps", "01.md"),
       start_ts: nowIso(-5000),
       kind: "chain-controller",
       schema: 1,
