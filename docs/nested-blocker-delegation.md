@@ -14,7 +14,7 @@ All fields are mandatory unless marked optional. The orchestration layer uses th
 - `parent_branch` — the branch this iteration is running against.
 - `parent_pipeline_iteration` — absolute path of the iteration file that discovered the blocker.
 - `blocker_target_repo` — owner/repo the blocker lives in.
-- `blocker_pipeline_first_iteration` — absolute path of the first iteration in the pipeline the child should run to fix the blocker. If no dedicated pipeline exists yet, set this to `REQUIRES_DESIGN` and add a `blocker_design_prompt` field the supervisor passes to `pipeline-designer` before spawning the child.
+- `blocker_pipeline_first_iteration` — absolute path of the first iteration in the pipeline the child should run to fix the blocker. If no dedicated pipeline exists yet, set this to `REQUIRES_DESIGN` and add a `blocker_design_prompt` field. The supervisor reports it to the user, who creates the repeatable blocker pipeline with `/pipeline:design` before the child run resumes.
 - `blocker_worktree_source` — one of `main` or `parent-branch`, plus one-sentence rationale when it's `parent-branch`.
 - `new_issue_title` — concise blocker title (the supervisor creates the issue; the executor supplies the title and body).
 - `new_issue_body` — the full issue body text, following this template:

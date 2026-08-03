@@ -43,7 +43,7 @@ describe("pipelineNameFromIterationPath", () => {
   test("windows-style backslashes are normalized", () => {
     expect(
       pipelineNameFromIterationPath(
-        "C:\\proj\\.claude\\pipeline\\workflows\\ui-smoke\\steps\\01-x.md",
+        "C:\\proj\\.pipeline\\workflows\\ui-smoke\\steps\\01-x.md",
       ),
     ).toBe("ui-smoke");
   });

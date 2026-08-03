@@ -1,6 +1,6 @@
 ---
 name: run
-description: Run (or resume) a pipeline the pipeline-designer already wrote. Stays in the main session as the thin supervisor and spawns a single pipeline-manager that drives the whole chain in fresh-context step-executors. Invoke when the user wants to run or resume a pipeline.
+description: Run (or resume) a pipeline that the /pipeline:design skill already wrote. Stays in the main session as the thin supervisor and spawns a single pipeline-manager that drives the whole chain in fresh-context step-executors. Invoke when the user wants to run or resume a pipeline.
 user-invocable: true
 allowed-tools: Read, Bash, Glob, Grep, Agent, WebFetch, WebSearch, Skill, TaskCreate, TaskGet, TaskList
 argument-hint: <absolute-path-to-iteration.md> [--model <step_id>=<model> ...] [--effort <step_id>=<level> ...] | --resume [<run_id>]
@@ -213,7 +213,7 @@ Brief fields: `parent_task_repo`, `parent_task_issue`, `parent_branch`, `parent_
    gh issue comment <parent_task_issue> --repo <parent_task_repo> --body "Blocked by <blocker_issue_url> (from pipeline iteration <parent_pipeline_iteration>)."
    ```
 
-3. **Resolve `blocker_pipeline_first_iteration`.** If it is `REQUIRES_DESIGN`, spawn `pipeline-designer` first with the brief's `blocker_design_prompt`, then use the first iteration of the new pipeline.
+3. **Resolve `blocker_pipeline_first_iteration`.** If it is `REQUIRES_DESIGN`, stop this blocker flow and report the brief to the user with the exact next action: `/pipeline:design <blocker_design_prompt>`. A skill cannot be spawned through the `Agent` tool; after the user creates the repeatable blocker pipeline, resume from its first iteration.
 
 4. **Spawn the child pipeline run** — a child `pipeline-manager` via the `Agent` tool (`subagent_type: "pipeline-manager"`), pointed at `blocker_pipeline_first_iteration`, with its own `run_id=<child_run_id>` and `parent_run_id=<id>` (pass `parent_run_id` literally on the child's events for UI nesting). Its prompt includes the brief fields plus the newly-minted `blocker_issue_number` / `blocker_issue_url`, and the instruction that the child's PR body MUST include `Closes #<blocker_issue_number>`. Provision the child's worktree/branch from `<blocker_worktree_source>`; the child never writes into the parent's worktree. You wait for the child's PR, not for the child subagent call to return.
 
@@ -244,7 +244,7 @@ Brief fields: `parent_task_repo`, `parent_task_issue`, `parent_branch`, `parent_
 
 ## Supervisor invariants
 
-- **Spawn ONE manager per supervise-loop pass.** You never spawn `step-executor`, `pipeline-improver`, or `pipeline-script-creator` directly — those are the manager's. The only subagents you spawn are `pipeline-manager` (the run, and any blocker-child run) and, if `REQUIRES_DESIGN`, `pipeline-designer`.
+- **Spawn ONE manager per supervise-loop pass.** You never spawn `step-executor`, `pipeline-improver`, or `pipeline-script-creator` directly — those are the manager's. The only subagents you spawn are `pipeline-manager` (the run and any blocker-child run). A `REQUIRES_DESIGN` blocker is handed back to the user for `/pipeline:design`.
 - **The Pipeline Manager Final Report is the only structured signal.** Don't infer intent from prose; act only on its fields.
 - **Never read iteration files or `PIPELINE.md` content.** You read at most ~10 lines of `PIPELINE.md` frontmatter (for `pipeline_default_model`) and never touch `steps/**`.
 - **Run-level events, liveness, and the mirror binding are yours; per-iteration events are auto-emitted by the `pipeline next` CLI** (the manager adds only the retrospective's improver/script events). Don't double-emit `iteration.*`.

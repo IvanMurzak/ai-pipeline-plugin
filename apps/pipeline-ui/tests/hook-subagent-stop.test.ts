@@ -178,7 +178,7 @@ describe("handleSubagentStop — manager.stopped emission", () => {
 
   test("(b) SubagentStop for a non-manager agent does NOT emit manager.stopped", () => {
     writeBinding({ run_id: "run-w-1", session_id: "sess-1" });
-    for (const agentType of ["step-executor", "pipeline-executor", "pipeline-improver", "pipeline-designer", "general-purpose"]) {
+    for (const agentType of ["step-executor", "pipeline-executor", "pipeline-improver", "general-purpose"]) {
       handleSubagentStop(
         { agent_type: agentType, session_id: "sess-1" },
         projectRoot,

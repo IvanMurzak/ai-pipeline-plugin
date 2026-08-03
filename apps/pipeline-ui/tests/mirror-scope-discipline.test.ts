@@ -103,7 +103,6 @@ describe("scope-discipline invariant", () => {
       "Explore",
       "code-reviewer",
       "Plan",
-      "pipeline-designer",
       "pipeline-improver",
     ]) {
       handlePostToolUse(

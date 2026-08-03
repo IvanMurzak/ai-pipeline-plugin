@@ -412,7 +412,7 @@ const MANAGER_SUBAGENT_RE = /^(?:[a-z0-9_-]+:)?pipeline-manager$/;
 // or the supervisor, owns the run lifecycle). Do not tighten the regex to
 // drop either the legacy name or the suffix.
 const WORKER_SUBAGENT_RE = /^(?:[a-z0-9_-]+:)?(?:step-executor|pipeline-executor(?:-(haiku|sonnet|opus))?)$/;
-const ITERATION_PATH_RE = /[A-Za-z]:[\\/](?:[^\s"`'<>|]+[\\/])?\.claude[\\/]pipeline[\\/](?:[^\s"`'<>|]+[\\/])?steps[\\/][^\s"`'<>|]+\.md|\/(?:[^\s"`'<>|]+\/)?\.claude\/pipeline\/(?:[^\s"`'<>|]+\/)?steps\/[^\s"`'<>|]+\.md/;
+const ITERATION_PATH_RE = /[A-Za-z]:[\\/](?:[^\s"`'<>|\\/]+[\\/])*\.pipeline[\\/](?:[^\s"`'<>|\\/]+[\\/])*steps[\\/](?:[^\s"`'<>|\\/]+[\\/])*[^\s"`'<>|\\/]+\.md|\/(?:[^\s"`'<>|/]+\/)*\.pipeline\/(?:[^\s"`'<>|/]+\/)*steps\/(?:[^\s"`'<>|/]+\/)*[^\s"`'<>|/]+\.md/;
 
 // Rendered shadow copies (env-variables P4): on a PP_*-variable-declaring run
 // the manager spawns the step-executor with the CLI-rendered per-run copy at

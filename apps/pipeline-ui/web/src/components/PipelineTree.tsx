@@ -52,7 +52,7 @@ export function PipelineTree({ pipelines, runs, selectedPipelineRoot, onSelect, 
   const items = useMemo(
     () =>
       pipelines.map((p) => {
-        const m = p.pipeline_root.replaceAll("\\", "/").match(/\/\.claude\/pipeline\/(.+)$/);
+        const m = p.pipeline_root.replaceAll("\\", "/").match(/\/\.pipeline\/(.+)$/);
         return { path: m ? m[1] : p.pipeline_name, name: p.pipeline_name, root: p.pipeline_root };
       }),
     [pipelines],

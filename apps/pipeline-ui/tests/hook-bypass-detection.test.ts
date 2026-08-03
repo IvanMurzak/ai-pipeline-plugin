@@ -225,8 +225,7 @@ describe("parseManagerSpawn / parseWorkerSpawn (pure parsers)", () => {
     const source = iterationPath("demo");
     const rendered = join(
       projectRoot,
-      ".claude",
-      "pipeline",
+      ".pipeline",
       "demo",
       ".runtime",
       "run-42",
@@ -257,8 +256,8 @@ describe("parseManagerSpawn / parseWorkerSpawn (pure parsers)", () => {
 
   test("non-pipeline subagent returns null for both parsers", () => {
     const iter = iterationPath("demo");
-    expect(parseManagerSpawn({ subagent_type: "pipeline-designer", prompt: `current_iteration = ${iter}` })).toBeNull();
-    expect(parseWorkerSpawn({ subagent_type: "pipeline-designer", prompt: `Execute pipeline iteration: ${iter}` })).toBeNull();
+    expect(parseManagerSpawn({ subagent_type: "general-purpose", prompt: `current_iteration = ${iter}` })).toBeNull();
+    expect(parseWorkerSpawn({ subagent_type: "general-purpose", prompt: `Execute pipeline iteration: ${iter}` })).toBeNull();
   });
 
   test("path outside .pipeline/*/steps/ returns null", () => {
@@ -468,8 +467,7 @@ describe("handlePostToolUse synthesizes Path-C RUN-LEVEL lifecycle (manager anch
   test("nested step subfolder (steps/phase-2/01.md) parses + synthesizes correctly", () => {
     const iter = join(
       projectRoot,
-      ".claude",
-      "pipeline",
+      ".pipeline",
       "nested-demo",
       "steps",
       "phase-2",
@@ -486,13 +484,13 @@ describe("handlePostToolUse synthesizes Path-C RUN-LEVEL lifecycle (manager anch
     expect(started.data.first_iteration_path).toBe(iter);
   });
 
-  test("non-pipeline subagent (pipeline-designer) → no synthesis", () => {
+  test("non-pipeline subagent → no synthesis", () => {
     const iter = iterationPath("demo");
     handlePostToolUse(
       {
         hook_event_name: "PostToolUse",
         tool_name: "Task",
-        tool_input: { subagent_type: "pipeline-designer", prompt: `current_iteration = ${iter}` },
+        tool_input: { subagent_type: "general-purpose", prompt: `current_iteration = ${iter}` },
         tool_response: { content: "ok" },
         tool_use_id: "toolu_designer",
       },

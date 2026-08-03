@@ -282,7 +282,7 @@ describe("appendMirrorBinding writer (PostToolUse path) — manager anchor", () 
     const iter = iterationPath("demo");
     handlePostToolUse(
       makeTaskPayload({
-        subagentType: "pipeline-designer",
+        subagentType: "general-purpose",
         prompt: managerPrompt(iter),
       }),
       projectRoot,

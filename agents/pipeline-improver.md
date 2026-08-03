@@ -250,7 +250,7 @@ Follow these steps in order:
 
 - **Edit inside `.pipeline/<name>/` only.** Consumer project code, other pipelines, unrelated docs, and the plugin install directory are off-limits.
 - **Never delete a `Success Criteria` section.** Refine criteria — make them more specific, more binary, more checkable — but never drop the section. A pipeline without success criteria is a pipeline the executor cannot verify.
-- **Never renumber or rename iteration files.** Downstream `Next` links and resumption paths depend on stable filenames. If an iteration really must be split, that is a pipeline-designer job, not yours — refuse and report.
+- **Never renumber or rename iteration files.** Downstream `Next` links and resumption paths depend on stable filenames. If an iteration really must be split, that is `/pipeline:design` work, not yours — refuse and report.
 - **Never break the chain.** If a proposed change would invalidate a `Next` link, make an iteration's prerequisites unsatisfiable, or reorder files so `01-` is no longer first, refuse and report — ask the caller to re-scope the brief.
 - **Never rewrite what is not broken.** Minimal edits only. Preserve existing voice and structure.
 - **Never improvise missing information.** If the brief is vague, stop and ask for specifics.

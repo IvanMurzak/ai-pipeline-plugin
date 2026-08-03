@@ -1,9 +1,9 @@
-# T41 — pipeline-designer.md: teach the designer to prefer script steps
+# T41 — skills/design/references/authoring-protocol.md: teach the designer to prefer script steps
 
 - **Depends on:** T00 (contracts frozen in DESIGN.md)
 - **Parallel with:** T11, T12, T42, T43, T44
 - **Footprint (only this file):**
-  - `agents/pipeline-designer.md` (edit)
+  - `skills/design/references/authoring-protocol.md` (edit)
 - **Status:** done — added Authoring Principle 10 "Script steps (`type: script`)" (ladder rung 3, full template, verbatim ok:false rule, halt/agent + constraints); reframed Principle 9 as rung 2; renumbered old 10–15 → 11–16 and fixed all in-doc cross-refs; updated protocol validation step 8. One out-of-footprint stale ref flagged (repo-root ROADMAP.md:24).
 
 ## Goal

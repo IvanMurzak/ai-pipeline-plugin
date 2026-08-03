@@ -40,20 +40,20 @@ This repository is itself the plugin, so the `pipeline` CLI and the local dashbo
 
 ## What you get
 
-- **`/pipeline:design <high-level goal>`** — invokes the `pipeline-designer` agent to decompose the goal into an ordered chain of iteration files under `./.pipeline/<pipeline-name>/`. Each file is one PR-sized unit of work.
+- **`/pipeline:design <high-level goal>`** — directly designs an ordered chain of iteration files under `./.pipeline/<pipeline-name>/`. Each file is one PR-sized unit of work.
 - **`/pipeline:clone <template-name>`** — scaffolds a bundled, ready-made pipeline template into `./.pipeline/<template-name>/` so you have a working pipeline to run and adapt without authoring one (or a global `bun add -g @baizor/pipeline`) — it shells the CLI that ships inside the plugin. Run `/pipeline:clone --list` to see the templates (e.g. `support-answer`, `ship-feature`, `example-minimal`); pass `--force` to overwrite an existing target or `--dir <path>` to clone into a different project root.
 - **`/pipeline:run <absolute-path-to-iteration.md>`** — drives the pipeline end-to-end. It mints the run id, owns UI liveness, and spawns a single `pipeline-manager` (depth 1) that drives the chain — running a fresh `step-executor` per iteration (depth 2) and dispatching `pipeline-improver` / `pipeline-script-creator` between steps. `/pipeline:run` itself stays in the main session: subagents can now nest (up to 5 levels deep), but the supervisor stays at depth 0 because a subagent's context is finite, it cannot wait hours for an external condition (the nested-blocker poll-wait), and it has no stable pid for liveness tracking.
 - **`/pipeline:dispatch <task>`** — autonomous task-to-pipeline orchestrator. Walks a three-tier cost ladder per call: (1) deterministic BM25 match via the bundled `pipeline match` CLI — free, resolves most tasks; (2) Haiku-based disambiguator agent — cheap, only runs when the top-2 BM25 candidates are within 2× of each other; (3) full-context chain detection in the main session — expensive, only runs when the matcher returns zero candidates AND the task has chain phrasing. Auto-runs the chosen pipeline(s) without confirmation.
 - **`/pipeline:find <task-or-github-issue-url>`** — deterministic, AI-free matcher (the inspection variant of dispatch). Shares dispatch's first-stage matcher (the bundled `pipeline match` CLI) but stops there — no LLM tiers, no auto-run. Returns ranked candidates with score + matched terms plus explicit excluded-with-reason output, then asks before running. Accepts a GitHub issue URL / `owner/repo#NUMBER` / plain issue number — fetches title+body via `gh issue view` and matches against that. Runs with Bun (no `pip install`).
 - **`/pipeline:ui`** — opens a live dashboard in the browser. Single shared local Bun daemon (one per machine, one stable port) that aggregates every project on this machine that uses the plugin, with iteration trees, active-run cards, blocker-child views, per-run analytics (tool counts, agent spawns, token usage), light/dark themes, and live SSE updates. The daemon is auto-launched by a `SessionStart` hook the first time you open Claude Code in any pipeline-using project, and self-shuts-down when idle. See "Live dashboard (/pipeline:ui)" below.
-- **Six subagents** usable via the `Agent` tool: `pipeline-designer`, `pipeline-manager`, `step-executor`, `pipeline-improver`, `pipeline-script-creator`, and `pipeline-disambiguator`. Most are normally invoked through automated chains — see "Self-improving pipelines", "Token-cheap iterations via script extraction", and "Finding the right pipeline for a task" below. The disambiguator runs on Haiku 4.5 to keep the matching ladder cheap.
+- **Five subagents** usable via the `Agent` tool: `pipeline-manager`, `step-executor`, `pipeline-improver`, `pipeline-script-creator`, and `pipeline-disambiguator`. Pipeline authoring is the directly invocable `/pipeline:design` skill. Most subagents are normally invoked through automated chains — see "Self-improving pipelines", "Token-cheap iterations via script extraction", and "Finding the right pipeline for a task" below. The disambiguator runs on Haiku 4.5 to keep the matching ladder cheap.
 - **A remote MCP server + background notifier** for [ai-pipeline.dev](https://ai-pipeline.dev) departments — delegate a task to another agent/department straight from Claude Code (`/mcp` connects with a one-time browser OAuth consent, no token to paste) and get notified even after this session ends when that task needs your input or finishes. The bundled CLI also carries `pipeline department new` / `validate` / `serve` / `status` / `stop` / `retire`, which publish a folder of your own as a department other people can call. See "Departments (`/mcp` + background notifier)" below.
 
 ## Token discipline (why the architecture looks the way it does)
 
 Every iteration is read by a fresh-context executor on every run, so tokens spent in iteration markdown are paid **forever**, not just once. The plugin's design follows from that:
 
-- **Skills don't read iteration content.** `/pipeline:run` and `/pipeline:design` are pure routers — they pass paths to subagents and never `Read` `steps/**/*.md` or `PIPELINE.md` themselves. The main session stays lean for the rest of the user's day. `/pipeline:dispatch` reads only manifests (capped at 300 tokens each) because matching requires it.
+- **Skills read only what their role needs.** `/pipeline:run` is a router and never reads iteration bodies; `/pipeline:design` reads the project and existing pipelines only while authoring or revising a pipeline. `/pipeline:dispatch` reads only manifests (capped at 300 tokens each) because matching requires it.
 - **Iterations stay self-contained but get leaner over time.** Long deterministic `Steps` blocks (build sequences, file-system manipulations, multi-call API chains) are extracted into Python scripts under `<pipeline-root>/scripts/` and replaced with one-line `python scripts/<name>.py` invocations. The executor reads one line of markdown; the script's logic only runs in the Bash tool, never through the language model.
 - **Manifest is metadata, not an iteration.** Capped at 300 tokens, never auto-loaded, opt-in per iteration via an explicit `Context` reference. Adding a new pipeline does not raise the per-iteration baseline cost.
 
@@ -77,12 +77,12 @@ All files live inside **your current project** (the working directory from which
 
 ### The manifest — `PIPELINE.md`
 
-Every pipeline folder has a small metadata file named `PIPELINE.md` at its root (sibling to `steps/`). It describes the pipeline's end state, scope, shared project context, and pipeline-wide invariants. It's written by the `pipeline-designer` and capped at 300 tokens.
+Every pipeline folder has a small metadata file named `PIPELINE.md` at its root (sibling to `steps/`). It describes the pipeline's end state, scope, shared project context, and pipeline-wide invariants. It's written by the `/pipeline:design` skill and capped at 300 tokens.
 
 **It is NOT auto-loaded by the executor.** Iterations stay self-contained, so the executor pays no per-iteration token cost for the manifest. The manifest is used by:
 
 - Humans browsing the pipeline as a knowledge base.
-- The `pipeline-designer` when reviewing or editing iterations.
+- The `/pipeline:design` skill when reviewing or editing iterations.
 - `/pipeline:run` once at start, to show a banner like `▶ Starting pipeline <name>: <end state>`.
 - Individual iterations that opt in by explicitly referencing it in their `Context` (rare — only when pipeline-wide invariants are needed mid-execution).
 
@@ -111,7 +111,7 @@ This section is the practical walkthrough — install once, then a small set of 
    /pipeline:design Cut a release of the API server: bump version, run tests, build image, deploy staging, smoke-test, deploy prod
    ```
 
-   The `pipeline-designer` subagent will sketch an iteration list, confirm scope with you when non-trivial, then write files under `./.pipeline/<pipeline-name>/` — a `PIPELINE.md` manifest plus an ordered `steps/01-*.md`, `steps/02-*.md`, …. Each iteration file is a self-contained PR-sized unit of work.
+   The `/pipeline:design` skill will sketch an iteration list, confirm scope with you when non-trivial, then write files under `./.pipeline/<pipeline-name>/` — a `PIPELINE.md` manifest plus an ordered `steps/01-*.md`, `steps/02-*.md`, …. Each iteration file is a self-contained PR-sized unit of work.
 
 3. **Sanity-check the result.** Open the new folder yourself; read the manifest's `End State` and the first iteration's `Goal` / `Steps` / `Success Criteria`. The designer is good but not infallible — five minutes reading what it produced now saves ten minutes mid-execution. Edit by hand if needed; iteration files are just markdown.
 
@@ -199,13 +199,13 @@ See "Self-improving pipelines" and "Token-cheap iterations via script extraction
 ### Common pitfalls
 
 - **Running from the wrong directory.** Pipelines live in your **consumer project's** `./.pipeline/`, not in the plugin install folder. If `/pipeline:design` ends up writing somewhere unexpected, your CWD wasn't the project root. The plugin install dir (`${CLAUDE_PLUGIN_ROOT}`) is read-only at runtime; nothing should ever land there.
-- **Designing one-shot pipelines.** Both `/pipeline:design` and the `pipeline-designer` agent will push back when your goal looks like a single-use task. Take the pushback — pipelines pollute `.pipeline/` if used for one-shot work, since that folder doubles as a knowledge base of your project's *recurring* processes.
+- **Designing one-shot pipelines.** Both `/pipeline:design` and the `/pipeline:design` skill agent will push back when your goal looks like a single-use task. Take the pushback — pipelines pollute `.pipeline/` if used for one-shot work, since that folder doubles as a knowledge base of your project's *recurring* processes.
 - **Editing iteration files mid-chain.** If a pipeline is currently running (executor in flight), don't edit its iteration files by hand. Wait for the chain to halt or complete; then edit, then resume with `/pipeline:run <halted-iteration.md>`. Iterations are designed to be idempotent, so re-running from the halted step is safe.
 - **Confusing the dispatch-tier-3 fallback for normal behavior.** If you find yourself paying full LLM cost on every `/pipeline:dispatch` call, your matcher is returning zero candidates because of vocabulary mismatch (your tasks don't share terms with manifest `Scope.In` / `End State`). Fix the manifests' wording or your task wording; don't accept tier 3 as the steady state.
 
 ## Iteration file shape
 
-Every iteration file contains these sections (and the `pipeline-designer` agent enforces them):
+Every iteration file contains these sections (and the `/pipeline:design` skill agent enforces them):
 
 ```markdown
 # <Iteration Title>

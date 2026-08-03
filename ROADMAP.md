@@ -21,7 +21,7 @@ The plugin shipped a unified local CLI and a declarative routing redesign across
   `result_flags` + per-run edge counters (`<pipeline_root>/.runtime/<run_id>/route.json`,
   gitignored) → next action. Wired into the agents: `step-executor` reports
   `### result_flags`; `pipeline-manager` drives a graph pipeline off `pipeline
-  route` instead of `next_iteration`; `pipeline-designer` Authoring Principle 13
+  route` instead of `next_iteration`; `/pipeline:design` skill Authoring Principle 13
   (12 when this shipped; renumbered by 0.71's script-steps principle insertion)
   authors graphs. Bounded-retry/counter is now declarative (loop counter lives
   in the graph, not in step bodies). Legacy (no `## Graph`) pipelines are

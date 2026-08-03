@@ -203,7 +203,7 @@ export async function handleEditorDelete(req: Request, deps: EditorDeps): Promis
   return Response.json({ ok: true });
 }
 
-/** The designer-contract iteration skeleton (agents/pipeline-designer.md §
+/** The designer-contract iteration skeleton (skills/design/references/authoring-protocol.md §
  *  required sections, in order). */
 export function stepTemplate(title: string): string {
   return `# ${title}

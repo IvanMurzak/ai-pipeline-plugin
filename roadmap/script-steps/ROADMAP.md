@@ -73,7 +73,7 @@ run any time from wave 2 on; T51 re-verifies docs against the implementation.
       → [tasks/T33-step-run-and-drive.md](./tasks/T33-step-run-and-drive.md)
 
 ### Stage 5 — Agent & user docs (parallel, can start wave 2)
-- [x] **T41** — `pipeline-designer.md`: script-steps principle, extraction
+- [x] **T41** — `skills/design/references/authoring-protocol.md`: script-steps principle, extraction
       ladder, ok:false rule, halt/agent guidance → [tasks/T41-designer-doc.md](./tasks/T41-designer-doc.md)
 - [x] **T42** — `pipeline-script-creator.md` (`convert-step`, `repair-script`
       modes) + `pipeline-improver.md` (brief `mode`, `script-failure` mapping)

@@ -124,7 +124,7 @@ Producers without the block get runtime-only checking (no downstream field-lint)
 ### 2.5 Pipeline variables (`${PP_*}`) in script steps
 
 When the pipeline declares a `## Variables` section in `PIPELINE.md` (authoring guidance:
-`pipeline-designer.md`; CLI flags: `docs/cli.md`), a script step's `command:`/`script:`
+`skills/design/references/authoring-protocol.md`; CLI flags: `docs/cli.md`), a script step's `command:`/`script:`
 frontmatter values and `## Params` `from:` templates (§2.2) are substitution surfaces for the
 run's FROZEN `PP_*` map, alongside iteration/manifest body text.
 
