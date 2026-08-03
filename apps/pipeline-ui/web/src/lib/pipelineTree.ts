@@ -14,7 +14,7 @@ export interface PipelineTreeNode {
 }
 
 /** Input: the pipeline's slash path (its on-disk location under
- *  .claude/pipeline/) + the pipeline_name used for selection. Passing a plain
+ *  .pipelines/) + the pipeline_name used for selection. Passing a plain
  *  string keeps the legacy behavior (path IS the name). */
 export type PipelineTreeItem = string | { path: string; name: string };
 

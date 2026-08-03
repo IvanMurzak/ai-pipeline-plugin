@@ -16,7 +16,7 @@ function loadDismissed(): boolean {
 
 interface Props {
   /** Whether the ACTIVE project is already bound to a cloud project via
-   *  `.claude/pipeline/cloud.json`. Always `undefined` today — no dashboard
+   *  `.pipelines/cloud.json`. Always `undefined` today — no dashboard
    *  data seam reads that file yet (see cloudConnect.ts's module doc for the
    *  flagged follow-up). Exposed as a prop rather than hardcoded so wiring
    *  it up later is a one-line change at the call site, not a rewrite. */

@@ -3,7 +3,7 @@
  * Pipeline plugin — SessionStart hook for the pipeline UI daemon.
  *
  * Fires whenever Claude Code starts a session in a project that has a
- *   <cwd>/.claude/pipeline/   directory.
+ *   <cwd>/.pipelines/   directory.
  *
  * Responsibilities:
  *   1. If no pipeline daemon is running (lock missing or its PID is
@@ -182,13 +182,13 @@ function resolveProjectRoot(start: string): { project_root: string; worktree: st
   return { project_root: resolve(start), worktree: null };
 }
 
-/** True when a `.claude/pipeline` directory exists at `start` or any
+/** True when a `.pipelines` directory exists at `start` or any
  *  ancestor up to and including `stopAt` (the resolved project root).
  *  Mirrors the same helper in hooks/analytics_relay.ts — keep them in
  *  sync. Depth- and worktree-independent so a session started anywhere
- *  inside a pipeline project (root, deep in `.claude/pipeline/…`, or a
+ *  inside a pipeline project (root, deep in `.pipelines/…`, or a
  *  worktree under `.claude/worktrees/<name>/`) still registers + emits
- *  session.opened. Bounded at the git root so a stray `.claude/pipeline`
+ *  session.opened. Bounded at the git root so a stray `.pipelines`
  *  far up the tree can't classify unrelated projects. */
 function hasPipelineDirUpTo(start: string, stopAt: string): boolean {
   let cur = resolve(start);
@@ -522,17 +522,17 @@ async function main(): Promise<void> {
 
   // Resolve the project root first (maps a git worktree to its MAIN repo +
   // records the worktree tag), then gate by walking up from cwd for ANY
-  // `.claude/pipeline` ancestor. A session may be started/resumed at the
-  // root, deep inside `.claude/pipeline/<name>/…`, or inside a worktree
+  // `.pipelines` ancestor. A session may be started/resumed at the
+  // root, deep inside `.pipelines/<name>/…`, or inside a worktree
   // under `.claude/worktrees/<name>/`; the walk-up makes registration +
   // session.opened depth- and worktree-independent. Gating on a single
-  // `cwd/.claude/pipeline` (or `project_root/.claude/pipeline`) would skip
+  // `cwd/.pipelines` (or `project_root/.pipelines`) would skip
   // those nested cases.
   const { project_root, worktree } = resolveProjectRoot(cwd);
 
   // Only act in projects that use the pipeline plugin.
   if (!hasPipelineDirUpTo(cwd, project_root)) {
-    log(`no .claude/pipeline from ${cwd} up to project root ${project_root}, skipping`);
+    log(`no .pipelines from ${cwd} up to project root ${project_root}, skipping`);
     return;
   }
 

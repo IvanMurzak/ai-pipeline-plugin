@@ -10,7 +10,7 @@ Every one of them streams live to your cloud dashboard once you have run
 
 | Term | Meaning |
 | --- | --- |
-| **Pipeline** | The workflow definition — what to do, in `.claude/pipeline/<name>/` |
+| **Pipeline** | The workflow definition — what to do, in `.pipelines/<name>/` |
 | **Run** | One execution of a pipeline |
 | **Step** | One iteration inside a run |
 | **Department** | A long-lived service that accepts work from your team or the cloud |
@@ -33,7 +33,7 @@ Request (department)
 The main path. You already know which pipeline you want.
 
 ```
-/pipeline:run .claude/pipeline/support-answer/steps/01-triage.md
+/pipeline:run .pipelines/support-answer/steps/01-triage.md
 ```
 
 Claude runs the chain step by step in fresh contexts, showing progress as it

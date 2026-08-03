@@ -837,7 +837,7 @@ export function App() {
         <MobileNav value={mobilePane} onChange={setMobilePane} activeCount={activeCount} />
 
         {/* Connection-state detection has no dashboard data seam yet (no
-            `.claude/pipeline/cloud.json` field on ProjectEntry/ProjectState),
+            `.pipelines/cloud.json` field on ProjectEntry/ProjectState),
             so `connected` is intentionally left unset — the CTA always
             renders its static invite face. See cloudConnect.ts's module doc
             for the flagged follow-up. Gated on having at least one known

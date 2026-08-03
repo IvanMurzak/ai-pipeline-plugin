@@ -11,7 +11,7 @@
 //   POST   /api/editor/validate                          — {project_id, pipeline_root} → computePlan errors/warnings
 //
 // WRITE-SCOPE CONTRACT (defense in depth, tested):
-//   - every path is RELATIVE to <project>/.claude/pipeline and must resolve
+//   - every path is RELATIVE to <project>/.pipelines and must resolve
 //     back inside it (no `..`, no absolute paths, symlink-agnostic resolve);
 //   - runtime/measurement dot-dirs (.runtime, .stats, .feedback) are
 //     read-and-write FORBIDDEN — the run machinery owns them;

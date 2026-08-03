@@ -2,7 +2,7 @@
 
 Repository: [`IvanMurzak/pipeline-claude`](https://github.com/IvanMurzak/pipeline-claude). This is the source for the installable Claude Code plugin `pipeline` — the manifest, six agents, skills, hooks, and the bundled `pipeline` CLI + local dashboard UI under `apps/`. Looking for the optional remote runner that lets connected compute pick up work dispatched by a pipeline? That lives in the sibling repo [`IvanMurzak/pipeline-runner`](https://github.com/IvanMurzak/pipeline-runner).
 
-Claude Code plugin for designing and executing long-chain AI workflows as ordered, self-contained iteration files under the consumer project's `.claude/pipeline/` directory. Ships six coordinated agents — one that designs pipelines, a depth-0 `/pipeline:run` supervisor + a `pipeline-manager` orchestrator + per-step `step-executor`s that run them, one that feeds discovered knowledge back into the pipeline's own docs, one that extracts heavy procedural blocks out of iteration markdown into per-pipeline Python scripts so each fresh-context run pays fewer tokens, and a cheap Haiku disambiguator for matching tasks to pipelines.
+Claude Code plugin for designing and executing long-chain AI workflows as ordered, self-contained iteration files under the consumer project's `.pipelines/` directory. Ships six coordinated agents — one that designs pipelines, a depth-0 `/pipeline:run` supervisor + a `pipeline-manager` orchestrator + per-step `step-executor`s that run them, one that feeds discovered knowledge back into the pipeline's own docs, one that extracts heavy procedural blocks out of iteration markdown into per-pipeline Python scripts so each fresh-context run pays fewer tokens, and a cheap Haiku disambiguator for matching tasks to pipelines.
 
 ## Install
 
@@ -13,7 +13,7 @@ bun add -g @baizor/pipeline
 pipeline init
 ```
 
-`pipeline init` is the whole setup. It opens your browser once for a single consent screen, connects this project to your account, installs this plugin into Claude Code for you (it shells out to `claude plugin marketplace add IvanMurzak/pipeline-claude-marketplace` + `claude plugin install pipeline@pipeline-claude`), clones a starter pipeline into `./.claude/pipeline/support-answer`, enrols this machine as a runner, and offers to run that starter pipeline right there — so the install ends with a pipeline that has already run on your machine. Every step is idempotent (a re-run prints a `✓` per already-satisfied step and changes nothing) and independently skippable: `--no-plugin`, `--no-run`, `--no-runner`, plus `--yes` / `--json` for scripted setups, and `pipeline init <template>` to start from a different template (`pipeline clone --list` shows them). If Claude Code was already open when you ran it, restart it — a running session does not pick up a newly installed plugin.
+`pipeline init` is the whole setup. It opens your browser once for a single consent screen, connects this project to your account, installs this plugin into Claude Code for you (it shells out to `claude plugin marketplace add IvanMurzak/pipeline-claude-marketplace` + `claude plugin install pipeline@pipeline-claude`), clones a starter pipeline into `./.pipelines/support-answer`, enrols this machine as a runner, and offers to run that starter pipeline right there — so the install ends with a pipeline that has already run on your machine. Every step is idempotent (a re-run prints a `✓` per already-satisfied step and changes nothing) and independently skippable: `--no-plugin`, `--no-run`, `--no-runner`, plus `--yes` / `--json` for scripted setups, and `pipeline init <template>` to start from a different template (`pipeline clone --list` shows them). If Claude Code was already open when you ran it, restart it — a running session does not pick up a newly installed plugin.
 
 **It connects to the cloud by default, and that is the only network step.** Nothing about your code or your keys goes with it: the control plane coordinates runs and shows you their status, and by default receives metadata only — statuses, timings, token counts — filtered on your machine before anything is sent. You do not need an account first; if you have none, signing in creates one, and your first organization is created for you. Two escape hatches, and neither is buried in `--help`:
 
@@ -40,8 +40,8 @@ This repository is itself the plugin, so the `pipeline` CLI and the local dashbo
 
 ## What you get
 
-- **`/pipeline:design <high-level goal>`** — invokes the `pipeline-designer` agent to decompose the goal into an ordered chain of iteration files under `./.claude/pipeline/<pipeline-name>/`. Each file is one PR-sized unit of work.
-- **`/pipeline:clone <template-name>`** — scaffolds a bundled, ready-made pipeline template into `./.claude/pipeline/<template-name>/` so you have a working pipeline to run and adapt without authoring one (or a global `bun add -g @baizor/pipeline`) — it shells the CLI that ships inside the plugin. Run `/pipeline:clone --list` to see the templates (e.g. `support-answer`, `ship-feature`, `example-minimal`); pass `--force` to overwrite an existing target or `--dir <path>` to clone into a different project root.
+- **`/pipeline:design <high-level goal>`** — invokes the `pipeline-designer` agent to decompose the goal into an ordered chain of iteration files under `./.pipelines/<pipeline-name>/`. Each file is one PR-sized unit of work.
+- **`/pipeline:clone <template-name>`** — scaffolds a bundled, ready-made pipeline template into `./.pipelines/<template-name>/` so you have a working pipeline to run and adapt without authoring one (or a global `bun add -g @baizor/pipeline`) — it shells the CLI that ships inside the plugin. Run `/pipeline:clone --list` to see the templates (e.g. `support-answer`, `ship-feature`, `example-minimal`); pass `--force` to overwrite an existing target or `--dir <path>` to clone into a different project root.
 - **`/pipeline:run <absolute-path-to-iteration.md>`** — drives the pipeline end-to-end. It mints the run id, owns UI liveness, and spawns a single `pipeline-manager` (depth 1) that drives the chain — running a fresh `step-executor` per iteration (depth 2) and dispatching `pipeline-improver` / `pipeline-script-creator` between steps. `/pipeline:run` itself stays in the main session: subagents can now nest (up to 5 levels deep), but the supervisor stays at depth 0 because a subagent's context is finite, it cannot wait hours for an external condition (the nested-blocker poll-wait), and it has no stable pid for liveness tracking.
 - **`/pipeline:dispatch <task>`** — autonomous task-to-pipeline orchestrator. Walks a three-tier cost ladder per call: (1) deterministic BM25 match via the bundled `pipeline match` CLI — free, resolves most tasks; (2) Haiku-based disambiguator agent — cheap, only runs when the top-2 BM25 candidates are within 2× of each other; (3) full-context chain detection in the main session — expensive, only runs when the matcher returns zero candidates AND the task has chain phrasing. Auto-runs the chosen pipeline(s) without confirmation.
 - **`/pipeline:find <task-or-github-issue-url>`** — deterministic, AI-free matcher (the inspection variant of dispatch). Shares dispatch's first-stage matcher (the bundled `pipeline match` CLI) but stops there — no LLM tiers, no auto-run. Returns ranked candidates with score + matched terms plus explicit excluded-with-reason output, then asks before running. Accepts a GitHub issue URL / `owner/repo#NUMBER` / plain issue number — fetches title+body via `gh issue view` and matches against that. Runs with Bun (no `pip install`).
@@ -62,7 +62,7 @@ Every iteration is read by a fresh-context executor on every run, so tokens spen
 A **pipeline** is a folder of markdown files. Each file is one **iteration**: a self-contained task an agent executes in a brand-new context. The designer writes the folder; the executor runs it file-by-file in fresh contexts. Because every iteration is self-contained, the chain can be arbitrarily long without context-window issues.
 
 ```
-<your-project>/.claude/pipeline/
+<your-project>/.pipelines/
 └── <pipeline-name>/
     ├── PIPELINE.md            ← required manifest (metadata header, ≤300 tokens)
     ├── scripts/               ← optional — Python scripts extracted from heavy Steps blocks
@@ -111,14 +111,14 @@ This section is the practical walkthrough — install once, then a small set of 
    /pipeline:design Cut a release of the API server: bump version, run tests, build image, deploy staging, smoke-test, deploy prod
    ```
 
-   The `pipeline-designer` subagent will sketch an iteration list, confirm scope with you when non-trivial, then write files under `./.claude/pipeline/<pipeline-name>/` — a `PIPELINE.md` manifest plus an ordered `steps/01-*.md`, `steps/02-*.md`, …. Each iteration file is a self-contained PR-sized unit of work.
+   The `pipeline-designer` subagent will sketch an iteration list, confirm scope with you when non-trivial, then write files under `./.pipelines/<pipeline-name>/` — a `PIPELINE.md` manifest plus an ordered `steps/01-*.md`, `steps/02-*.md`, …. Each iteration file is a self-contained PR-sized unit of work.
 
 3. **Sanity-check the result.** Open the new folder yourself; read the manifest's `End State` and the first iteration's `Goal` / `Steps` / `Success Criteria`. The designer is good but not infallible — five minutes reading what it produced now saves ten minutes mid-execution. Edit by hand if needed; iteration files are just markdown.
 
 4. **Run it.** Two equivalent options:
 
    ```
-   /pipeline:run ./.claude/pipeline/release-api/steps/01-bump.md
+   /pipeline:run ./.pipelines/release-api/steps/01-bump.md
    ```
 
    …or, more naturally, hand the matcher a task and let it find the right pipeline:
@@ -129,11 +129,11 @@ This section is the practical walkthrough — install once, then a small set of 
 
    `/pipeline:run` is the supervisor. It spawns a single `pipeline-manager` (depth 1) that drives the chain — running a fresh `step-executor` per iteration (depth 2) and chaining forward through every iteration until the pipeline declares completion or halts on a blocker — while `/pipeline:run` stays in the main session to own UI liveness, the human-facing report, and the hours-long nested-blocker poll-wait. You'll see banners in the terminal.
 
-5. **Re-read the pipeline folder afterwards.** After a successful run, `.claude/pipeline/<pipeline-name>/` is now both a workflow definition and a knowledge base — future maintainers (and future Claude sessions) can read it cold to understand the project's release process. Commit it to git.
+5. **Re-read the pipeline folder afterwards.** After a successful run, `.pipelines/<pipeline-name>/` is now both a workflow definition and a knowledge base — future maintainers (and future Claude sessions) can read it cold to understand the project's release process. Commit it to git.
 
 ### Day 2+ — picking the right pipeline for a task
 
-Once you have a few pipelines in `.claude/pipeline/`, you stop typing pipeline paths and start typing tasks. Two skills, same matcher, different ergonomics:
+Once you have a few pipelines in `.pipelines/`, you stop typing pipeline paths and start typing tasks. Two skills, same matcher, different ergonomics:
 
 **Inspection — `/pipeline:find`.** Use when you want to see the match before committing.
 
@@ -149,7 +149,7 @@ Output looks like:
 Matches:
   1. optimize-db (score 3.42, matched: database, indexes, lookup, query)
      End state: Database query performance is improved through targeted index additions...
-     First iteration: ./.claude/pipeline/optimize-db/steps/01-baseline.md
+     First iteration: ./.pipelines/optimize-db/steps/01-baseline.md
 
 Excluded by Scope.Out:
   - tune-api-latency: Scope.Out includes ["database index changes"]; matching terms: ["database", "indexes"]
@@ -198,8 +198,8 @@ See "Self-improving pipelines" and "Token-cheap iterations via script extraction
 
 ### Common pitfalls
 
-- **Running from the wrong directory.** Pipelines live in your **consumer project's** `./.claude/pipeline/`, not in the plugin install folder. If `/pipeline:design` ends up writing somewhere unexpected, your CWD wasn't the project root. The plugin install dir (`${CLAUDE_PLUGIN_ROOT}`) is read-only at runtime; nothing should ever land there.
-- **Designing one-shot pipelines.** Both `/pipeline:design` and the `pipeline-designer` agent will push back when your goal looks like a single-use task. Take the pushback — pipelines pollute `.claude/pipeline/` if used for one-shot work, since that folder doubles as a knowledge base of your project's *recurring* processes.
+- **Running from the wrong directory.** Pipelines live in your **consumer project's** `./.pipelines/`, not in the plugin install folder. If `/pipeline:design` ends up writing somewhere unexpected, your CWD wasn't the project root. The plugin install dir (`${CLAUDE_PLUGIN_ROOT}`) is read-only at runtime; nothing should ever land there.
+- **Designing one-shot pipelines.** Both `/pipeline:design` and the `pipeline-designer` agent will push back when your goal looks like a single-use task. Take the pushback — pipelines pollute `.pipelines/` if used for one-shot work, since that folder doubles as a knowledge base of your project's *recurring* processes.
 - **Editing iteration files mid-chain.** If a pipeline is currently running (executor in flight), don't edit its iteration files by hand. Wait for the chain to halt or complete; then edit, then resume with `/pipeline:run <halted-iteration.md>`. Iterations are designed to be idempotent, so re-running from the halted step is safe.
 - **Confusing the dispatch-tier-3 fallback for normal behavior.** If you find yourself paying full LLM cost on every `/pipeline:dispatch` call, your matcher is returning zero candidates because of vocabulary mismatch (your tasks don't share terms with manifest `Scope.In` / `End State`). Fix the manifests' wording or your task wording; don't accept tier 3 as the steady state.
 
@@ -264,7 +264,7 @@ Example output:
 Matches:
   1. release-server (score 5.0, matched: new, release, backend, server, changelog)
      End state: A new tagged release of the backend server is published to production with no rollback required.
-     First iteration: ./.claude/pipeline/release-server/steps/01-bump.md
+     First iteration: ./.pipelines/release-server/steps/01-bump.md
 
 Excluded by Scope.Out:
   - migrate-db: Scope.Out includes ["server release"]; matching terms: ["release", "server"]
@@ -288,7 +288,7 @@ Pipelines get better over time by feeding concrete lessons back into their own d
 
 Boundaries:
 
-- Improvements target pipeline **documentation** only (files under `.claude/pipeline/<name>/`). Never consumer project code.
+- Improvements target pipeline **documentation** only (files under `.pipelines/<name>/`). Never consumer project code.
 - Project-side bugs (real code issues, flaky tests, environment problems) do NOT trigger doc improvements — they are surfaced to you in the retrospective summary instead. Only flaws in the iteration's own docs are auto-fixed.
 - The improver refuses changes that would break the chain, delete Success Criteria, or renumber files.
 - Tier-1: one improvement brief per iteration, max. Tier-2: one batch improver pass per run, run once at the end (a no-op when no problems were journaled).
@@ -310,7 +310,7 @@ How it lands automatically:
 
 Boundaries:
 
-- Scripts live at `<your-project>/.claude/pipeline/<pipeline-name>/scripts/<name>.py` — sibling to `steps/`, never inside it. Per-pipeline only; no cross-pipeline sharing in v0.8.0.
+- Scripts live at `<your-project>/.pipelines/<pipeline-name>/scripts/<name>.py` — sibling to `steps/`, never inside it. Per-pipeline only; no cross-pipeline sharing in v0.8.0.
 - Stdlib only by default. Cross-platform (`pathlib`, `tempfile`, no POSIX shell syntax). Argparse-driven CLI with `--help`. Idempotent.
 - The script-creator refuses extractions that would require agent judgment, deletions of `Success Criteria`, renumbering, or breaking `Next` links. It is a leaf agent — it does not loop back to the executor or improver.
 
@@ -372,7 +372,7 @@ The script reads its inputs from the JSON file named in `PIPELINE_STEP_PARAMS_FI
 Test a script step in isolation before wiring it into a chain — no run required:
 
 ```
-pipeline step run ./.claude/pipeline/release-api/steps/03-wait-ci.md --param pr_number=132 --json
+pipeline step run ./.pipelines/release-api/steps/03-wait-ci.md --param pr_number=132 --json
 ```
 
 The full contract — frontmatter fields, the `## Params` / `## Output` vocabulary and `${…}` bindings, the **frozen** process I/O contract (env vars, params file, stdin/stdout, exit semantics, the `ok:false` rule), the failure classes + `retries` / `on-failure` agent fallback, the timeout/call-budget ladder, the attempt ledger (idempotency), the outputs store, and secrets handling — is in **[`docs/script-steps.md`](docs/script-steps.md)**.
@@ -396,7 +396,7 @@ pipeline ci-wait --json                   # no selector = the repo's default bra
 
 `--pr` accepts a number, URL, or head-branch name (via `gh pr checks`, covering Actions and third-party checks). `--branch`/`--sha` poll the commit check-runs API; a branch is resolved to its HEAD sha once at start, so a later push is a new gate rather than a moving target. Requires an authenticated `gh` CLI (`--repo <path>` selects which repo's remote to use; default: the current directory).
 
-## Measuring every run (`.claude/pipeline/.stats/` + `/pipeline:optimize`)
+## Measuring every run (`.pipelines/.stats/` + `/pipeline:optimize`)
 
 Every pipeline run is measured by **pure software — no AI agent, zero LLM tokens**. It is ON by
 default (`PIPELINE_STATS_ENABLED=0` disables). The `pipeline next` engine appends a timeline as the
@@ -409,7 +409,7 @@ staying blank forever. You get
 simple text files to review whenever you like:
 
 ```
-.claude/pipeline/.stats/
+.pipelines/.stats/
   SUMMARY.md                      # the whole picture: per pipeline — runs, success rate,
                                   #   avg duration, avg out-tokens, avg tool fails,
                                   #   last run + recent-runs table
@@ -457,7 +457,7 @@ Closed-without-merging, merge conflicts, a red verification gate, or a deadline 
 When a single iteration is too large, the designer nests a sub-folder inside `steps/` with its own ordered sub-iterations. The executor descends into the sub-folder, runs every file in order, then returns to the parent's next file under `steps/`.
 
 ```
-<your-project>/.claude/pipeline/<pipeline-name>/
+<your-project>/.pipelines/<pipeline-name>/
 ├── PIPELINE.md
 └── steps/
     ├── 01-plan.md
@@ -486,7 +486,7 @@ Example: an `01-build` step, then `lint` / `typecheck` / `test` of disjoint modu
 
 Keep it sequential when in doubt; parallelism is an optimization for independent work, not a default.
 
-- **`isolation: external` (run-level, sequential-only) — bring a consumer-provisioned worktree.** For *sequential* pipelines whose steps need project-specific provisioning the git-only worktree can't supply (allocated ports, dev secrets, a rendered `.env`, submodule worktrees), set `isolation: external` in `PIPELINE.md` frontmatter. The plugin then provisions ONE worktree per run: the bundled `pipeline next` CLI executes your convention-path hook scripts at `<project>/.claude/pipeline/.hooks/worktree-{create,destroy}` itself, in-process (deterministic subprocess work — no agent involvement) — once at run start (before the first step), shared by every step, and torn down once on every terminal outcome (including halt). The hook contract is unchanged and frozen: inputs arrive as `PIPELINE_WT_*` environment variables, the create hook prints one JSON object (`worktree_path`/`branch`/`env_file`/`ports`) on stdout and is idempotent per name, the destroy hook prints `{"ok":true}` or soft-fails with `{"ok":false,"detail":"…"}` — existing hooks work unmodified. Your steps just `cd` into the provisioned worktree and source its env file; they don't re-allocate anything. Declare the submodules to include via `submodules: [a, b, c]`. If the hooks are missing the run halts (it never silently runs in-place). Combining `isolation: external` with `execution: parallel` degrades to `isolation: manual` with a warning — `external` is sequential-only.
+- **`isolation: external` (run-level, sequential-only) — bring a consumer-provisioned worktree.** For *sequential* pipelines whose steps need project-specific provisioning the git-only worktree can't supply (allocated ports, dev secrets, a rendered `.env`, submodule worktrees), set `isolation: external` in `PIPELINE.md` frontmatter. The plugin then provisions ONE worktree per run: the bundled `pipeline next` CLI executes your convention-path hook scripts at `<project>/.pipelines/.hooks/worktree-{create,destroy}` itself, in-process (deterministic subprocess work — no agent involvement) — once at run start (before the first step), shared by every step, and torn down once on every terminal outcome (including halt). The hook contract is unchanged and frozen: inputs arrive as `PIPELINE_WT_*` environment variables, the create hook prints one JSON object (`worktree_path`/`branch`/`env_file`/`ports`) on stdout and is idempotent per name, the destroy hook prints `{"ok":true}` or soft-fails with `{"ok":false,"detail":"…"}` — existing hooks work unmodified. Your steps just `cd` into the provisioned worktree and source its env file; they don't re-allocate anything. Declare the submodules to include via `submodules: [a, b, c]`. If the hooks are missing the run halts (it never silently runs in-place). Combining `isolation: external` with `execution: parallel` degrades to `isolation: manual` with a warning — `external` is sequential-only.
 
   **Optional mandatory `finalize` stage.** For a run that must not be considered "done" until some project-defined terminal action has SUCCEEDED, add a `worktree-finalize` hook (its presence opts you in; or set `finalize: true` in `PIPELINE.md`). The CLI runs it once at the very end of a COMPLETED run — after the last step, before teardown — and it **must return `{"ok":true}` or the whole run HALTS with the worktree preserved** (so nothing is reaped). It is entirely GENERIC: the plugin has zero knowledge of what your finalize hook does (commit something, push, publish — anything); it only requires `ok`. The hook runs with `PIPELINE_WT_ACTION=finalize` plus the same `PIPELINE_WT_*` context as create/destroy. A pipeline that ships no finalize hook (and no `finalize: true`) is byte-for-byte unchanged — the stage never fires.
 
@@ -511,7 +511,7 @@ Everything configurable, in one place. All fields are OPTIONAL — a pipeline wi
 | `delete_branches:` | `true` | External isolation only — on a COMPLETED run the destroy hook receives `PIPELINE_WT_DELETE_BRANCHES=1` (delete the run branch; the work is done). Set `false` to always keep branches. Failed runs always preserve. |
 | `submodules:` | `[]` | External isolation only — submodule names the worktree should include (passed to your hook). |
 | `finalize:` | `false` | External isolation only — require a `worktree-finalize` hook to SUCCEED before a completed run may finish (a `worktree-finalize.*` hook's presence also opts in). |
-| `worktree_hook_dir:` | `.claude/pipeline/.hooks` | Where your external-isolation hook scripts live. |
+| `worktree_hook_dir:` | `.pipelines/.hooks` | Where your external-isolation hook scripts live. |
 
 **`steps/NN-*.md` frontmatter (per-step):**
 
@@ -552,10 +552,10 @@ pipeline gc --clean    # prune + remove merged-only worktrees + safe-delete (-d)
 
 | What                          | Where                                             |
 |-------------------------------|---------------------------------------------------|
-| Your pipelines                | `<your-project>/.claude/pipeline/<pipeline-name>/...` |
+| Your pipelines                | `<your-project>/.pipelines/<pipeline-name>/...` |
 | Parallel-step worktrees       | `<your-project>/.claude/worktrees/<auto-name>/` (transient — created + removed per DAG step) |
-| Per-pipeline scripts          | `<your-project>/.claude/pipeline/<pipeline-name>/scripts/*.py` |
-| Per-run feedback (Tier-2)     | `<your-project>/.claude/pipeline/<pipeline-name>/.feedback/<run_id>/` (gitignored, transient — created at run start, deleted after the end-of-run retrospective) |
+| Per-pipeline scripts          | `<your-project>/.pipelines/<pipeline-name>/scripts/*.py` |
+| Per-run feedback (Tier-2)     | `<your-project>/.pipelines/<pipeline-name>/.feedback/<run_id>/` (gitignored, transient — created at run start, deleted after the end-of-run retrospective) |
 | Plugin agents                 | `${CLAUDE_PLUGIN_ROOT}/agents/*.md` (read-only)   |
 | Plugin skills                 | `${CLAUDE_PLUGIN_ROOT}/skills/*/SKILL.md` (read-only) |
 
@@ -595,7 +595,7 @@ With a provider configured, the mic button records (tap to start/stop) and trans
 
 ### Editing pipelines from the browser
 
-The **Pipelines** tab shows the project's pipelines as a **folder tree** mirroring the on-disk category layout (`workflows/…`, target families under `targets/`), with per-row ▶ Launch and ✎ Edit actions. The editor opens any file of the pipeline (manifest, steps, context modules, scripts); steps and the manifest get a **structured config form** — `model`, `step_id`, `depends-on`, `permission-mode` (plus `execution`/`runner` on the manifest) — that edits the frontmatter without touching keys it doesn't know, with the markdown body edited below. Save-conflict detection, an **add step** scaffold (designer's required-sections template, auto-numbered), **delete step**, and a **Validate** button running `pipeline plan`'s lint. When validate reports errors or warnings, an **AI Fix** button appears: pick a model (haiku/sonnet/opus/fable, default sonnet) and a background `claude -p` session edits the pipeline files to resolve the issues — the button shows a ticking timer while it works, then the editor re-validates and reloads automatically. Writes are strictly confined to `<project>/.claude/pipeline/` — the daemon refuses anything else. On desktop both side columns are mouse-resizable (widths persist).
+The **Pipelines** tab shows the project's pipelines as a **folder tree** mirroring the on-disk category layout (`workflows/…`, target families under `targets/`), with per-row ▶ Launch and ✎ Edit actions. The editor opens any file of the pipeline (manifest, steps, context modules, scripts); steps and the manifest get a **structured config form** — `model`, `step_id`, `depends-on`, `permission-mode` (plus `execution`/`runner` on the manifest) — that edits the frontmatter without touching keys it doesn't know, with the markdown body edited below. Save-conflict detection, an **add step** scaffold (designer's required-sections template, auto-numbered), **delete step**, and a **Validate** button running `pipeline plan`'s lint. When validate reports errors or warnings, an **AI Fix** button appears: pick a model (haiku/sonnet/opus/fable, default sonnet) and a background `claude -p` session edits the pipeline files to resolve the issues — the button shows a ticking timer while it works, then the editor re-validates and reloads automatically. Writes are strictly confined to `<project>/.pipelines/` — the daemon refuses anything else. On desktop both side columns are mouse-resizable (widths persist).
 
 ### Phone access
 
@@ -607,7 +607,7 @@ Open it with:
 /pipeline:ui
 ```
 
-Architecture in one paragraph: a single shared Bun daemon (lives inside the plugin install dir, never touches your project files) listens on `127.0.0.1` on a stable high-ephemeral port derived from your home directory. Every project that uses this plugin (and has the UI enabled) registers itself with the daemon automatically on `SessionStart`, so opening Claude Code in any pipeline-using project makes that project appear in the dashboard's project picker. The daemon **never writes inside the consumer project** — it only reads `<project>/.claude/pipeline/.runtime/events.jsonl` (an append-only journal written by `/pipeline:run` and the analytics hooks) and the pipeline manifests. Two completely different projects → two entries in the same dashboard, switchable from the top bar. A git **worktree** of a project resolves back to its main repo, so a worktree never appears as a separate project — its events show up under the main project with a `worktree` tag.
+Architecture in one paragraph: a single shared Bun daemon (lives inside the plugin install dir, never touches your project files) listens on `127.0.0.1` on a stable high-ephemeral port derived from your home directory. Every project that uses this plugin (and has the UI enabled) registers itself with the daemon automatically on `SessionStart`, so opening Claude Code in any pipeline-using project makes that project appear in the dashboard's project picker. The daemon **never writes inside the consumer project** — it only reads `<project>/.pipelines/.runtime/events.jsonl` (an append-only journal written by `/pipeline:run` and the analytics hooks) and the pipeline manifests. Two completely different projects → two entries in the same dashboard, switchable from the top bar. A git **worktree** of a project resolves back to its main repo, so a worktree never appears as a separate project — its events show up under the main project with a `worktree` tag.
 
 ### What's shown
 
@@ -621,7 +621,7 @@ Architecture in one paragraph: a single shared Bun daemon (lives inside the plug
 ### What it stores on disk
 
 - Daemon bookkeeping (port, pid, project registry): `~/.claude/pipeline-ui/` (per-user, not per-project).
-- Event journal per project: `<project>/.claude/pipeline/.runtime/events.jsonl` (gitignored — add `.runtime/` to your project's `.gitignore` if it isn't already).
+- Event journal per project: `<project>/.pipelines/.runtime/events.jsonl` (gitignored — add `.runtime/` to your project's `.gitignore` if it isn't already).
 - The plugin install dir itself is read-only — daemon code lives there but every byte of state lives elsewhere.
 
 ### Requirements & gotchas
@@ -706,7 +706,7 @@ What keeps working (the UI + basic events are untouched):
 
 The dashboard **degrades gracefully**: a run shows its lifecycle, steps, and timeline as usual; the transcript-derived token/tool panels simply read empty (a headless `pipeline drive` run still surfaces its own envelope token/cost, which never comes from a transcript). No crash, no error state.
 
-This switch is **orthogonal** to the two neighbours: it is **not** the network binding (that is still `PIPELINE_UI_HOST` + a mandatory `PIPELINE_UI_TOKEN`), and it is **not** `PIPELINE_STATS_ENABLED` — the separate local `.claude/pipeline/.stats/` measurement fold keeps its own switch and its own default. Setting `PIPELINE_UI_ENABLED=0` (the master switch) already turns everything off, so `PIPELINE_UI_TRANSCRIPTS` only matters while the UI is on. The daemon snapshots this at boot, so change it before the daemon starts (or restart the daemon) for it to take effect.
+This switch is **orthogonal** to the two neighbours: it is **not** the network binding (that is still `PIPELINE_UI_HOST` + a mandatory `PIPELINE_UI_TOKEN`), and it is **not** `PIPELINE_STATS_ENABLED` — the separate local `.pipelines/.stats/` measurement fold keeps its own switch and its own default. Setting `PIPELINE_UI_ENABLED=0` (the master switch) already turns everything off, so `PIPELINE_UI_TRANSCRIPTS` only matters while the UI is on. The daemon snapshots this at boot, so change it before the daemon starts (or restart the daemon) for it to take effect.
 
 ### Prompt match hook (opt-in) — `PIPELINE_PROMPT_MATCH_ENABLED`
 
@@ -719,7 +719,7 @@ Unlike the UI/analytics system (on by default), this hook is **OFF BY DEFAULT** 
 { "env": { "PIPELINE_PROMPT_MATCH_ENABLED": "1" } }
 ```
 
-When enabled, it still skips silently for slash commands, prompts shorter than 20 characters, and projects with no `.claude/pipeline/` directory — so it only ever speaks up when a free-form task genuinely looks like one of your pre-authored pipelines.
+When enabled, it still skips silently for slash commands, prompts shorter than 20 characters, and projects with no `.pipelines/` directory — so it only ever speaks up when a free-form task genuinely looks like one of your pre-authored pipelines.
 
 ### Environment variables (reference)
 
@@ -731,7 +731,7 @@ Everything the plugin reads from the environment, in one place. Set the per-proj
 |---|---|---|
 | `PIPELINE_UI_ENABLED` | **on** | Master opt-OUT for the whole UI/analytics system (dashboard daemon + analytics hooks). Enabled unless explicitly set to a falsy value; `0`/`false`/`no`/`off` disables, unset/empty/any other value enables. Does NOT affect the `PIPELINE_UI_HOST`/`PIPELINE_UI_TOKEN` binding security. |
 | `PIPELINE_UI_TRANSCRIPTS` | **on** | Opt-OUT for **only** the transcript mirroring/fold: the chat-panel message mirror, the transcript-folded per-run token/tool analytics, and the `Stop` hook's token tail. `0`/`false`/`no`/`off` disables just that; the UI + basic lifecycle events keep working (the dashboard degrades gracefully). Orthogonal to `PIPELINE_UI_ENABLED`, `PIPELINE_STATS_ENABLED`, and the host/token binding. Snapshotted at daemon boot. |
-| `PIPELINE_STATS_ENABLED` | **on** | Per-run measurement files under `.claude/pipeline/.stats/` (durations, per-step timings, outcomes, tokens, tool failures — see "Measuring every run" above). Set `0`/`false`/`no`/`off` to disable. Independent of `PIPELINE_UI_ENABLED` and `PIPELINE_UI_TRANSCRIPTS`. |
+| `PIPELINE_STATS_ENABLED` | **on** | Per-run measurement files under `.pipelines/.stats/` (durations, per-step timings, outcomes, tokens, tool failures — see "Measuring every run" above). Set `0`/`false`/`no`/`off` to disable. Independent of `PIPELINE_UI_ENABLED` and `PIPELINE_UI_TRANSCRIPTS`. |
 | `PIPELINE_AWAITING_INPUT_ENABLED` | **on** | The `Notification` hook that journals `run.awaiting_input` when a permission prompt or an input request blocks the session — the WAITING badge in the dashboard and the `⏸` line in `pipeline logs`. Deliberately INDEPENDENT of `PIPELINE_UI_ENABLED`: a blocked run is worth surfacing even with no dashboard running. `0`/`false`/`no`/`off` disables. |
 | `PIPELINE_UI_WATCHDOG_ENABLED` | **on** | The daemon's interrupt watchdog: a run whose session you interrupted with Esc fires no hook at all, so after 30 s of silence the daemon reads the transcript and, if the interrupt is still the last thing that happened, retires the run instead of leaving it "running" forever. `0`/`false`/`no`/`off` disables. Requires `PIPELINE_UI_TRANSCRIPTS` (there is nothing to read without it). Snapshotted at daemon boot. |
 | `PIPELINE_PROMPT_MATCH_ENABLED` | off | Opt-in for the `UserPromptSubmit` pipeline-match hook (section above). Same non-falsy semantics. |
@@ -791,7 +791,7 @@ A department is a folder whose only required file is `department.yml`. [Build a 
 
 | Command | What it does |
 |---|---|
-| `pipeline department new [<name>]` | Scaffolds `department.yml` and **nothing else** — no `.claude/`, no README, no starter agent. The name defaults to the folder's. `--engine <id>` picks the runtime engine; `--from-pipeline <name>` prefills the description and one skill from an existing `.claude/pipeline/<name>/PIPELINE.md` and points the manifest at it. |
+| `pipeline department new [<name>]` | Scaffolds `department.yml` and **nothing else** — no `.claude/`, no README, no starter agent. The name defaults to the folder's. `--engine <id>` picks the runtime engine; `--from-pipeline <name>` prefills the description and one skill from an existing `.pipelines/<name>/PIPELINE.md` and points the manifest at it. |
 | `pipeline department validate` | Checks a hand-written or hand-edited file: schema + `apiVersion`, engine support, coherence, advisory nits, and the local paths it names. Non-zero exit on any error, `--json` for scripts. It ends by listing what it structurally *cannot* check (a runner, a credential, the control plane) — that list is `serve`'s job. |
 | `pipeline department serve` | One command from an authored file to a live department: validate, sign in, register (or update the registration when the manifest changed), enrol this machine as a runner if it isn't one, bind the runtime, ensure a supervisor is installed, claim the install, report. No separate connect step, no runner token. Idempotent and resumable from any partial state, and it writes nothing **inside** the department folder, so a department stays clonable. |
 | `pipeline department status [--follow]` | State, plan budget, and recent tasks — from the control plane when a credential is already stored, from this machine's own binding state when it isn't. Never triggers an interactive sign-in. Each task line names who asked (sender) and what ran it (engine), read from this machine's own runner journal; a task this machine did not run shows `?` for both, with the reason, rather than being attributed to somebody else. |
@@ -834,7 +834,7 @@ Opt out with `PIPELINE_DEPARTMENT_NOTIFY_ENABLED=0` (same falsy-value convention
 If an executor halts on a blocker, fix the underlying issue, then re-invoke:
 
 ```
-/pipeline:run <absolute-path>/.claude/pipeline/<pipeline-name>/steps/<NN-halted-iteration>.md
+/pipeline:run <absolute-path>/.pipelines/<pipeline-name>/steps/<NN-halted-iteration>.md
 ```
 
 Iterations are designed to be idempotent, so re-running from the halted step is safe.

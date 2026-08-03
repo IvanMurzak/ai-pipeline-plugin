@@ -14,7 +14,7 @@ You are matching a task (`$1`) against the consumer project's pipeline manifests
 
 1. Detect whether `$1` is a GitHub issue (URL or `owner/repo#NUMBER` shorthand) or a free-form task description.
 2. Invoke the `pipeline match` command (`bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" match`) with the appropriate flag. It:
-   - Parses every `PIPELINE.md` under `./.claude/pipeline/` into positive (name + End State + Scope.In + Glossary) and negative (Scope.Out) corpora.
+   - Parses every `PIPELINE.md` under `./.pipelines/` into positive (name + End State + Scope.In + Glossary) and negative (Scope.Out) corpora.
    - Scores the task against the positive corpus using Okapi BM25.
    - Hard-filters pipelines whose Scope.Out shares ≥ `--neg-threshold` task tokens.
    - Returns ranked surviving candidates plus the excluded list as JSON.
@@ -33,7 +33,7 @@ Rules:
 
 ## Prerequisites
 
-- The current working directory is the consumer project's root (where `./.claude/pipeline/` lives). If unsure, confirm with the user before proceeding.
+- The current working directory is the consumer project's root (where `./.pipelines/` lives). If unsure, confirm with the user before proceeding.
 - `bun` is available on PATH — the matcher runs via the bundled `pipeline` CLI (`apps/pipeline-cli`, run with Bun). Bun is already required by the plugin's UI daemon; nothing else to install.
 - For `--issue` input only: the `gh` CLI is installed and authenticated. If unavailable, fall back to asking the user to paste the task text.
 
@@ -53,7 +53,7 @@ Rules:
 
    ```bash
    bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" match \
-     --pipelines-dir "./.claude/pipeline" \
+     --pipelines-dir "./.pipelines" \
      --task "<verbatim task text>"     # OR --issue "<issue ref>"
      --top 5
    ```

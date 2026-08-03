@@ -1,6 +1,6 @@
 # External-isolation worktree hooks — consumer contract (FROZEN)
 
-Reference for **hook authors** writing `.claude/pipeline/.hooks/worktree-{create,finalize,destroy}` scripts in a consumer project. The `pipeline next` CLI executes these hooks itself, in-process (from the PROJECT ROOT, env-var inputs, JSON-on-stdout; timeouts: 600 s create, 600 s finalize, 300 s destroy) — the `pipeline-manager` agent never passes these variables and never runs the hooks.
+Reference for **hook authors** writing `.pipelines/.hooks/worktree-{create,finalize,destroy}` scripts in a consumer project. The `pipeline next` CLI executes these hooks itself, in-process (from the PROJECT ROOT, env-var inputs, JSON-on-stdout; timeouts: 600 s create, 600 s finalize, 300 s destroy) — the `pipeline-manager` agent never passes these variables and never runs the hooks.
 
 This contract is **FROZEN**: existing consumer hooks must keep working unmodified. If you change anything here, update `apps/pipeline-cli/src/lib/hooks.ts`, `apps/pipeline-cli/src/commands/next.ts`, and the README's external-isolation section in lockstep, and bump the plugin version.
 
@@ -42,7 +42,7 @@ Prints `{"ok":true}` on a clean teardown, `{"ok":false,"detail":"<short>"}` + ex
 
 ## Location
 
-The hooks live at `<project>/.claude/pipeline/.hooks/` (sibling to the pipeline folders, shared by all pipelines; a pipeline may override the dir via `worktree_hook_dir` frontmatter).
+The hooks live at `<project>/.pipelines/.hooks/` (sibling to the pipeline folders, shared by all pipelines; a pipeline may override the dir via `worktree_hook_dir` frontmatter).
 
 ## Worktree-scoped pipeline I/O (default) and self-improvement edits
 

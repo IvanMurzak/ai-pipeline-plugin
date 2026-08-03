@@ -10,8 +10,8 @@ function ev(type: string, ts: string, data: Record<string, unknown>) {
   return { ts, type, run_id: "r1", data };
 }
 
-const STEP_A = "C:/p/.claude/pipeline/demo/steps/01-a.md";
-const STEP_B = "C:/p/.claude/pipeline/demo/steps/02-b.md";
+const STEP_A = "C:/p/.pipelines/demo/steps/01-a.md";
+const STEP_B = "C:/p/.pipelines/demo/steps/02-b.md";
 
 test("sequential run: durations per step, rel derived, outcome captured", () => {
   const out = stepTimingsForRun([

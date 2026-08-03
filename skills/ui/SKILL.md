@@ -19,7 +19,7 @@ You are opening the local pipeline dashboard. It runs as a single shared Bun dae
 - **Live event stream** — tails the journal in real-time via Server-Sent Events.
 - **Light / dark theme switcher** with animated transitions.
 
-The dashboard is read-only. It never writes to project files; it only reads `<project>/.claude/pipeline/.runtime/events.jsonl` and the pipeline manifests.
+The dashboard is read-only. It never writes to project files; it only reads `<project>/.pipelines/.runtime/events.jsonl` and the pipeline manifests.
 
 ## Procedure
 
@@ -42,7 +42,7 @@ hand or duplicate its detection logic — just call the launcher.
 2. **If the launcher fails because Bun is missing**, tell the user the UI requires
    Bun (https://bun.sh) and stop — do NOT try to install it for them.
 
-3. **If the current project has no `.claude/pipeline/` directory** yet, the
+3. **If the current project has no `.pipelines/` directory** yet, the
    launcher notes it; pass that along — nothing will appear until they run
    `/pipeline:design` or `/pipeline:run` somewhere.
 
@@ -70,5 +70,5 @@ locates the daemon by walking up from the CLI's own directory.
 - The daemon binds to **127.0.0.1 only** and picks a high random-ish port in the IANA ephemeral range (49152–65535). It is not network-exposed.
 - The daemon serves **all projects on this machine** — opening the UI from one project automatically shows the others. The project picker in the top bar switches between them.
 - The daemon auto-shuts-down after 60 minutes of no events and no browser clients (configurable via `PIPELINE_UI_IDLE_MINUTES`).
-- A `SessionStart` hook in this plugin also launches the daemon automatically when Claude Code starts in any project that has `.claude/pipeline/`. So in practice this skill rarely needs to *start* the daemon — most users just need the URL.
+- A `SessionStart` hook in this plugin also launches the daemon automatically when Claude Code starts in any project that has `.pipelines/`. So in practice this skill rarely needs to *start* the daemon — most users just need the URL.
 - Bun is required (it already runs the bundled `pipeline` CLI); the UI promotes it to a hard requirement only if you use the UI.

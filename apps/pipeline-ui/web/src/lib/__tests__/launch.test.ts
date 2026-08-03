@@ -15,7 +15,7 @@ function p(
 ): LaunchCatalogPipeline {
   return {
     name,
-    pipeline_root: `/proj/.claude/pipeline/${name}`,
+    pipeline_root: `/proj/.pipelines/${name}`,
     first_iteration: null,
     end_state: endState,
     mode: "sequential",

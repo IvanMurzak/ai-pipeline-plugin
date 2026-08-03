@@ -8,7 +8,7 @@ argument-hint: <free-form task description or GitHub issue URL>
 
 # Dispatch a Task to the Right Pipeline
 
-Given a task description (or GitHub issue ref) in `$1`, select the best-matching pipeline(s) from the current project's `.claude/pipeline/` and run them in order — autonomously, without confirmation. This is the auto-run sibling of `/pipeline:find` (which is the inspection variant that asks before running).
+Given a task description (or GitHub issue ref) in `$1`, select the best-matching pipeline(s) from the current project's `.pipelines/` and run them in order — autonomously, without confirmation. This is the auto-run sibling of `/pipeline:find` (which is the inspection variant that asks before running).
 
 ## Three-tier token cost ladder (CRITICAL)
 
@@ -42,7 +42,7 @@ The 80% case (one pipeline obviously matches): tier 1 only, no LLM tokens. The 1
 - Current working directory is the consumer project's root.
 - `bun` is on PATH — the matcher runs via the bundled `pipeline` CLI (`apps/pipeline-cli`). Bun is already required by the plugin's UI daemon.
 - For `--issue` inputs only: `gh` CLI installed and authenticated.
-- At least one pipeline exists under `./.claude/pipeline/`. If none, stop and tell the user to run `/pipeline:design` first.
+- At least one pipeline exists under `./.pipelines/`. If none, stop and tell the user to run `/pipeline:design` first.
 
 ## Procedure
 
@@ -63,7 +63,7 @@ Invoke the bundled matcher (the `pipeline` CLI, run with Bun):
 
 ```bash
 bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" match \
-  --pipelines-dir "./.claude/pipeline" \
+  --pipelines-dir "./.pipelines" \
   --task "<verbatim task text>"     # OR --issue "<issue ref>"
   --top 5
 ```
@@ -125,7 +125,7 @@ Parse the agent's `Disambiguation Result`:
 
 ### Step 4b — Tier 3: chain detection (only on 0 candidates + chain phrasing)
 
-This is the expensive path. Enumerate every project manifest with the `Glob` tool: `./.claude/pipeline/**/PIPELINE.md`.
+This is the expensive path. Enumerate every project manifest with the `Glob` tool: `./.pipelines/**/PIPELINE.md`.
 
 `Read` each manifest (still ≤ 300 tokens each by plugin convention; the bulk read is safe).
 

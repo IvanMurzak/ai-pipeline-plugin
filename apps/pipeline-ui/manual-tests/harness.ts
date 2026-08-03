@@ -242,7 +242,7 @@ export class Harness {
   // -----------------------------------------------------------------
 
   /**
-   * Append one event to <project>/.claude/pipeline/.runtime/events.jsonl.
+   * Append one event to <project>/.pipelines/.runtime/events.jsonl.
    * Mirrors `pipeline event` exactly; same field names, same coercion behavior.
    */
   emitEvent(

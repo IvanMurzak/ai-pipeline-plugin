@@ -2,7 +2,7 @@
  * Pure logic for the "Connect to cloud" CTA (T2-13).
  *
  * The dashboard has no data seam yet to detect a project's
- * `.claude/pipeline/cloud.json` binding (ProjectEntry / ProjectState carry no
+ * `.pipelines/cloud.json` binding (ProjectEntry / ProjectState carry no
  * such field — see types.ts / EVENTS.md), so callers always pass
  * `undefined` for `connected` today. This module exists so the
  * invite-vs-connected decision is unit-testable now and the component only
@@ -17,7 +17,7 @@
 
 /** The exact command the CTA tells the user to run — the real, shipped
  *  device-flow command from T1-16 (`apps/pipeline-cli/src/commands/cloud.ts`).
- *  It writes a secrets-free `.claude/pipeline/cloud.json` binding. */
+ *  It writes a secrets-free `.pipelines/cloud.json` binding. */
 export const CLOUD_CONNECT_COMMAND = "pipeline cloud connect";
 
 export type CloudConnectView = "connected" | "invite";

@@ -20,7 +20,7 @@ Each scenario reproduces a specific bug from the v0.23.0 audit and verifies the 
 
 | Scenario | Verifies |
 |---|---|
-| `pipeline-discovery` | `scanPipelines` finds the test fixture under `.claude/pipeline/test-pipeline` |
+| `pipeline-discovery` | `scanPipelines` finds the test fixture under `.pipelines/test-pipeline` |
 | `iteration-fetch` | `/api/iteration` parses sections correctly |
 | `terminal-flag-v2` | v2 `terminal: true` flips status to `completed` even without `pipeline.completed` |
 | `terminal-flag-v1-compat` | v1 events with `next_iteration_path: null` still derive `completed` |

@@ -19,7 +19,7 @@ describe("pipelineNameFromIterationPath", () => {
   test("flat layout", () => {
     expect(
       pipelineNameFromIterationPath(
-        "/project/.claude/pipeline/ui-smoke/steps/01-x.md",
+        "/project/.pipelines/ui-smoke/steps/01-x.md",
       ),
     ).toBe("ui-smoke");
   });
@@ -27,7 +27,7 @@ describe("pipelineNameFromIterationPath", () => {
   test("nested-category layout: returns the LEAF name, not the category", () => {
     expect(
       pipelineNameFromIterationPath(
-        "/project/.claude/pipeline/workflows/ui-smoke/steps/01-x.md",
+        "/project/.pipelines/workflows/ui-smoke/steps/01-x.md",
       ),
     ).toBe("ui-smoke");
   });
@@ -35,7 +35,7 @@ describe("pipelineNameFromIterationPath", () => {
   test("nested twice: still picks the immediate parent of steps/", () => {
     expect(
       pipelineNameFromIterationPath(
-        "/project/.claude/pipeline/a/b/leaf/steps/01.md",
+        "/project/.pipelines/a/b/leaf/steps/01.md",
       ),
     ).toBe("leaf");
   });

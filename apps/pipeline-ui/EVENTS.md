@@ -1,6 +1,6 @@
 # Pipeline UI — Event Schema
 
-Append-only JSON-lines journal at `<project>/.claude/pipeline/.runtime/events.jsonl`. Every event is one line, one JSON object. Schema version: `4`.
+Append-only JSON-lines journal at `<project>/.pipelines/.runtime/events.jsonl`. Every event is one line, one JSON object. Schema version: `4`.
 
 ## Versioning policy
 
@@ -342,7 +342,7 @@ into the **`external`** isolation mode (`PIPELINE.md` frontmatter
 the consumer provisions ONE worktree per run (allocated ports, dev secrets, a
 rendered `.env`, submodule worktrees — things the git-only `worktree`/`manual`
 modes cannot supply) via convention-path hook scripts at
-`<project>/.claude/pipeline/.hooks/worktree-{create,destroy}`, shared by every
+`<project>/.pipelines/.hooks/worktree-{create,destroy}`, shared by every
 sequential step and torn down once at run end. The CLI executes those hooks
 ITSELF, in-process — the create hook at run start (before the first step) and
 the destroy hook at run end (on every terminal outcome —
@@ -404,7 +404,7 @@ The daemon also broadcasts these to SSE clients when it sees filesystem changes 
 
 | `type` | Trigger | `data` |
 |---|---|---|
-| `file.changed` | any `<project>/.claude/pipeline/**/*` write/create/delete (incl. UI editor saves) | `{ project_id, path }` |
+| `file.changed` | any `<project>/.pipelines/**/*` write/create/delete (incl. UI editor saves) | `{ project_id, path }` |
 | `project.registered` | a new project pings `/api/register` or `/api/register-cwd` | `ProjectEntry` |
 | `drive.run` | a daemon-launched headless run (`POST /api/runs/launch` / `/api/runs/answer`) changes state: spawned, exited (completed/halted/blocked/failed), parked awaiting-input, or stopped by the user (`POST /api/runs/stop` kills the child and finalizes the snapshot as halted, reason "stopped by user") | `DriveRunSnapshot` — `{ run_id, project_id, pipeline_root, pipeline_name, start_path, status, exit_code, launched_at, ended_at, question: {text, context, options}\|null, awaiting_iteration, halt_reason, task_file }` |
 | `hello` | SSE stream opens | `{ plugin_version }` |

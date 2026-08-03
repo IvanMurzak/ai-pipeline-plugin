@@ -119,16 +119,16 @@ export const currentStepTracking: Scenario = {
     // iter 1 starts
     h.emitEvent(proj, "iteration.started", runId, {
       iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/01-hello.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/01-hello.md",
       index: 1,
     });
     h.emitToolBurst(proj, runId, 300);
     h.emitEvent(proj, "iteration.completed", runId, {
       iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/01-hello.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/01-hello.md",
       outcome: "completed",
       next_iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/02-world.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/02-world.md",
       has_improvement_brief: false,
       has_blocker_delegation: false,
       halt_reason: null,
@@ -137,16 +137,16 @@ export const currentStepTracking: Scenario = {
     // iter 2 + tool noise
     h.emitEvent(proj, "iteration.started", runId, {
       iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/02-world.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/02-world.md",
       index: 2,
     });
     h.emitToolBurst(proj, runId, 300);
     h.emitEvent(proj, "iteration.completed", runId, {
       iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/02-world.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/02-world.md",
       outcome: "completed",
       next_iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/03-done.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/03-done.md",
       has_improvement_brief: false,
       has_blocker_delegation: false,
       halt_reason: null,
@@ -155,7 +155,7 @@ export const currentStepTracking: Scenario = {
     // iter 3 starts but does NOT complete — should show as current
     h.emitEvent(proj, "iteration.started", runId, {
       iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/03-done.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/03-done.md",
       index: 3,
     });
     h.emitToolBurst(proj, runId, 50);
@@ -231,18 +231,18 @@ export const multipleInstances: Scenario = {
     // a is now mid step 03; b is mid step 02
     h.emitEvent(proj, "iteration.started", a, {
       iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/03-done.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/03-done.md",
       index: 3,
     });
     h.emitEvent(proj, "iteration.started", b, {
       iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/02-world.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/02-world.md",
       index: 2,
     });
     // Finish a, leave b running
     h.emitEvent(proj, "iteration.completed", a, {
       iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/03-done.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/03-done.md",
       outcome: "completed",
       next_iteration_path: null,
       terminal: true,
@@ -296,7 +296,7 @@ export const worktreeThreading: Scenario = {
       runId,
       {
         iteration_path:
-          proj.project_root + "/.claude/pipeline/test-pipeline/steps/01-hello.md",
+          proj.project_root + "/.pipelines/test-pipeline/steps/01-hello.md",
         index: 1,
       },
       { worktree: wt },
@@ -320,7 +320,7 @@ export const iterationResumed: Scenario = {
     const proj = await h.tempProject("resume");
     const runId = rid("res");
     const iterAbs =
-      proj.project_root + "/.claude/pipeline/test-pipeline/steps/01-hello.md";
+      proj.project_root + "/.pipelines/test-pipeline/steps/01-hello.md";
     h.emitEvent(proj, "pipeline.started", runId, { pipeline_name: "test-pipeline" });
     h.emitEvent(proj, "iteration.started", runId, { iteration_path: iterAbs, index: 1 });
     h.emitEvent(proj, "iteration.completed", runId, {
@@ -380,7 +380,7 @@ export const haltedRun: Scenario = {
 
 export const pipelineDiscovery: Scenario = {
   name: "pipeline-discovery",
-  description: "scanPipelines finds the fixture pipeline under .claude/pipeline/test-pipeline",
+  description: "scanPipelines finds the fixture pipeline under .pipelines/test-pipeline",
   async run(h) {
     const proj = await h.tempProject("discovery");
     const state = await h.getState(proj.project_id);
@@ -462,12 +462,12 @@ export const iterationCountAccuracy: Scenario = {
     // Now simulate a resume: same step 2 re-runs and completes.
     h.emitEvent(proj, "iteration.resumed", runId, {
       iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/02-world.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/02-world.md",
       index: 2,
     });
     h.emitEvent(proj, "iteration.completed", runId, {
       iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/02-world.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/02-world.md",
       outcome: "completed",
       next_iteration_path: null,
       terminal: true,
@@ -485,7 +485,7 @@ export const iterationCountAccuracy: Scenario = {
     // bump the count further.
     h.emitEvent(proj, "iteration.completed", runId, {
       iteration_path:
-        proj.project_root + "/.claude/pipeline/test-pipeline/steps/01-hello.md",
+        proj.project_root + "/.pipelines/test-pipeline/steps/01-hello.md",
       outcome: "halted",
       halt_reason: "spurious second halt",
       next_iteration_path: null,

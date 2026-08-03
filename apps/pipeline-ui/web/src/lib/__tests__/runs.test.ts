@@ -227,25 +227,25 @@ describe("iterationStatsByRel", () => {
   test("counts started + outcome buckets per file basename", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/workflows/x/steps/01-a.md",
+        iteration_path: "/p/.pipelines/workflows/x/steps/01-a.md",
       }),
       ev("iteration.completed", "r1", {
-        iteration_path: "/p/.claude/pipeline/workflows/x/steps/01-a.md",
+        iteration_path: "/p/.pipelines/workflows/x/steps/01-a.md",
         outcome: "completed",
       }),
       ev("iteration.started", "r2", {
-        iteration_path: "/p/.claude/pipeline/workflows/x/steps/01-a.md",
+        iteration_path: "/p/.pipelines/workflows/x/steps/01-a.md",
       }),
       ev("iteration.completed", "r2", {
-        iteration_path: "/p/.claude/pipeline/workflows/x/steps/01-a.md",
+        iteration_path: "/p/.pipelines/workflows/x/steps/01-a.md",
         outcome: "halted",
       }),
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/workflows/x/steps/02-b.md",
+        iteration_path: "/p/.pipelines/workflows/x/steps/02-b.md",
       }),
       // Different pipeline, ignored
       ev("iteration.started", "r3", {
-        iteration_path: "/p/.claude/pipeline/workflows/y/steps/01-a.md",
+        iteration_path: "/p/.pipelines/workflows/y/steps/01-a.md",
       }),
     ];
     const stats = iterationStatsByRel(events, "x");
@@ -267,7 +267,7 @@ describe("iterationStatsByRel", () => {
   test("safely handles pipeline names with regex specials", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/some.weird+name/steps/01.md",
+        iteration_path: "/p/.pipelines/some.weird+name/steps/01.md",
       }),
     ];
     const stats = iterationStatsByRel(events, "some.weird+name");
@@ -277,18 +277,18 @@ describe("iterationStatsByRel", () => {
   test("resolved_model is preserved when a later event omits the field or carries an invalid value", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/01.md",
+        iteration_path: "/p/.pipelines/x/steps/01.md",
         resolved_model: "opus",
       }),
       // Out-of-order or older-daemon event with the field present but null —
       // should NOT blank the previously-captured value.
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/01.md",
+        iteration_path: "/p/.pipelines/x/steps/01.md",
         resolved_model: null,
       }),
       // Garbage value (typo) — should also not blank.
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/01.md",
+        iteration_path: "/p/.pipelines/x/steps/01.md",
         resolved_model: "Opus",
       }),
     ];
@@ -299,7 +299,7 @@ describe("iterationStatsByRel", () => {
   test("resolved_model accepts the fable alias", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/01.md",
+        iteration_path: "/p/.pipelines/x/steps/01.md",
         resolved_model: "fable",
       }),
     ];
@@ -310,13 +310,13 @@ describe("iterationStatsByRel", () => {
   test("resolved_model preserves a canonical claude-* id verbatim", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/01.md",
+        iteration_path: "/p/.pipelines/x/steps/01.md",
         resolved_model: "claude-opus-4-8",
       }),
       // A later unknown / future canonical id is also kept as-is — the
       // client must never coerce a valid value to null.
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/01.md",
+        iteration_path: "/p/.pipelines/x/steps/01.md",
         resolved_model: "claude-some-future-model",
       }),
     ];
@@ -388,11 +388,11 @@ describe("iterationToolStatsByRel (rel-keyed view adapter that feeds the tree)",
   test("parallel run: overlapping step_id steps surface per-rel tool/token stats", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/01-a.md",
+        iteration_path: "/p/.pipelines/x/steps/01-a.md",
         step_id: "a",
       }, { ts: "2026-01-01T00:00:01Z" }),
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/02-b.md",
+        iteration_path: "/p/.pipelines/x/steps/02-b.md",
         step_id: "b",
       }, { ts: "2026-01-01T00:00:02Z" }),
       // While both a and b are OPEN, ambient events attribute to the
@@ -422,17 +422,17 @@ describe("iterationToolStatsByRel (rel-keyed view adapter that feeds the tree)",
   test("sequential run: no step_id folds by legacy window, still per-rel", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/01.md",
+        iteration_path: "/p/.pipelines/x/steps/01.md",
       }, { ts: "2026-01-01T00:00:01Z" }),
       ev("tool.called", "r1", { success: true }, { ts: "2026-01-01T00:00:02Z" }), // → 01
       ev("iteration.completed", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/01.md",
+        iteration_path: "/p/.pipelines/x/steps/01.md",
         outcome: "completed",
       }, { ts: "2026-01-01T00:00:03Z" }),
       // Legacy: completed does NOT close the window — the next started does.
       ev("tool.called", "r1", { success: true }, { ts: "2026-01-01T00:00:04Z" }), // → still 01
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/02.md",
+        iteration_path: "/p/.pipelines/x/steps/02.md",
       }, { ts: "2026-01-01T00:00:05Z" }),
       ev("turn.usage", "r1", { input_tokens: 12, output_tokens: 3 }, { ts: "2026-01-01T00:00:06Z" }), // → 02
       ev("tool.called", "r1", { success: false }, { ts: "2026-01-01T00:00:07Z" }), // → 02
@@ -446,8 +446,8 @@ describe("iterationToolStatsByRel (rel-keyed view adapter that feeds the tree)",
 
   test("isolates the selected run — other runs' events do not leak in", () => {
     const events: PipelineEvent[] = [
-      ev("iteration.started", "rA", { iteration_path: "/p/.claude/pipeline/x/steps/01.md", step_id: "a" }),
-      ev("iteration.started", "rB", { iteration_path: "/p/.claude/pipeline/x/steps/01.md", step_id: "a" }),
+      ev("iteration.started", "rA", { iteration_path: "/p/.pipelines/x/steps/01.md", step_id: "a" }),
+      ev("iteration.started", "rB", { iteration_path: "/p/.pipelines/x/steps/01.md", step_id: "a" }),
       ev("tool.called", "rA", { success: true }),
       ev("tool.called", "rB", { success: true }),
       ev("tool.called", "rB", { success: true }),
@@ -459,13 +459,13 @@ describe("iterationToolStatsByRel (rel-keyed view adapter that feeds the tree)",
   test("sub-folder rel keying: ambiguous basenames are looked up by full rel", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/phase-a/01.md",
+        iteration_path: "/p/.pipelines/x/steps/phase-a/01.md",
         step_id: "pa-01",
       }, { ts: "2026-01-01T00:00:01Z" }),
       ev("tool.called", "r1", { success: true }, { ts: "2026-01-01T00:00:02Z" }),
       ev("iteration.completed", "r1", { step_id: "pa-01", outcome: "completed" }, { ts: "2026-01-01T00:00:03Z" }),
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/phase-b/01.md",
+        iteration_path: "/p/.pipelines/x/steps/phase-b/01.md",
         step_id: "pb-01",
       }, { ts: "2026-01-01T00:00:04Z" }),
       ev("tool.called", "r1", { success: true }, { ts: "2026-01-01T00:00:05Z" }),
@@ -483,7 +483,7 @@ describe("iterationToolStatsByRel (rel-keyed view adapter that feeds the tree)",
   test("zero-tool run yields no rel buckets (graceful empty)", () => {
     const events: PipelineEvent[] = [
       ev("pipeline.started", "r1", { pipeline_name: "x" }),
-      ev("iteration.started", "r1", { iteration_path: "/p/.claude/pipeline/x/steps/01.md", step_id: "a" }),
+      ev("iteration.started", "r1", { iteration_path: "/p/.pipelines/x/steps/01.md", step_id: "a" }),
       ev("iteration.completed", "r1", { step_id: "a", outcome: "completed" }),
     ];
     const byRel = iterationToolStatsByRel(events, "r1", "x");
@@ -501,7 +501,7 @@ describe("iterationToolStatsByRel (rel-keyed view adapter that feeds the tree)",
   test("drops events outside this pipeline's steps/ folder", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/y/steps/01.md",
+        iteration_path: "/p/.pipelines/y/steps/01.md",
         step_id: "a",
       }),
       ev("tool.called", "r1", { success: true }),
@@ -516,13 +516,13 @@ describe("iterationToolStatsByRel (rel-keyed view adapter that feeds the tree)",
     // hub's shared steps/ — both must land in the same rel-keyed map.
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/hub/targets/tgt/steps/01-entry.md",
+        iteration_path: "/p/.pipelines/hub/targets/tgt/steps/01-entry.md",
         step_id: "e",
       }, { ts: "2026-01-01T00:00:01Z" }),
       ev("tool.called", "r1", { success: true }, { ts: "2026-01-01T00:00:02Z" }),
       ev("iteration.completed", "r1", { step_id: "e", outcome: "completed" }, { ts: "2026-01-01T00:00:03Z" }),
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/hub/steps/02-shared.md",
+        iteration_path: "/p/.pipelines/hub/steps/02-shared.md",
         step_id: "s",
       }, { ts: "2026-01-01T00:00:04Z" }),
       ev("tool.called", "r1", { success: false }, { ts: "2026-01-01T00:00:05Z" }),
@@ -544,13 +544,13 @@ describe("iterationToolStatsByRel (rel-keyed view adapter that feeds the tree)",
     // fold onto rel "02-build.md" and the override row shows foreign stats.
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/hub/targets/tgt/steps/02-build.md",
+        iteration_path: "/p/.pipelines/hub/targets/tgt/steps/02-build.md",
         step_id: "own",
       }, { ts: "2026-01-01T00:00:01Z" }),
       ev("tool.called", "r1", { success: true }, { ts: "2026-01-01T00:00:02Z" }),
       ev("iteration.completed", "r1", { step_id: "own", outcome: "completed" }, { ts: "2026-01-01T00:00:03Z" }),
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/hub/steps/02-build.md",
+        iteration_path: "/p/.pipelines/hub/steps/02-build.md",
         step_id: "hubcopy",
       }, { ts: "2026-01-01T00:00:04Z" }),
       ev("tool.called", "r1", { success: true }, { ts: "2026-01-01T00:00:05Z" }),
@@ -570,14 +570,14 @@ describe("iterationStatsByRel — family hub matcher", () => {
   test("hub-shared iteration.* events fold in for a target pipeline", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/hub/targets/tgt/steps/01-entry.md",
+        iteration_path: "/p/.pipelines/hub/targets/tgt/steps/01-entry.md",
       }, { ts: "2026-01-01T00:00:01Z" }),
       ev("iteration.completed", "r1", {
-        iteration_path: "/p/.claude/pipeline/hub/targets/tgt/steps/01-entry.md",
+        iteration_path: "/p/.pipelines/hub/targets/tgt/steps/01-entry.md",
         outcome: "completed",
       }, { ts: "2026-01-01T00:00:02Z" }),
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/hub/steps/02-shared.md",
+        iteration_path: "/p/.pipelines/hub/steps/02-shared.md",
         resolved_model: "opus",
       }, { ts: "2026-01-01T00:00:03Z" }),
     ];
@@ -594,7 +594,7 @@ describe("iterationStatsByRel captures step_id (schema v4)", () => {
   test("step_id from iteration.* events is surfaced on the row", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/01-a.md",
+        iteration_path: "/p/.pipelines/x/steps/01-a.md",
         step_id: "01-a",
       }),
     ];
@@ -605,7 +605,7 @@ describe("iterationStatsByRel captures step_id (schema v4)", () => {
   test("step_id stays null for pre-v4 events", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", {
-        iteration_path: "/p/.claude/pipeline/x/steps/01-a.md",
+        iteration_path: "/p/.pipelines/x/steps/01-a.md",
       }),
     ];
     const stats = iterationStatsByRel(events, "x");

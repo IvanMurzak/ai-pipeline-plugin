@@ -3,7 +3,7 @@
 //
 // Endpoints (wired into server.ts handleApi):
 //   GET  /api/pipelines?project_id=      — launchable-pipeline catalog: every
-//        pipeline root under <project>/.claude/pipeline (incl. targets/<t>),
+//        pipeline root under <project>/.pipelines (incl. targets/<t>),
 //        each with its computePlan() steps + resolved models so the UI can
 //        offer per-step model overrides before launch.
 //   POST /api/runs/launch                — {project_id, pipeline_root, task_text?,
@@ -25,7 +25,7 @@
 // a daemon restart (the in-memory map is a cache, not the source of truth).
 //
 // WRITE-SCOPE CONTRACT: this module writes ONLY under a registered project's
-// .claude/pipeline/ tree (runtime artifacts of the run), never anywhere else
+// .pipelines/ tree (runtime artifacts of the run), never anywhere else
 // in the consumer project. pipeline_root is validated to resolve inside the
 // project's pipelines dir before anything is spawned or written.
 //

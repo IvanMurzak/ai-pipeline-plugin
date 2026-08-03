@@ -5,7 +5,7 @@
  * Token enrichment for the per-run measurement system (pure software, zero
  * LLM tokens). Phase 1 happens in-process inside `pipeline next`: duration,
  * per-step timings, and outcomes are finalized into
- * `<project>/.claude/pipeline/.stats/<pipeline>/runs.jsonl` the moment a run
+ * `<project>/.pipelines/.stats/<pipeline>/runs.jsonl` the moment a run
  * ends — but the CLI subprocess cannot see transcripts, so `tokens` is null.
  * This hook is phase 2: it fires when a pipeline-manager subagent stops (or
  * on a plain session Stop — same script, registered under both), folds the
@@ -40,7 +40,7 @@
  * Gating: PIPELINE_STATS_ENABLED (default ON — set 0/false/off/no to disable;
  * NOTE this is deliberately independent of PIPELINE_UI_ENABLED — stats keep
  * their own gate even when the UI/analytics system is opted out). Also a no-op
- * when the cwd has no `.claude/pipeline/.stats/`.
+ * when the cwd has no `.pipelines/.stats/`.
  *
  * Attribution: each tokens-null run recorded in the last 48h is folded with
  * ITS OWN [started_at, ended_at] window over this session's transcript — the

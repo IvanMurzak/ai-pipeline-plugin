@@ -219,7 +219,7 @@ describe("scanPipelines + pipelineInfoFromDir", () => {
     // a noise dir without PIPELINE.md so we exercise both code paths.
     const pipeRoot = join(tmpRoot, ".claude", "pipeline");
 
-    // Flat pipeline at .claude/pipeline/flat-one/
+    // Flat pipeline at .pipelines/flat-one/
     mkdirSync(join(pipeRoot, "flat-one", "steps"), { recursive: true });
     writeFileSync(
       join(pipeRoot, "flat-one", "PIPELINE.md"),
@@ -237,7 +237,7 @@ describe("scanPipelines + pipelineInfoFromDir", () => {
       "utf-8",
     );
 
-    // Nested category: .claude/pipeline/workflows/nested-one/
+    // Nested category: .pipelines/workflows/nested-one/
     mkdirSync(
       join(pipeRoot, "workflows", "nested-one", "steps"),
       { recursive: true },

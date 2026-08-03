@@ -207,7 +207,7 @@ describe("gate ordering (the load-bearing case)", () => {
  * `resolveProjectRoot` + `hasPipelineDirUpTo`.
  *
  * Observable proof: with debug on, the gate that stopped the hook names itself.
- * Seeing the opt-out line WITHOUT the "no .claude/pipeline from …" line means
+ * Seeing the opt-out line WITHOUT the "no .pipelines from …" line means
  * the walk was never reached.
  */
 describe("gate ordering — the opt-out short-circuit stays cheap", () => {
@@ -225,14 +225,14 @@ describe("gate ordering — the opt-out short-circuit stays cheap", () => {
     expect(r.stderr).toContain("PIPELINE_UI_ENABLED explicitly opted out");
     // The cwd gate logs this line whenever it runs and finds nothing. Its
     // absence is the assertion: the walk never happened.
-    expect(r.stderr).not.toContain("no .claude/pipeline from");
+    expect(r.stderr).not.toContain("no .pipelines from");
   });
 
   test("UI enabled ⇒ the same event DOES reach the cwd gate", () => {
     const bare = mkdtempSync(join(tmpRoot, "cheap-on-"));
     const r = spawnHookVerbose(bare, { PIPELINE_UI_ENABLED: "1" }, toolPayload);
     expect(r.status).toBe(0);
-    expect(r.stderr).toContain("no .claude/pipeline from");
+    expect(r.stderr).toContain("no .pipelines from");
   });
 
   test("a Notification still reaches the walk with the UI opted out", () => {

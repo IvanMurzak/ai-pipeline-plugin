@@ -1,6 +1,6 @@
 ---
 name: design
-description: Design a new REPEATABLE long-chain AI workflow as a pipeline of ordered iteration files under this project's .claude/pipeline/. Invoke ONLY for workflows that will be re-run many times (releases, recurring audits, generic task templates); route one-shot tasks through an existing generic pipeline or a regular agent instead.
+description: Design a new REPEATABLE long-chain AI workflow as a pipeline of ordered iteration files under this project's .pipelines/. Invoke ONLY for workflows that will be re-run many times (releases, recurring audits, generic task templates); route one-shot tasks through an existing generic pipeline or a regular agent instead.
 user-invocable: true
 allowed-tools: Read, Edit, Write, Bash, Glob, Grep, Agent
 argument-hint: <high-level goal>
@@ -23,11 +23,11 @@ If `$1` describes a clearly one-shot goal (single bug fix, "fix X in file Y", "a
 
 ## What you are doing
 
-Delegate the design work to the `pipeline-designer` subagent. That agent knows how to decompose a goal into ordered, self-contained iteration files and write them under `./.claude/pipeline/` in the current consumer project.
+Delegate the design work to the `pipeline-designer` subagent. That agent knows how to decompose a goal into ordered, self-contained iteration files and write them under `./.pipelines/` in the current consumer project.
 
 ## CRITICAL — token discipline: do NOT read pipeline files yourself
 
-This skill is a thin router. The `pipeline-designer` subagent does the reading and writing in its own fresh context. If you, the main session, also read existing `.claude/pipeline/` content here to "understand the project", you double-pay tokens and bloat the main session for the rest of the user's day.
+This skill is a thin router. The `pipeline-designer` subagent does the reading and writing in its own fresh context. If you, the main session, also read existing `.pipelines/` content here to "understand the project", you double-pay tokens and bloat the main session for the rest of the user's day.
 
 Rules:
 
@@ -37,7 +37,7 @@ Rules:
 
 ## Prerequisites
 
-- The current working directory must be the consumer project's root (or a subdirectory from which `.claude/pipeline/` should be created). If unsure, confirm with the user before proceeding.
+- The current working directory must be the consumer project's root (or a subdirectory from which `.pipelines/` should be created). If unsure, confirm with the user before proceeding.
 - The user has provided a high-level goal. If `$1` is empty, ask the user what pipeline they want to design before delegating.
 - The goal is for a **repeatable** workflow — see "When NOT to use this skill" above. If it isn't, decline and route the user to an existing generic pipeline or a regular agent.
 
@@ -52,7 +52,7 @@ Rules:
    <verbatim user goal from $1>
 
    Follow your design protocol. Create the pipeline under
-   ./.claude/pipeline/ in the current working directory. When done, report
+   ./.pipelines/ in the current working directory. When done, report
    the folder path and the command to start execution.
    ```
 

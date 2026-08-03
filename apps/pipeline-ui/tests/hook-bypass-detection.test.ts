@@ -261,7 +261,7 @@ describe("parseManagerSpawn / parseWorkerSpawn (pure parsers)", () => {
     expect(parseWorkerSpawn({ subagent_type: "pipeline-designer", prompt: `Execute pipeline iteration: ${iter}` })).toBeNull();
   });
 
-  test("path outside .claude/pipeline/*/steps/ returns null", () => {
+  test("path outside .pipelines/*/steps/ returns null", () => {
     expect(
       parseManagerSpawn({
         subagent_type: "pipeline-manager",
@@ -530,7 +530,7 @@ describe("handlePostToolUse synthesizes Path-C RUN-LEVEL lifecycle (manager anch
     expect(events[0].data.success).toBe(false);
   });
 
-  test("iteration path outside .claude/pipeline/*/steps/ → no synthesis", () => {
+  test("iteration path outside .pipelines/*/steps/ → no synthesis", () => {
     handlePostToolUse(
       {
         hook_event_name: "PostToolUse",

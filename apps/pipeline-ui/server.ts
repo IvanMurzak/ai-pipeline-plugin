@@ -4,8 +4,8 @@
  *
  * Single shared HTTP server (one per machine, one port) that:
  *   - Maintains a registry of consumer projects in ~/.claude/pipeline-ui/projects.json
- *   - Tails each project's .claude/pipeline/.runtime/events.jsonl
- *   - Watches each project's .claude/pipeline/** for file changes
+ *   - Tails each project's .pipelines/.runtime/events.jsonl
+ *   - Watches each project's .pipelines/** for file changes
  *   - Broadcasts a unified event stream via Server-Sent Events
  *   - Serves the React UI bundle from ./dist
  *
@@ -1601,7 +1601,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
       return new Response("invalid rel", { status: 400 });
     }
     // Resolve the pipeline via scanPipelines so we honor nested category
-    // folders (e.g. .claude/pipeline/workflows/<name>/) instead of guessing
+    // folders (e.g. .pipelines/workflows/<name>/) instead of guessing
     // a flat layout. Optional &root= disambiguates duplicate basenames.
     const pipelines = scanPipelines(entry.project_root);
     const pipeline = findPipelineByNameAndRoot(pipelines, name, url.searchParams.get("root"));
@@ -1694,7 +1694,7 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     return handleListDriveRuns(url, getProject);
   }
 
-  // --- Pipeline editor (editor.ts) — guarded writes INSIDE .claude/pipeline only.
+  // --- Pipeline editor (editor.ts) — guarded writes INSIDE .pipelines only.
   if (pathname === "/api/editor/list" && req.method === "GET") {
     return handleEditorList(url, editorDeps);
   }
@@ -1860,7 +1860,7 @@ function loadChatSession(projectRoot: string, runId: string): ChatSessionRecord 
 }
 
 /**
- * Append one SDK message to `<projectRoot>/.claude/pipeline/.runtime/chat-messages.jsonl`
+ * Append one SDK message to `<projectRoot>/.pipelines/.runtime/chat-messages.jsonl`
  * tagged with our run_id AND broadcast it over the daemon's SSE stream so
  * every connected browser tab (not just the one that initiated /api/chat)
  * gets live updates. Without the broadcast, opening a chat in tab B that's
@@ -1963,7 +1963,7 @@ function appendChatMessagePart(
 }
 
 /**
- * Append a single event to `<projectRoot>/.claude/pipeline/.runtime/events.jsonl`.
+ * Append a single event to `<projectRoot>/.pipelines/.runtime/events.jsonl`.
  * Mirrors the schema written by `pipeline event` (apps/pipeline-cli/src/lib/event.ts)
  * so the UI / journal tail consumes chat-driven events the same way it consumes
  * /pipeline:run-driven ones.

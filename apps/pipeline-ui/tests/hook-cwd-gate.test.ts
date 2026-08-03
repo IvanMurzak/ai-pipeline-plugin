@@ -5,13 +5,13 @@
  *
  * The analytics + SessionStart hooks must fire whenever the session is
  * ANYWHERE inside a pipeline project — at the root, deep inside
- * `.claude/pipeline/<name>/steps/…` (hand-orchestrating a pipeline from a
+ * `.pipelines/<name>/steps/…` (hand-orchestrating a pipeline from a
  * terminal), OR inside a git worktree checked out under
  * `.claude/worktrees/<name>/` (Claude Code spawns subagents there). The
  * gate (`hasPipelineDirUpTo`) walks up from cwd to the resolved project
  * root; routing (`resolveProjectRoot`) maps a worktree to its MAIN repo.
  *
- * Regression guard for the bug where a hook gating on `cwd/.claude/pipeline`
+ * Regression guard for the bug where a hook gating on `cwd/.pipelines`
  * silently dropped every event the moment the agent cd'd below the root.
  */
 
@@ -35,7 +35,7 @@ afterAll(() => {
   rmSync(tmpRoot, { recursive: true, force: true });
 });
 
-/** Create a project with `.claude/pipeline/<name>/steps/` and return its root. */
+/** Create a project with `.pipelines/<name>/steps/` and return its root. */
 function makeProject(): string {
   const root = mkdtempSync(join(tmpRoot, "proj-"));
   mkdirSync(join(root, ".claude", "pipeline", "demo", "steps"), { recursive: true });
@@ -48,7 +48,7 @@ describe("hasPipelineDirUpTo", () => {
     expect(hasPipelineDirUpTo(root, root)).toBe(true);
   });
 
-  test("fires when cwd is deep inside .claude/pipeline/<name>/steps", () => {
+  test("fires when cwd is deep inside .pipelines/<name>/steps", () => {
     const root = makeProject();
     const deep = join(root, ".claude", "pipeline", "demo", "steps");
     expect(hasPipelineDirUpTo(deep, root)).toBe(true);
@@ -59,20 +59,20 @@ describe("hasPipelineDirUpTo", () => {
     const wt = join(root, ".claude", "worktrees", "feature-x", "src", "sub");
     mkdirSync(wt, { recursive: true });
     // Walk-up from the worktree's deep cwd, bounded at the MAIN repo root,
-    // still discovers <root>/.claude/pipeline.
+    // still discovers <root>/.pipelines.
     expect(hasPipelineDirUpTo(wt, root)).toBe(true);
   });
 
-  test("does NOT fire for a project with no .claude/pipeline", () => {
+  test("does NOT fire for a project with no .pipelines", () => {
     const root = mkdtempSync(join(tmpRoot, "plain-"));
     mkdirSync(join(root, "src"), { recursive: true });
     expect(hasPipelineDirUpTo(join(root, "src"), root)).toBe(false);
   });
 
-  test("does NOT fire when .claude/pipeline is ABOVE the project root (bounded)", () => {
-    // outer/.claude/pipeline exists, but the resolved project root is
+  test("does NOT fire when .pipelines is ABOVE the project root (bounded)", () => {
+    // outer/.pipelines exists, but the resolved project root is
     // outer/inner (no pipeline) — the walk must stop at inner and not leak
-    // upward into outer (prevents a stray $HOME/.claude/pipeline from
+    // upward into outer (prevents a stray $HOME/.pipelines from
     // classifying every nested project).
     const outer = mkdtempSync(join(tmpRoot, "outer-"));
     mkdirSync(join(outer, ".claude", "pipeline"), { recursive: true });

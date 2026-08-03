@@ -13,7 +13,7 @@
  *   - polls the file for new bindings (1s) and adds them dynamically,
  *   - for each transcript path referenced by an active binding, tails
  *     the file from a persisted byte offset
- *     (`<project>/.claude/pipeline/.runtime/transcripts/<sessionId>.chat.offset`)
+ *     (`<project>/.pipelines/.runtime/transcripts/<sessionId>.chat.offset`)
  *     and normalizes each new entry via `normalizeTranscriptEntry`,
  *   - writes normalized entries into the binding's project's
  *     chat-messages.jsonl via `appendChatMessagePart` with

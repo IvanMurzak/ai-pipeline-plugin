@@ -15,7 +15,7 @@ Out:
 
 ## Project Context
 
-This pipeline is a fixture — it's never actually executed by `step-executor`. The harness only references its files to give the daemon something realistic to discover under `.claude/pipeline/test-pipeline/`.
+This pipeline is a fixture — it's never actually executed by `step-executor`. The harness only references its files to give the daemon something realistic to discover under `.pipelines/test-pipeline/`.
 
 ## Invariants
 

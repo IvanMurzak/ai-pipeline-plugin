@@ -20,7 +20,7 @@
  * opt-in switch, distinct from the now-on-by-default PIPELINE_UI_ENABLED; only
  * the non-falsy value parsing is shared). Also skips silently when the prompt
  * is a slash command,
- * shorter than 20 chars, or no `.claude/pipeline/` dir exists walking up
+ * shorter than 20 chars, or no `.pipelines/` dir exists walking up
  * from cwd to the project root.
  *
  * Stdin payload (Claude Code UserPromptSubmit hook contract,
@@ -137,15 +137,15 @@ export function resolveProjectRoot(start: string): { project_root: string; workt
   return { project_root: resolve(start), worktree: null };
 }
 
-/** True when a `.claude/pipeline` directory exists at `start` or any
+/** True when a `.pipelines` directory exists at `start` or any
  *  ancestor up to and including `stopAt` (the resolved project root). This
  *  is the hook's "is this a pipeline project?" gate. It is deliberately
  *  depth- and worktree-independent: it fires whether the session sits at
- *  the project root, deep inside `.claude/pipeline/<name>/steps/…`, or
+ *  the project root, deep inside `.pipelines/<name>/steps/…`, or
  *  inside a git worktree checked out under `.claude/worktrees/<name>/`.
  *  Bounding the walk at `stopAt` (the git root — the MAIN repo for a
  *  worktree, since resolveProjectRoot resolves it via commondir) keeps a
- *  stray `.claude/pipeline` far up the tree (e.g. in $HOME) from making
+ *  stray `.pipelines` far up the tree (e.g. in $HOME) from making
  *  every unrelated session look like a pipeline project. Event routing and
  *  the worktree tag are a SEPARATE concern owned by resolveProjectRoot. */
 export function hasPipelineDirUpTo(start: string, stopAt: string): boolean {
@@ -162,7 +162,7 @@ export function hasPipelineDirUpTo(start: string, stopAt: string): boolean {
 }
 
 /** Same walk as hasPipelineDirUpTo, but returns the absolute path of the
- *  first `.claude/pipeline` directory found (the matcher's pipelines-dir),
+ *  first `.pipelines` directory found (the matcher's pipelines-dir),
  *  or null when none exists up to the project root. */
 export function findPipelineDirUpTo(start: string, stopAt: string): string | null {
   let cur = resolve(start);
@@ -306,7 +306,7 @@ async function main(): Promise<void> {
   const { project_root } = resolveProjectRoot(cwd);
   const pipelinesDir = findPipelineDirUpTo(cwd, project_root);
   if (!pipelinesDir) {
-    log(`no .claude/pipeline from ${cwd} up to project root ${project_root}, skipping`);
+    log(`no .pipelines from ${cwd} up to project root ${project_root}, skipping`);
     return;
   }
 
