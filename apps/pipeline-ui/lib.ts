@@ -1088,15 +1088,19 @@ export function readJournalWithArchives(current: string): JournalEvent[] {
 }
 
 // --------------------------------------------------------------------
-// Per-iteration analytics fold (schema v4 — step_id-keyed, overlap-safe).
+// Per-iteration analytics fold (schema v5 — step-name-keyed, overlap-safe).
+//
+// The step identity is `data.step_name` (v5) or, on already-written journals,
+// `data.step_id` (v4) — read as `step_name ?? step_id` everywhere below, so a
+// v5 daemon folds a v4 journal to byte-identical numbers.
 //
 // Attributes ambient telemetry (`tool.called`, `turn.usage`) to the
 // individual iteration ("step") that produced it, per run. There are two
 // modes, chosen automatically per event:
 //
-//   * step_id PRESENT (v4 / DAG-parallel): a step's window is the half-open
-//     interval [iteration.started, iteration.completed) keyed by its
-//     `step_id`. Steps may OVERLAP (a parallel ready-set spawns several at
+//   * step name PRESENT (v4+ / DAG-parallel): a step's window is the half-open
+//     interval [iteration.started, iteration.completed) keyed by that name.
+//     Steps may OVERLAP (a parallel ready-set spawns several at
 //     once). An ambient event is attributed to the MOST-RECENTLY-STARTED
 //     step that is still open (LIFO over the open set). Because windows are
 //     closed by their own step's `iteration.completed` — not by the NEXT
@@ -1105,7 +1109,7 @@ export function readJournalWithArchives(current: string): JournalEvent[] {
 //     don't actually overlap (sequential), this is identical to the
 //     consecutive-window heuristic.
 //
-//   * step_id ABSENT (v1/v2/v3 / sequential): the legacy
+//   * step name ABSENT (v1/v2/v3 / sequential): the legacy
 //     consecutive-`iteration.started`-window behavior — an ambient event
 //     belongs to the iteration whose `iteration.started` most recently
 //     preceded it (the window runs until the NEXT `iteration.started`).
@@ -1155,9 +1159,12 @@ export function emptyToolTokenCounters(): ToolTokenCounters {
 }
 
 export interface IterationToolStats extends ToolTokenCounters {
-  /** The step_id when the iteration declared one (v4), else the iteration
-   *  file's rel path under steps/ (or its raw iteration_path as a last
-   *  resort) so the row still has a stable identity. */
+  /** The step's name when the iteration declared one (`step_name`, v5; v4's
+   *  `step_id` on older journals), else the iteration file's rel path under
+   *  steps/ (or its raw iteration_path as a last resort) so the row still has
+   *  a stable identity. This FIELD deliberately keeps the `step_id` spelling:
+   *  the engine's `Plan` and the daemon's /api surfaces still use it, and they
+   *  move together with the engine's identity change, not with the journal's. */
   step_id: string;
   iteration_path: string | null;
 }
@@ -1198,7 +1205,10 @@ export function iterationToolStatsForRun(events: JournalEvent[]): IterationToolS
   const open: OpenStepWindow[] = [];
 
   const stepIdOf = (d: Record<string, unknown>): string | null => {
-    const v = d.step_id;
+    // v5 renamed `step_id` → `step_name`; v1–v4 journals still carry the old
+    // key and MUST keep folding identically, so read the new name first and
+    // fall back. Absent-both is still "legacy consecutive-window mode".
+    const v = d.step_name ?? d.step_id;
     return typeof v === "string" && v.length > 0 ? v : null;
   };
 
@@ -1326,7 +1336,8 @@ export function iterationToolStatsByRun(
 // iteration.completed] windows, so a step that parks on needs-input and
 // later resumes doesn't count the parked hours as work. A window still
 // open when the fold ends surfaces as `open_since` — the UI renders that
-// step as live-ticking. Windows are keyed by step_id (DAG/v4) or by
+// step as live-ticking. Windows are keyed by the step name (`step_name`, v5;
+// v4's `step_id` on older journals) or by
 // iteration_path (sequential/legacy); in legacy mode a new
 // iteration.started closes the previous step's window (same convention
 // as the tool-stats fold above). pipeline.completed/halted closes every
@@ -1334,7 +1345,8 @@ export function iterationToolStatsByRun(
 // --------------------------------------------------------------------
 
 export interface StepTiming {
-  /** DAG step_id when the events carry one (schema v4); else null. */
+  /** The DAG step's name when the events carry one (`step_name` in v5,
+   *  `step_id` in v4); else null. */
   step_id: string | null;
   iteration_path: string;
   /** Path after the LAST `/steps/` segment (the iteration tree's rel key),
@@ -1362,7 +1374,7 @@ function relFromIterationPath(p: string): string | null {
  *  window's start; null when closed) — no shadow fields to keep in sync. */
 export function stepTimingsForRun(events: JournalEvent[]): StepTiming[] {
   const slots = new Map<string, StepTiming>();
-  // At most ONE legacy (no-step_id) window is ever open: each legacy start
+  // At most ONE legacy (unnamed-step) window is ever open: each legacy start
   // closes the previous one, and completes close their own.
   let openLegacy: StepTiming | null = null;
   const close = (s: StepTiming, atIso: string): void => {
@@ -1377,7 +1389,9 @@ export function stepTimingsForRun(events: JournalEvent[]): StepTiming[] {
   for (const e of events) {
     const d = e.data ?? {};
     const ipath = typeof d.iteration_path === "string" ? d.iteration_path : null;
-    const sid = typeof d.step_id === "string" && d.step_id.length > 0 ? d.step_id : null;
+    // v5 `step_name`, falling back to v4 `step_id` — see stepIdOf above.
+    const sidRaw = d.step_name ?? d.step_id;
+    const sid = typeof sidRaw === "string" && sidRaw.length > 0 ? sidRaw : null;
 
     if (e.type === "iteration.started" || e.type === "iteration.resumed") {
       if (!ipath && !sid) continue;

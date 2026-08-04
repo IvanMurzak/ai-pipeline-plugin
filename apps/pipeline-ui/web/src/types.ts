@@ -1,5 +1,5 @@
-// Shared types — mirrors apps/pipeline-ui/EVENTS.md schema v4.
-// `schema` is carried as a plain number on every event (older v1/v2/v3
+// Shared types — mirrors apps/pipeline-ui/EVENTS.md schema v5.
+// `schema` is carried as a plain number on every event (older v1–v4
 // journals still parse — newer fields are optional and read as null/absent).
 
 export type EventType =
@@ -35,6 +35,27 @@ export interface PipelineEvent {
   session_id: string | null;
   data: Record<string, unknown>;
   _project_id?: string;
+}
+
+// Step identity on iteration.started / .resumed / .completed / awaiting_input
+// (schema v5 — the journal's FIRST non-additive change, which is why it bumps
+// the stamp at all). v4 called this field `step_id`; pipeline v2 made a step a
+// manifest entry identified by `name:`, so the field is `step_name`.
+//
+// Every reader MUST fold `step_name ?? step_id` — EVENTS.md's "a daemon at vN
+// parses vN-1 cleanly" invariant is load-bearing here: journals already on
+// disk carry `step_id`, and dropping the fallback would silently reattribute
+// every analytic already computed from them. Both keys stay ABSENT on
+// sequential/graph dispatches (only a concurrent layer names its steps), which
+// still selects the legacy consecutive-window fold.
+export const EVENT_STEP_NAME_KEY = "step_name" as const;
+/** The pre-v5 spelling of {@link EVENT_STEP_NAME_KEY}, still read as a fallback. */
+export const EVENT_STEP_NAME_KEY_V4 = "step_id" as const;
+
+/** Read an iteration event's step name, v5-first with the v4 fallback. */
+export function eventStepName(data: Record<string, unknown> | undefined): string | null {
+  const v = data?.[EVENT_STEP_NAME_KEY] ?? data?.[EVENT_STEP_NAME_KEY_V4];
+  return typeof v === "string" && v.length > 0 ? v : null;
 }
 
 // Script-step observability (values-only addition, 0.71 — event schema STAYS

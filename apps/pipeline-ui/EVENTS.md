@@ -1,10 +1,28 @@
 # Pipeline UI — Event Schema
 
-Append-only JSON-lines journal at `<project>/.pipeline/.runtime/events.jsonl`. Every event is one line, one JSON object. Schema version: `4`.
+Append-only JSON-lines journal at `<project>/.pipeline/.runtime/events.jsonl`. Every event is one line, one JSON object. Schema version: `5`.
 
 ## Versioning policy
 
-The daemon parses v1, v2, v3, and v4 events. v1 events lack the `terminal` field on `iteration.completed` and have no `iteration.resumed`; v2 events lack the v3 model-resolution fields (`default_model` on `pipeline.started`, `resolved_model` on `iteration.started`); v3 events lack the v4 DAG field (`step_id` on `iteration.started` / `iteration.resumed` / `iteration.completed`). The fold derives the missing terminal signal from `next_iteration_path: null` for v1, and treats the v3/v4 fields as optional — absent fields read as `null`. **Backward-compat is load-bearing: a v4 daemon MUST parse v1/v2/v3 journals (no `step_id`) exactly as before** — `step_id` is added everywhere as OPTIONAL and never required. When you bump the schema again, keep the daemon backward-compatible for one version (so a daemon at vN parses vN-1 cleanly) — same hard invariant the project's CLAUDE.md enforces.
+The daemon parses v1, v2, v3, v4, and v5 events. v1 events lack the `terminal` field on `iteration.completed` and have no `iteration.resumed`; v2 events lack the v3 model-resolution fields (`default_model` on `pipeline.started`, `resolved_model` on `iteration.started`); v3 events lack the v4 DAG step-identity field. The fold derives the missing terminal signal from `next_iteration_path: null` for v1, and treats the v3/v4/v5 fields as optional — absent fields read as `null`. **Backward-compat is load-bearing: a v5 daemon MUST parse v1/v2/v3/v4 journals exactly as before.** When you bump the schema again, keep the daemon backward-compatible for one version (so a daemon at vN parses vN-1 cleanly) — same hard invariant the project's CLAUDE.md enforces.
+
+### v5 — `step_id` → `step_name` (the one non-additive change)
+
+Every earlier version bump was additive, and every *purely* additive change since (`resolved_effort`, `step_type`, `resumed`, the `run.*` / `worktree.*` / `awaiting_input` event types) deliberately did **not** bump the stamp. v5 is different: it **renames** the step-identity field on `iteration.started`, `iteration.resumed`, `iteration.completed`, and `awaiting_input` from `step_id` to `step_name`.
+
+The rename follows pipeline v2's central decision — *a step is not a file; it is an entry in `pipeline.yml` identified by `name:`* — so the journal calls the step by the same thing the manifest does.
+
+Rules:
+
+- **Emitters write `step_name` only.** They never write `step_id` again. The emission *conditions* are unchanged: only a concurrent layer names its steps, so a sequential/graph dispatch still omits the field entirely.
+- **Readers MUST fold `step_name ?? step_id`.** Journals already on disk carry `step_id`; dropping the fallback would silently reattribute every analytic already computed from them (per-step tool/token stats, wall-clock timings, the iteration tree's DAG rows). This fallback is not a convenience — it is the vN/vN-1 invariant above, applied.
+- **Absent-both is still meaningful** and unchanged: it selects the legacy consecutive-`iteration.started`-window fold (see §Analytics folds).
+
+Deliberately NOT renamed, for reasons that outlive the rename:
+
+- **`question_id`'s `gate:<run_id>:<step_id>` format** — the value is the step name, but changing the *format* loses already-parked approval gates, which correlate the cloud answer round-trip on the exact string.
+- **`.stats` records** — an internal store with accumulated history, not a published contract; renaming breaks reading what is already on disk.
+- **The daemon's HTTP surfaces** (`/api/run-steps`, `/api/run-step-stats`, `/api/pipelines`) and the engine's `Plan` still say `step_id`. Those move with the engine's identity change, not with the event schema.
 
 **Emitter change in plugin 0.54.0 (NO schema bump — stays v4).** The main-loop per-iteration events (`iteration.started` / `iteration.completed`, Tier-1 `improver.*` / `script_creator.*`) and the external-isolation `worktree.created` / `worktree.destroyed` are now auto-emitted **in-process by the `pipeline next` CLI** (from its actions, its `--record` payloads, and the worktree hooks it executes itself) instead of by the `pipeline-manager` shelling out to `pipeline event`. The manager still emits the retrospective's `improver.*` / `script_creator.*` (the CLI cannot see those spawns), and the supervisor still owns `pipeline.*` / liveness / mirror bindings. Shapes, envelope, and field semantics are UNCHANGED — an additive emitter change only; journals written by older plugin versions parse identically.
 
@@ -12,7 +30,7 @@ The daemon parses v1, v2, v3, and v4 events. v1 events lack the `terminal` field
 
 ```jsonc
 {
-  "schema": 4,
+  "schema": 5,
   "ts": "2026-05-21T18:42:11.342Z",   // ISO-8601 UTC
   "type": "<event-type>",
   "project_root": "/abs/path/to/project",
@@ -30,9 +48,9 @@ The daemon parses v1, v2, v3, and v4 events. v1 events lack the `terminal` field
 |---|---|---|
 | `session.opened` | SessionStart hook fires | `{ claude_pid }` |
 | `pipeline.started` | `/pipeline:run` step 3 | `{ pipeline_name, first_iteration_path, pipeline_root, default_model?: ModelValue\|null }` |
-| `iteration.started` | `pipeline next` (CLI, auto-emitted in-process before printing a `run-step` action) | `{ iteration_path, index, resolved_model?: ModelValue\|null, step_id?: string, step_type?: "script" }` |
-| `iteration.resumed` | `/api/chat/resume` re-attaches an SDK session | `{ iteration_path, index, resolved_model?: ModelValue\|null, step_id?: string }` |
-| `iteration.completed` | `pipeline next` (CLI, derived from the incoming step/layer `--record`) | `{ iteration_path, outcome, next_iteration_path \| null, has_improvement_brief, has_blocker_delegation, halt_reason \| null, terminal: bool, step_id?: string, step_type?: "script", failure_class?: string }` |
+| `iteration.started` | `pipeline next` (CLI, auto-emitted in-process before printing a `run-step` action) | `{ iteration_path, index, resolved_model?: ModelValue\|null, step_name?: string, step_type?: "script" }` |
+| `iteration.resumed` | `/api/chat/resume` re-attaches an SDK session | `{ iteration_path, index, resolved_model?: ModelValue\|null, step_name?: string }` |
+| `iteration.completed` | `pipeline next` (CLI, derived from the incoming step/layer `--record`) | `{ iteration_path, outcome, next_iteration_path \| null, has_improvement_brief, has_blocker_delegation, halt_reason \| null, terminal: bool, step_name?: string, step_type?: "script", failure_class?: string }` |
 | `improver.started` | `pipeline next` around a Tier-1 `run-improver` action; the `pipeline-manager` emits it directly for the retrospective's batch pass | `{ iteration_path }` |
 | `improver.completed` | `pipeline next` from the improver `--record`; manager-emitted in the retrospective | `{ iteration_path, applied: boolean, has_script_brief: boolean }` |
 | `script_creator.started` | `pipeline next` around a Tier-1 `run-script-creator` action; manager-emitted in the retrospective | `{ iteration_path }` |
@@ -48,7 +66,7 @@ The daemon parses v1, v2, v3, and v4 events. v1 events lack the `terminal` field
 | `worktree.destroyed` | `pipeline next` after executing the consumer's destroy hook in-process (external isolation, run end) | `{ worktree_path \| null, ok: bool, outcome, detail \| null }` |
 | `tool.called` | PostToolUse hook after every tool call | `{ tool_name, success, agent_spawn, tool_use_id }` |
 | `turn.usage` | Stop hook (one per assistant Stop event, summed across new transcript turns) | `{ assistant_turns, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens }` |
-| `awaiting_input` | `pipeline drive` at EVERY needs-input park (agent-step question AND approval gate; repeat parks re-emit) | `{ run_id, iteration, question_id, question: { text, context \| null, options \| null, question_id?, approval?: { required_role } }, step_id?, iteration_path? }` |
+| `awaiting_input` | `pipeline drive` at EVERY needs-input park (agent-step question AND approval gate; repeat parks re-emit) | `{ run_id, iteration, question_id, question: { text, context \| null, options \| null, question_id?, approval?: { required_role } }, step_name?, iteration_path? }` |
 | `run.awaiting_input` | Notification hook, when a permission prompt or an input request blocks the session (see the disambiguation below — NOT the same as `awaiting_input`) | `{ kind: "permission" | "input", message_excerpt: string }` |
 
 ### Envelope-level kv overrides on `pipeline event`
@@ -130,13 +148,13 @@ v1 and v2 events omit this field; readers should treat absent as `null`.
 
 Optional string reflecting the **effective reasoning effort** for the iteration after applying the same ladder as the model (`per-run --effort override ?? step effort: ?? pipeline effort: ?? null`). Value space: `low` | `medium` | `high` | `xhigh` | `max`; `null`/absent = inherited (the session's effort level — display "session default" or omit the badge). Stamped by the `pipeline next` auto-emitter alongside `resolved_model`. Pre-0.69 writers omit it; readers treat absent as `null`. This is an additive optional field on an existing event — NOT a schema bump (same policy as the v3→v4 value-space widenings: every old reader parses unchanged).
 
-### `iteration.started.step_id`, `iteration.resumed.step_id`, `iteration.completed.step_id` (v4 — DAG / parallel)
+### `iteration.started.step_name`, `iteration.resumed.step_name`, `iteration.completed.step_name` (v5 — DAG / parallel; `step_id` in v4)
 
-Optional kebab-case string identifying the pipeline **step** an iteration event belongs to. Emitted (by the `pipeline next` CLI since plugin 0.54.0; previously by the `pipeline-manager`) **only for Parallel / DAG runs** (triggered by `PIPELINE.md execution: parallel` OR an iteration declaring `depends-on`). In ordinary **sequential** runs the field is OMITTED entirely — and the daemon/web fold falls back to its legacy consecutive-`iteration.started`-window behavior, so every pre-v4 journal and every sequential v4 run behaves exactly as before. v1/v2/v3 events never carry it; readers treat absent as "no step_id → use the window heuristic".
+Optional kebab-case string identifying the pipeline **step** an iteration event belongs to. Emitted (by the `pipeline next` CLI since plugin 0.54.0; previously by the `pipeline-manager`) **only for Parallel / DAG runs** (triggered by `execution: parallel` OR a step declaring dependencies). In ordinary **sequential** runs the field is OMITTED entirely — and the daemon/web fold falls back to its legacy consecutive-`iteration.started`-window behavior, so every pre-v4 journal and every sequential run behaves exactly as before. v1/v2/v3 events never carry it; v4 events carry it under the old name `step_id`. Readers resolve it as **`step_name ?? step_id`** and treat absent-both as "no step name → use the window heuristic".
 
-**Why it exists — overlap-safe folding.** In Parallel / DAG mode the manager spawns a whole "ready set" of steps CONCURRENTLY (one `step-executor` per step, each in its own git worktree) and their `iteration.started` … `iteration.completed` windows OVERLAP. The pre-v4 per-iteration analytics fold attributed ambient telemetry (`tool.called`, `turn.usage`) to the window between two CONSECUTIVE `iteration.started` events — which silently mis-attributes everything once windows overlap (a later sibling's `iteration.started` would "close" an earlier, still-running step). With `step_id` present, the fold instead keys each step's window by its `step_id`: the window is the half-open interval `[iteration.started, iteration.completed)` for that step, and an ambient event during overlap is attributed to the **most-recently-started still-open step** (LIFO). When windows don't actually overlap (sequential, or a parallel pipeline that happens to serialize), the result is identical to the legacy window heuristic. The reference fold is `iterationToolStatsForRun` in `apps/pipeline-ui/lib.ts` (server) mirrored by the same name in `web/src/lib/runs.ts` (client); `iterationStatsByRel` additionally surfaces the `step_id` on each iteration-tree row.
+**Why it exists — overlap-safe folding.** In Parallel / DAG mode the manager spawns a whole "ready set" of steps CONCURRENTLY (one `step-executor` per step, each in its own git worktree) and their `iteration.started` … `iteration.completed` windows OVERLAP. The pre-v4 per-iteration analytics fold attributed ambient telemetry (`tool.called`, `turn.usage`) to the window between two CONSECUTIVE `iteration.started` events — which silently mis-attributes everything once windows overlap (a later sibling's `iteration.started` would "close" an earlier, still-running step). With the step name present, the fold instead keys each step's window by that name: the window is the half-open interval `[iteration.started, iteration.completed)` for that step, and an ambient event during overlap is attributed to the **most-recently-started still-open step** (LIFO). When windows don't actually overlap (sequential, or a parallel pipeline that happens to serialize), the result is identical to the legacy window heuristic. The reference fold is `iterationToolStatsForRun` in `apps/pipeline-ui/lib.ts` (server) mirrored by the same name in `web/src/lib/runs.ts` (client); `iterationStatsByRel` additionally surfaces the step name on each iteration-tree row.
 
-**Parallel emission pattern.** For a ready set `{A, B, C}` the `pipeline next` CLI emits `iteration.started{step_id:A}`, `iteration.started{step_id:B}`, `iteration.started{step_id:C}` (one per step, each carrying its own `step_id`) as it hands the manager the concurrent `run-step`; the manager spawns all three concurrently, and the CLI emits `iteration.completed{step_id:…}` per step from the layer `--record`. Each step's `tool.called` / `turn.usage` (correlated by the shared `run_id`) lands in that step's bucket via the LIFO-open-window rule. The hooks do NOT set `step_id` — they never synthesize `iteration.*`; only the pipeline-next emitter does.
+**Parallel emission pattern.** For a ready set `{A, B, C}` the `pipeline next` CLI emits `iteration.started{step_name:A}`, `iteration.started{step_name:B}`, `iteration.started{step_name:C}` (one per step, each carrying its own name) as it hands the manager the concurrent `run-step`; the manager spawns all three concurrently, and the CLI emits `iteration.completed{step_name:…}` per step from the layer `--record`. Each step's `tool.called` / `turn.usage` (correlated by the shared `run_id`) lands in that step's bucket via the LIFO-open-window rule. The hooks do NOT set the step name — they never synthesize `iteration.*`; only the pipeline-next emitter does.
 
 ### `iteration.started.step_type`, `iteration.completed.step_type` + `iteration.completed.failure_class` (0.71 — script steps, values-only, schema stays 4)
 
@@ -155,7 +173,7 @@ deterministic steps the `pipeline next` CLI executes in-process (see
   failed; **absent on success and on every agent step.**
 
 This is a **values-only addition — NOT a `SCHEMA_VERSION` bump** (same precedent
-as `step_id` in v4 and `resolved_effort` in 0.69): two new OPTIONAL `data`
+as the step-identity field in v4 and `resolved_effort` in 0.69): two new OPTIONAL `data`
 fields on existing event types, no new type and no shape change. Pre-0.71
 writers omit them; readers treat absent as "agent step / no failure". A v4
 daemon parses a journal containing these fields unchanged (unknown `data` fields
@@ -186,9 +204,12 @@ and a cloud-dispatched parked run looked `running` server-side):
   question_id?, approval?} }` — REQUIRED fields exactly as listed (the
   runner's metadata-tier privacy filter allowlists precisely those four, and
   the ingest's strict parse rejects a missing `question_id`/`question.text`).
-  `iteration` is the parked dispatch's `iteration.started.index`. `step_id` +
-  `iteration_path` ride along additively. Gate parks use the deterministic
-  `question_id` `gate:<run_id>:<step_id>` (no claude session exists to pin
+  `iteration` is the parked dispatch's `iteration.started.index`. `step_name`
+  (v5; `step_id` on v4 journals) + `iteration_path` ride along additively.
+  Gate parks use the deterministic
+  `question_id` `gate:<run_id>:<step_id>` — the FORMAT keeps its old spelling
+  on purpose (renaming it would orphan already-parked gates), and the value in
+  that slot is the step's name (no claude session exists to pin
   one to; stable across re-entries so answer correlation never breaks);
   agent parks mint a UUID at park time and persist it in the step's session
   file. The envelope `session_id` is the parked executor session (null for
@@ -204,8 +225,8 @@ and a cloud-dispatched parked run looked `running` server-side):
   fresh first dispatch — and its arrival is the un-park signal. A fresh step
   dispatched later in the same re-entered process is never tagged.
 
-Values-only addition — NOT a `SCHEMA_VERSION` bump (same precedent as v4
-`step_id` / 0.69 `resolved_effort` / 0.71 `step_type`): one new event type old
+Values-only addition — NOT a `SCHEMA_VERSION` bump (same precedent as v4's
+step-identity field / 0.69 `resolved_effort` / 0.71 `step_type`): one new event type old
 consumers ignore (the daemon tolerates unknown types) plus one optional `data`
 field. Journals from older emitters parse identically.
 
@@ -329,7 +350,7 @@ worktree.finalized data: { worktree_path|null, ok: bool, outcome, detail|null }
   is not reaped. A pipeline that opts OUT (no finalize hook, no `finalize: true`)
   never emits this event and is byte-for-byte unchanged.
 - Like the other worktree events, this is a **new event TYPE, not a schema bump**
-  (stays `schema: 4`; the daemon tolerates unknown types via the status-fold's
+  (no bump of its own; the daemon tolerates unknown types via the status-fold's
   `default:` arm). The web `EventType` union adds the literal; the UI fold badge
   is optional (the event never mutates run status).
 
@@ -365,7 +386,7 @@ worktree.destroyed data: { worktree_path|null, ok: bool, outcome, detail|null }
   `execution: parallel` + `isolation: manual` with a warning — no external
   worktree is created and neither `worktree.created` nor `worktree.destroyed` is
   emitted (parallel steps run in-place, exactly like `parallel+manual`).
-- **Schema implication: NONE — no `SCHEMA_VERSION` bump.** Stays `schema: 4`.
+- **Schema implication: NONE — no `SCHEMA_VERSION` bump of its own.**
   These are new event TYPES with all-optional `data` fields — the same
   precedent as `manager.stopped` (a new TYPE is not a bump; the daemon tolerates
   unknown types via the status-fold's `default:` arm, so a daemon that predates
@@ -393,8 +414,8 @@ The **RUN_ANALYTICS** panel (per-run tools / failures / agents / tokens) is fold
 The UI computes derived stats client-side from the event stream:
 
 - **Per iteration** — tools called, tools failed, agents spawned, tokens consumed, attributed to the step that produced them:
-  - **When events carry `step_id` (v4 / Parallel-DAG runs):** keyed by `step_id`. A step's window is `[iteration.started, iteration.completed)`; OVERLAPPING parallel steps each accumulate their own stats, and an ambient event during overlap is attributed to the most-recently-started still-open step (LIFO). This is the overlap-safe fold (`iterationToolStatsForRun`).
-  - **When events have no `step_id` (v1/v2/v3 / sequential runs):** the legacy consecutive-`iteration.started`-window behavior — an ambient event belongs to the iteration whose `iteration.started` most recently preceded it (window runs until the next `iteration.started`). Fully backward-compatible; unchanged from prior schema versions.
+  - **When events carry a step name (`step_name` in v5, `step_id` in v4 — Parallel-DAG runs):** keyed by that name, resolved as `step_name ?? step_id`. A step's window is `[iteration.started, iteration.completed)`; OVERLAPPING parallel steps each accumulate their own stats, and an ambient event during overlap is attributed to the most-recently-started still-open step (LIFO). This is the overlap-safe fold (`iterationToolStatsForRun`).
+  - **When events carry neither (v1/v2/v3 / sequential runs):** the legacy consecutive-`iteration.started`-window behavior — an ambient event belongs to the iteration whose `iteration.started` most recently preceded it (window runs until the next `iteration.started`). Fully backward-compatible; unchanged from prior schema versions.
 - **Per pipeline run** (between `pipeline.started` and `pipeline.completed`/`pipeline.halted`): same totals, plus elapsed time.
 - **Per project** (rolling 24h / 7d windows): aggregated across all completed runs.
 

@@ -68,17 +68,43 @@ test("needs-input park: resume reopens; parked time is EXCLUDED", () => {
   expect(a.last_outcome).toBe("completed");
 });
 
-test("DAG mode: overlapping step_id windows accumulate independently", () => {
+// Both spellings of the step-identity key — `step_name` since schema v5,
+// `step_id` on every journal written before it. EVENTS.md requires a v5 daemon
+// to fold a v4 journal to identical numbers, so the case runs under each.
+test.each(["step_name", "step_id"] as const)(
+  "DAG mode: overlapping windows keyed by `%s` accumulate independently",
+  (key) => {
+    const n = (name: string) => ({ [key]: name });
+    const out = stepTimingsForRun([
+      ev("iteration.started", T0, { iteration_path: STEP_A, ...n("a") }),
+      ev("iteration.started", T1, { iteration_path: STEP_B, ...n("b") }),
+      ev("iteration.completed", T2, { iteration_path: STEP_A, ...n("a"), outcome: "completed" }),
+      ev("iteration.completed", T3, { iteration_path: STEP_B, ...n("b"), outcome: "completed" }),
+    ]);
+    const a = out.find((s) => s.step_id === "a")!;
+    const b = out.find((s) => s.step_id === "b")!;
+    expect(a.duration_ms).toBe(12 * 60_000);
+    expect(b.duration_ms).toBe(25 * 60_000);
+  },
+);
+
+test("a step whose journal spans the v4→v5 rename keeps ONE timing row", () => {
+  // A run parked under a v4 daemon and resumed under a v5 one. Two spellings
+  // of the same step: splitting them would report the step twice and drop the
+  // pre-upgrade window's minutes from the row the UI shows.
   const out = stepTimingsForRun([
     ev("iteration.started", T0, { iteration_path: STEP_A, step_id: "a" }),
-    ev("iteration.started", T1, { iteration_path: STEP_B, step_id: "b" }),
-    ev("iteration.completed", T2, { iteration_path: STEP_A, step_id: "a", outcome: "completed" }),
-    ev("iteration.completed", T3, { iteration_path: STEP_B, step_id: "b", outcome: "completed" }),
+    ev("iteration.completed", T1, { iteration_path: STEP_A, step_id: "a", outcome: "needs-input" }),
+    ev("iteration.started", T2, { iteration_path: STEP_A, step_name: "a" }),
+    ev("iteration.completed", T3, { iteration_path: STEP_A, step_name: "a", outcome: "completed" }),
   ]);
-  const a = out.find((s) => s.step_id === "a")!;
-  const b = out.find((s) => s.step_id === "b")!;
-  expect(a.duration_ms).toBe(12 * 60_000);
-  expect(b.duration_ms).toBe(25 * 60_000);
+  expect(out).toHaveLength(1);
+  const a = out[0];
+  expect(a.step_id).toBe("a");
+  expect(a.attempts).toBe(2);
+  // 5m before the upgrade + 18m after; the 7m parked in between is excluded.
+  expect(a.duration_ms).toBe((5 + 18) * 60_000);
+  expect(a.last_outcome).toBe("completed");
 });
 
 test("pipeline.halted closes every open window (no forever-ticking steps)", () => {

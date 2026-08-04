@@ -1,4 +1,5 @@
 import type { ModelValue, PipelineEvent, RunState, RunStats, RunStatus } from "../types";
+import { eventStepName } from "../types";
 import { pipelineNameFromIterationPath } from "./format";
 
 interface MutableRun {
@@ -361,9 +362,10 @@ export interface IterationStats {
    *  iteration.started/.resumed data.resolved_effort (0.69+ writers). null
    *  when absent (older events / inherited effort). */
   resolved_effort: string | null;
-  /** The DAG step_id declared on the iteration.* events (schema v4+), when
-   *  present. null for sequential / pre-v4 events. Lets the tree show which
-   *  rows belong to a parallel DAG and disambiguate overlapping steps. */
+  /** The DAG step name declared on the iteration.* events (`step_name` in v5,
+   *  `step_id` in v4), when present. null for sequential / pre-v4 events. Lets
+   *  the tree show which rows belong to a parallel DAG and disambiguate
+   *  overlapping steps. */
   step_id: string | null;
 }
 
@@ -454,11 +456,12 @@ export function iterationStatsByRel(
       s = emptyIterStats();
       out.set(rel, s);
     }
-    // Capture the DAG step_id (schema v4+) on any iteration.* event for this
-    // row. Optional — absent on sequential / pre-v4 events (stays null).
+    // Capture the DAG step name on any iteration.* event for this row —
+    // `step_name` (v5) or `step_id` (v4 journals already on disk). Optional:
+    // absent on sequential / pre-v4 events (stays null).
     {
-      const sid = (e.data as { step_id?: unknown } | undefined)?.step_id;
-      if (typeof sid === "string" && sid.length > 0) s.step_id = sid;
+      const sid = eventStepName(e.data);
+      if (sid !== null) s.step_id = sid;
     }
     if (e.type === "iteration.started" || e.type === "iteration.resumed") {
       if (e.type === "iteration.started") s.started_count += 1;
@@ -488,15 +491,16 @@ export function iterationStatsByRel(
 }
 
 // --------------------------------------------------------------------
-// Per-iteration analytics fold (schema v4 — step_id-keyed, overlap-safe).
+// Per-iteration analytics fold (schema v5 — step-name-keyed, overlap-safe).
 //
 // Client mirror of `iterationToolStatsForRun` in apps/pipeline-ui/lib.ts.
 // Attributes ambient telemetry (`tool.called`, `turn.usage`) to the step
-// that produced it. When events carry `step_id` (v4 / DAG-parallel) a step's
-// window is [iteration.started, iteration.completed) keyed by step_id, so
+// that produced it. When events carry a step name (`step_name` in v5,
+// `step_id` in v4 / DAG-parallel) a step's window is
+// [iteration.started, iteration.completed) keyed by that name, so
 // OVERLAPPING parallel steps each accumulate their own stats; an ambient
 // event during overlap goes to the most-recently-started still-open step.
-// When `step_id` is absent (v1/v2/v3 / sequential) the legacy
+// When the step name is absent (v1/v2/v3 / sequential) the legacy
 // consecutive-`iteration.started`-window behavior is used (a window runs
 // until the next iteration.started). The two modes are mixed-safe.
 //
@@ -562,10 +566,10 @@ interface OpenStepWindow {
   stats: IterationToolStats;
 }
 
-function stepIdOf(d: Record<string, unknown>): string | null {
-  const v = d.step_id;
-  return typeof v === "string" && v.length > 0 ? v : null;
-}
+/** v5 `step_name`, falling back to v4 `step_id` — v1–v4 journals must keep
+ *  folding identically. Keep in lockstep with the server twin in
+ *  apps/pipeline-ui/lib.ts. */
+const stepIdOf = eventStepName;
 
 /** Fold ONE run's events into per-step tool/token stats. Pass all events for
  *  a single run_id. Returns one IterationToolStats per step, first-seen order. */

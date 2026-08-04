@@ -134,11 +134,12 @@ function pipelineUiTranscriptsEnabled(): boolean {
 // Keep in sync with apps/pipeline-cli/src/lib/event.ts and server.ts. v3 adds
 // `default_model` on pipeline.started and `resolved_model` on
 // iteration.started; analytics_relay populates both when it synthesizes
-// lifecycle events for a bypass run (see synthesizeBypassRun). v4 adds
-// optional `step_id` on iteration.* events — the hook does NOT synthesize
-// iteration.* events (the pipeline-manager self-emits those), so it only
-// bumps the version stamp here; it never sets step_id itself.
-const SCHEMA_VERSION = 4;
+// lifecycle events for a bypass run (see synthesizeBypassRun). v4 added
+// optional `step_id` on iteration.* events; v5 renames it to `step_name`
+// (pipeline v2 — a step is a manifest entry named by `name:`). The hook does
+// NOT synthesize iteration.* events (the pipeline-manager self-emits those),
+// so it only bumps the version stamp here; it never sets either field itself.
+const SCHEMA_VERSION = 5;
 
 // --------------------------------------------------------------------
 // Project resolution (shared logic, kept local — hooks must not depend
