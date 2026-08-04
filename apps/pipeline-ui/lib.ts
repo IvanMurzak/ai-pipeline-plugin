@@ -578,11 +578,11 @@ export function pipelineInfoFromDir(root: string, precomputedHub?: PipelineInfo)
 }
 
 /**
- * Walk `<projectRoot>/.claude/pipeline/` recursively. A directory is a
- * pipeline if it contains PIPELINE.md; otherwise it's a category folder.
+ * Walk `<projectRoot>/.pipeline/` recursively. A directory is a pipeline if it
+ * contains PIPELINE.md; otherwise it's a category folder.
  */
 export function scanPipelines(projectRoot: string): PipelineInfo[] {
-  const pipelineDir = join(projectRoot, ".claude", "pipeline");
+  const pipelineDir = join(projectRoot, ".pipeline");
   if (!existsSync(pipelineDir)) return [];
   const out: PipelineInfo[] = [];
   const visit = (dir: string, depth: number): void => {

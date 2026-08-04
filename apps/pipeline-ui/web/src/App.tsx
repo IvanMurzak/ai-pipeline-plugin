@@ -594,7 +594,7 @@ export function App() {
                         <Workflow size={12} /> Pipelines
                       </span>
                     ),
-                    count: state?.pipeline.length,
+                    count: state?.pipelines.length,
                   },
                 ]}
               />
@@ -612,7 +612,7 @@ export function App() {
                     {selection.leftTab === "runs" ? (
                       <RunList
                         runs={runs}
-                        pipelines={state?.pipeline ?? []}
+                        pipelines={state?.pipelines ?? []}
                         selectedRunId={selectedRun?.run_id ?? null}
                         resumableRunIds={resumableRunIds}
                         onSelect={selectRunMobile}
@@ -621,7 +621,7 @@ export function App() {
                       />
                     ) : (
                       <PipelineTree
-                        pipelines={state?.pipeline ?? []}
+                        pipelines={state?.pipelines ?? []}
                         runs={runs}
                         selectedPipelineRoot={selectedPipeline?.pipeline_root ?? null}
                         onSelect={selectPipelineMobile}
