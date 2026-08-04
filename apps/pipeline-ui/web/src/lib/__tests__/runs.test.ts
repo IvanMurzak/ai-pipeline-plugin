@@ -325,9 +325,13 @@ describe("iterationStatsByRel", () => {
   });
 });
 
-describe("iterationToolStatsForRun (step_id-keyed, overlap-safe — schema v4)", () => {
+describe("iterationToolStatsForRun (step-name-keyed, overlap-safe — schema v5)", () => {
   // Client mirror of apps/pipeline-ui/tests/iteration-tool-stats.test.ts —
   // the web fold and the server fold must agree.
+  //
+  // These cases use v4's `step_id` spelling on purpose: they double as the
+  // backward-compat proof that a v5 client folds an on-disk v4 journal
+  // unchanged. The v5 `step_name` spelling is covered in its own describe below.
   test("(a) overlapping parallel iterations attribute tools/tokens by step_id", () => {
     const events: PipelineEvent[] = [
       ev("iteration.started", "r1", { iteration_path: "/p/steps/01-a.md", step_id: "a" }, { ts: "2026-01-01T00:00:01Z" }),
@@ -376,6 +380,64 @@ describe("iterationToolStatsForRun (step_id-keyed, overlap-safe — schema v4)",
     const byRun = iterationToolStatsByRun(events);
     expect(byRun.get("rA")![0].tools_called).toBe(1);
     expect(byRun.get("rB")![0].tools_called).toBe(2);
+  });
+});
+
+describe("v5 step-key rename (`step_id` → `step_name`) — client fold", () => {
+  // Mirrors apps/pipeline-ui/tests/iteration-tool-stats.test.ts's rename block.
+  // The two folds must agree, or the tree the daemon serves and the tree the
+  // browser computes disagree about which step spent which tokens.
+
+  test("`step_name` keys the overlap-safe fold exactly like v4's `step_id`", () => {
+    const events: PipelineEvent[] = [
+      ev("iteration.started", "r1", { iteration_path: "/p/steps/01-a.md", step_name: "a" }, { ts: "2026-01-01T00:00:01Z" }),
+      ev("iteration.started", "r1", { iteration_path: "/p/steps/02-b.md", step_name: "b" }, { ts: "2026-01-01T00:00:02Z" }),
+      ev("tool.called", "r1", { success: true }, { ts: "2026-01-01T00:00:03Z" }), // → b
+      ev("tool.called", "r1", { success: false }, { ts: "2026-01-01T00:00:04Z" }), // → b
+      ev("iteration.completed", "r1", { step_name: "b", outcome: "completed" }, { ts: "2026-01-01T00:00:05Z" }),
+      ev("tool.called", "r1", { success: true, agent_spawn: true }, { ts: "2026-01-01T00:00:06Z" }), // → a
+      ev("turn.usage", "r1", { input_tokens: 100, output_tokens: 40 }, { ts: "2026-01-01T00:00:07Z" }), // → a
+      ev("iteration.completed", "r1", { step_name: "a", outcome: "completed" }, { ts: "2026-01-01T00:00:08Z" }),
+    ];
+    const stats = iterationToolStatsForRun(events);
+    const a = stats.find((s) => s.step_id === "a")!;
+    const b = stats.find((s) => s.step_id === "b")!;
+    expect(a.tools_called).toBe(1);
+    expect(a.agents_spawned).toBe(1);
+    expect(a.input_tokens).toBe(100);
+    expect(b.tools_called).toBe(2);
+    expect(b.tools_failed).toBe(1);
+    expect(b.input_tokens).toBe(0);
+  });
+
+  test("a run whose journal spans the rename keeps ONE bucket per step", () => {
+    const events: PipelineEvent[] = [
+      ev("iteration.started", "r1", { iteration_path: "/p/steps/01-a.md", step_id: "a" }, { ts: "2026-01-01T00:00:01Z" }),
+      ev("tool.called", "r1", { success: true }, { ts: "2026-01-01T00:00:02Z" }),
+      ev("iteration.completed", "r1", { step_id: "a", outcome: "completed" }, { ts: "2026-01-01T00:00:03Z" }),
+      // …daemon upgraded here; the resume re-issues the same step as v5.
+      ev("iteration.started", "r1", { iteration_path: "/p/steps/01-a.md", step_name: "a" }, { ts: "2026-01-01T00:00:04Z" }),
+      ev("turn.usage", "r1", { input_tokens: 7, output_tokens: 3 }, { ts: "2026-01-01T00:00:05Z" }),
+      ev("iteration.completed", "r1", { step_name: "a", outcome: "completed" }, { ts: "2026-01-01T00:00:06Z" }),
+    ];
+    const stats = iterationToolStatsForRun(events);
+    expect(stats).toHaveLength(1);
+    expect(stats[0].step_id).toBe("a");
+    expect(stats[0].tools_called).toBe(1);
+    expect(stats[0].input_tokens).toBe(7);
+  });
+
+  test("iterationStatsByRel surfaces the step name from either spelling", () => {
+    const v5 = iterationStatsByRel(
+      [ev("iteration.started", "r1", { iteration_path: "/p/.pipeline/x/steps/01-a.md", step_name: "a" })],
+      "x",
+    );
+    const v4 = iterationStatsByRel(
+      [ev("iteration.started", "r1", { iteration_path: "/p/.pipeline/x/steps/01-a.md", step_id: "a" })],
+      "x",
+    );
+    expect(v5.get("01-a.md")?.step_id).toBe("a");
+    expect(v4.get("01-a.md")?.step_id).toBe("a");
   });
 });
 

@@ -44,7 +44,9 @@ const LOCK_PATH = join(HOME_DIR, "daemon.lock");
 const DAEMON_SCRIPT = resolve(import.meta.dir, "..", "server.ts");
 const FIXTURE_DIR = resolve(import.meta.dir, "fixtures", "test-pipeline");
 
-const SCHEMA_VERSION = 4;
+// Lockstep with server.ts / lib/event.ts / hooks/analytics_relay.ts — see
+// EVENTS.md. v5 renamed the iteration events' `step_id` to `step_name`.
+const SCHEMA_VERSION = 5;
 
 export interface DaemonLock {
   pid: number;

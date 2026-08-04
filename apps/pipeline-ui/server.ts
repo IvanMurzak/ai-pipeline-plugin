@@ -550,14 +550,15 @@ function computeRunSteps(entry: ProjectEntry, runId: string): RunStepsResponse {
 // Config
 // --------------------------------------------------------------------
 
-// Schema v4: adds optional `step_id` on iteration.started / .resumed /
-// .completed (the DAG/parallel step identity, used for overlap-safe
-// per-iteration folding). v3 added optional `default_model` on
-// pipeline.started and `resolved_model` on iteration.started (both
-// shorthand strings or null). v1, v2, and v3 events are still parsed —
-// the new fields are optional and absent in older events; the fold
-// treats absent step_id as "use the consecutive-iteration.started window".
-const SCHEMA_VERSION = 4;
+// Schema v5: RENAMES v4's `step_id` to `step_name` on iteration.started /
+// .resumed / .completed / awaiting_input (pipeline v2 — a step is a manifest
+// entry identified by `name:`). v4 had added that field as the DAG/parallel
+// step identity, used for overlap-safe per-iteration folding. v3 added
+// optional `default_model` on pipeline.started and `resolved_model` on
+// iteration.started (both shorthand strings or null). v1–v4 events are still
+// parsed: every fold reads `step_name ?? step_id`, and absent-both still
+// means "use the consecutive-iteration.started window".
+const SCHEMA_VERSION = 5;
 const IDLE_MINUTES = Number(process.env.PIPELINE_UI_IDLE_MINUTES ?? 60);
 const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
 // Transcript mirroring/fold opt-out (PIPELINE_UI_TRANSCRIPTS, default ON).

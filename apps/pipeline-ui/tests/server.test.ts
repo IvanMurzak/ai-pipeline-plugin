@@ -166,10 +166,10 @@ describe("daemon HTTP surface", () => {
     const j = (await r.json()) as HealthBody;
     expect(j.ok).toBe(true);
     expect(typeof j.plugin_version).toBe("string");
-    // Schema v4 — see EVENTS.md. v1/v2/v3 events are still parsed (the
+    // Schema v5 — see EVENTS.md. v1–v4 events are still parsed (the
     // pre-seeded session.opened fixture above uses schema:1) but /api/health
     // advertises the current SCHEMA_VERSION the daemon produces.
-    expect(j.schema).toBe(4);
+    expect(j.schema).toBe(5);
     expect(typeof j.pid).toBe("number");
   });
 
