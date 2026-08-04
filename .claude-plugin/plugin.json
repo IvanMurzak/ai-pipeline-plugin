@@ -1,6 +1,6 @@
 {
   "name": "pipeline",
-  "version": "0.89.0",
+  "version": "0.90.0",
   "description": "Run long multi-step AI workflows as ordered files in your repo. A deterministic CLI decides what runs next — not the model — and every run feeds what it learned back into the pipeline.",
   "author": {
     "name": "IvanMurzak"

@@ -4,6 +4,45 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## plugin 0.90.0 / CLI 0.11.0 — a step is a name, not a file
+
+A pipeline's definition used to be spread across sources that disagreed about who was in charge:
+`PIPELINE.md` frontmatter, every step file's own frontmatter, a `## Graph` section whose mere
+PRESENCE silently overrode `execution:`, the numeric filename prefix that actually ordered the
+steps, and each step reporting its own successor at runtime — where reporting none ended the run
+as `completed`, a silent success.
+
+One file replaces all of it. `pipeline.yml` declares every step, in order, and **a step is an entry
+in it identified by `name:`** — nothing about a step comes from disk. An unknown value is an error,
+never a warning with a silent fallback.
+
+**Your v1 pipelines keep running.** `pipeline migrate --to-manifest --root <dir>` generates the
+manifest and prints the old→new step-name map; a v1 pipeline says so once per run and names that
+command. Nothing is removed in this release.
+
+- **The engine resolves steps by NAME.** A parked run now survives its body file being renamed —
+  before, the cursor pointed at a file that no longer existed and the run silently restarted at
+  step 1. Two steps may share one body, which was impossible when a path was the identity.
+- **`--start` takes a step name.** A path still resolves, with a warning naming the step to use.
+- **A step's prompt can be COMPOSED** from several markdown files in declared order, optionally
+  conditional on flags an earlier step reported. The paragraph every step needs now lives in one
+  place instead of being copied into each of them.
+- **The manifest decides the order.** A step that reports no successor no longer ends the run as a
+  silent success. `PIPELINE_COMPLETE` still works — ending early stays the step's decision — and a
+  reported path that disagrees with the manifest gets a warning naming the stale `## Next` section.
+- **`self_improve: false` is enforced by the engine**, not asked of the improver: a frozen step's
+  brief is never queued. One veto freezes a FILE, so a `_shared/` fragment a frozen step composes
+  cannot be edited through an unfrozen one. `pipeline.yml` is always frozen — it changes what the
+  run DOES, not what a step is told. Freezing does not silence a step's problems; the retrospective
+  still reports them.
+- **`/pipeline:run` takes a pipeline folder.** A paragraph of path-walking heuristics is gone.
+- **Event schema v5** renames the iteration events' `step_id` to `step_name`. Every reader folds
+  `step_name ?? step_id`, so journals already on disk keep folding to identical numbers.
+
+BREAKING, and deliberately loud rather than silent: a run persisted by an older CLI **refuses to
+resume**, with a message saying why and to start a fresh run. Its cursor names a file and this
+engine dispatches by name; quietly mapping one to the other is exactly the coupling being removed.
+
 ## plugin 0.85.5 — the supervisor upgrades itself
 
 A version handoff upgraded the WORKER only. The supervisor kept running whatever code it booted

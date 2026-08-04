@@ -1,6 +1,17 @@
 # Script steps — the `type: script` step contract (reference)
 
-Reference for **pipeline authors** writing `type: script` iteration files (and for maintainers editing the runtime). A script step runs a terminal program **with no AI agent involved** — the `pipeline next` command layer executes it **in-process** (exactly the pattern already used for external-isolation worktree hooks), so it costs **zero LLM tokens** in both runners (the `pipeline-manager` and headless `pipeline drive` share the same `invokeNext`).
+> **v2 note.** In a `pipeline.yml` pipeline, every declaration below is a
+> MANIFEST key rather than step-file frontmatter or a markdown section:
+> `type:` / `script:` / `timeout:` / `retries:` / `on_failure:` sit on the step
+> entry, `## Params` and `## Output` become `params:` and `output:` in the same
+> vocabulary, and there is no `## Next` — the manifest declares the order, so
+> the single-absolute-path rule in §2.2 does not apply. Everything else on this
+> page — how params resolve, the failure classes, the attempt ledger, the
+> outputs store, the `on_failure: agent` fallback — is unchanged, which is why
+> this reference was not rewritten. See
+> `skills/design/references/authoring-protocol.md` §10 for the manifest form.
+
+Reference for **pipeline authors** writing `type: script` steps (and for maintainers editing the runtime). A script step runs a terminal program **with no AI agent involved** — the `pipeline next` command layer executes it **in-process** (exactly the pattern already used for external-isolation worktree hooks), so it costs **zero LLM tokens** in both runners (the `pipeline-manager` and headless `pipeline drive` share the same `invokeNext`).
 
 Use it when a whole iteration is deterministic software — a build gate, a CI wait, a file/API sequence — that today still pays a full step-executor spawn (~10–20k tokens). The extraction ladder has three rungs:
 
@@ -186,7 +197,7 @@ In addition to the inherited process environment, the CLI sets:
 - `PIPELINE_STEP_PIPELINE_ROOT`
 - `PIPELINE_STEP_PROJECT_ROOT`
 - `PIPELINE_STEP_PARAMS_FILE` — path to the resolved params file (§3.2)
-- under `isolation: external` only: `PIPELINE_STEP_WORKTREE_PATH` + `PIPELINE_STEP_WORKTREE_ENV_FILE`
+- under `isolation: run` only: `PIPELINE_STEP_WORKTREE_PATH` + `PIPELINE_STEP_WORKTREE_ENV_FILE`
 - when the pipeline declares `## Variables` (§2.5, D10): every resolved `PP_*` name, added AFTER
   the worktree env-file entries below and BEFORE the `PIPELINE_STEP_*` vars above. **Precedence
   for a given name: `PIPELINE_STEP_*` (its own namespace, cannot collide by grammar) >
@@ -198,7 +209,7 @@ The resolved params JSON is written to `<pipeline_root>/.runtime/<run-id>/params
 
 ### 3.3 cwd
 
-The consumer **project root**. Under `isolation: external` the cwd is the **`worktree_path`**, and the CLI **PARSES** the worktree env file (`KEY=VALUE` lines, `#` comments ignored) into the child environment — it never shell-`source`s it.
+The consumer **project root**. Under `isolation: run` the cwd is the **`worktree_path`**, and the CLI **PARSES** the worktree env file (`KEY=VALUE` lines, `#` comments ignored) into the child environment — it never shell-`source`s it.
 
 ### 3.4 stdin
 

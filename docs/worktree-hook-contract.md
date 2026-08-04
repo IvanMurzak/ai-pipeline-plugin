@@ -1,10 +1,10 @@
-# External-isolation worktree hooks — consumer contract (FROZEN)
+# Run-level worktree hooks (`isolation: run`) — consumer contract (FROZEN)
 
-Reference for **hook authors** writing `.pipeline/.hooks/worktree-{create,finalize,destroy}` scripts in a consumer project. The `pipeline next` CLI executes these hooks itself, in-process (from the PROJECT ROOT, env-var inputs, JSON-on-stdout; timeouts: 600 s create, 600 s finalize, 300 s destroy) — the `pipeline-manager` agent never passes these variables and never runs the hooks.
+Reference for **hook authors** writing `.pipeline/.hooks/worktree-{create,finalize,destroy}` scripts in a consumer project. (v1 spelled this isolation scope `external`; the hooks and their environment are unchanged.) The `pipeline next` CLI executes these hooks itself, in-process (from the PROJECT ROOT, env-var inputs, JSON-on-stdout; timeouts: 600 s create, 600 s finalize, 300 s destroy) — the `pipeline-manager` agent never passes these variables and never runs the hooks.
 
 This contract is **FROZEN**: existing consumer hooks must keep working unmodified. If you change anything here, update `apps/pipeline-cli/src/lib/hooks.ts`, `apps/pipeline-cli/src/commands/next.ts`, and the README's external-isolation section in lockstep, and bump the plugin version.
 
-## `worktree-create` (required for `isolation: external`)
+## `worktree-create` (required for `isolation: run`)
 
 Runs with env vars:
 
@@ -30,7 +30,7 @@ Runs ONCE at the very end of a COMPLETED run, after the last step + optional ret
 
 UNLIKE destroy it is **strict must-succeed** — it MUST print `{"ok":true}` (optional `detail`) or the run halts with the worktree preserved. WHAT it does with the worktree (commit, push, publish, anything) is entirely the hook's business; the plugin never inspects it.
 
-## `worktree-destroy` (required for `isolation: external`)
+## `worktree-destroy` (required for `isolation: run`)
 
 Runs on every terminal outcome (`completed`/`halted`/`depth-exhausted`), never on `blocked-delegating`. Env: `PIPELINE_WT_ACTION=destroy`, `PIPELINE_WT_RUN_ID`, `PIPELINE_WT_NAME`, `PIPELINE_WT_PIPELINE_ROOT`, `PIPELINE_WT_PROJECT_ROOT`, `PIPELINE_WT_WORKTREE_PATH`, `PIPELINE_WT_OUTCOME` (`completed|halted|depth-exhausted|create-failed`), `PIPELINE_WT_DELETE_BRANCHES`, `PIPELINE_WT_DRY_RUN=0`.
 

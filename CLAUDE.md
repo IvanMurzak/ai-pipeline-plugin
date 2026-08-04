@@ -32,7 +32,7 @@ apps/
     src/lib/land.ts                 #   landToMain() — isolation-safe throwaway-worktree land (fetch→worktree add off origin/<base>→cacheinfo→commit→push→PR→squash-merge→ff-only reconcile w/ bounded retry + pre-flight orphan self-clean)
     src/lib/drift.ts                #   classifyDrift() — submodule-pointer drift + the fork-diff/conflict/reachability guards (#132 fix applied to POINTERS)
     src/commands/logs.ts            #   `pipeline logs [-f]` — read-only terminal tail of .runtime/events.jsonl (pretty one-liners); daemon-free, works regardless of PIPELINE_UI_ENABLED (even when the UI is opted out; UI on by default)
-    src/lib/plan.ts                 #   computePlan() — PIPELINE.md + steps frontmatter → execution-plan JSON (mode/isolation/steps+models/DAG layers/validation/graph)
+    src/lib/plan.ts                 #   computePlan() — pipeline.yml (v2) or PIPELINE.md + steps frontmatter (v1) → execution-plan JSON (mode/isolation/steps+models/DAG layers/validation/graph)
     src/lib/match.ts                #   matchPipelines() — BM25 pipeline matcher (the runtime matching engine)
     src/lib/event.ts                #   emitEvent()/writeLiveness()/etc. — runtime UI event writer
     src/lib/graph.ts                #   Variant-A routing: parse/validate the `## Graph` block + routeNext() (declarative loops/skips/counters)
@@ -144,31 +144,53 @@ marketplace repo to bump the submodule pointer.
 
 - **Pipeline variables (`${PP_*}`)** parameterize a pipeline for different targets/environments without cloning it: an optional `## Variables` section in `PIPELINE.md` declares `PP_NAME (required)` / `PP_NAME (default: ...)` bullets (authoring guidance: `skills/design/references/authoring-protocol.md`); `pipeline next` / `drive` / `step run` accept repeatable `--var NAME=value` and `--vars-file <path>` to resolve them once at run init (CLI flag > environment > manifest default), validate fail-fast (aggregated, never first-error-only), and FREEZE the result for the whole run (a `--resume` reuses the frozen map verbatim; supplying new `--var`/`--vars-file` against a frozen run is a usage error). Values substitute into per-run rendered copies of agent iterations (`lib/render.ts`) and into script-step `command:`/`script:` argv + child env + `## Params` bindings (`lib/script-step.ts`, `docs/script-steps.md` §2.5) — non-secret by contract (D4): values are visible verbatim in rendered files, params files, child-script environments, logs, events, and AI context, so never design one to carry a secret. Full CLI-flag contract: `docs/cli.md`; full script-step argv/env contract incl. the argv[0]-substitution ban and the `.bat`/`.cmd` block: `docs/script-steps.md` §2.5.
 
-## Pipeline folder contract (`PIPELINE.md` + `steps/`)
+## Pipeline folder contract (`pipeline.yml` + `steps/`)
 
-This is a load-bearing invariant across the plugin — do not weaken it without re-doing the token-cost analysis:
+This is a load-bearing invariant across the plugin — do not weaken it without
+re-doing the token-cost analysis:
 
-- Every pipeline folder has two REQUIRED children at its root: the `PIPELINE.md` manifest (uppercase) and a `steps/` subfolder. Every iteration file (`NN-*.md`) lives inside `steps/`, never at the pipeline root. Recognized OPTIONAL siblings: `scripts/` (extracted Python scripts), `targets/` (a target family — each `targets/<name>/` is a complete sub-pipeline; dot-prefixed dirs like `targets/.common/` hold family-shared docs/scripts and are skipped by target resolution), and per-pipeline context modules (e.g. `conventions.md`, `setup.md`, `test.md`) that iterations reference explicitly. See skills/design/references/authoring-protocol.md § "Target families".
-- The 300-token manifest cap applies to LEAF pipelines. A family HUB (has `targets/`) is exempt (its manifest carries the routing table); a family TARGET (lives under `targets/`) gets ~1500 tokens. `pipeline plan`'s lint enforces exactly this split.
-- The manifest is **metadata**, not an iteration. `step-executor` does NOT auto-load it. Iterations remain self-contained.
-- The executor loads the manifest **only** when an iteration's `Context` section explicitly references it (opt-in per iteration).
-- The `/pipeline:run` skill reads the manifest **once** at pipeline start to show a banner. It does not pass manifest content to the executor. It finds the manifest by walking upward from the iteration's folder until it finds a directory containing `PIPELINE.md`.
-- The manifest is capped at **300 tokens** and has required sections: End State, Scope, Project Context, Invariants. Related Pipelines and Glossary are optional.
-- Nested sub-folders inside `steps/` do **not** get their own manifest. One manifest per pipeline, at the pipeline root.
+- **A step is NOT a file.** It is an entry in `pipeline.yml` identified by
+  `name:`, unique within the pipeline. Nothing about a step comes from disk —
+  not its identity, not its order, not its model, not its type. The engine
+  resolves steps by NAME; a renamed body file does not re-identify a step, and
+  two steps may share one body.
+- Every pipeline folder has `pipeline.yml` at its root and a `steps/` subfolder
+  holding the markdown its steps read. Body filenames carry no ordering prefix —
+  order is the manifest's step list, plus `needs:`.
+- `PIPELINE.md` is **optional prose for humans and is not parsed** where a
+  manifest exists. Configuration put there does nothing. (A v1 pipeline with no
+  manifest still parses it, and still runs; `computePlan` chooses between the
+  two and never merges them.)
+- Neither file is auto-loaded by `step-executor`. Step bodies remain
+  self-contained; the executor loads the manifest only if a body's `Context`
+  explicitly references it (opt-in, rare).
+- The `/pipeline:run` skill takes a pipeline FOLDER. It reads nothing per step:
+  the manifest decides where a run starts, so the common invocation passes no
+  `--start` at all.
+- A step's prompt may be COMPOSED from several markdown files (`body:` as a
+  list, optionally conditional). The composed document is written into the run's
+  shadow tree at `steps/<name>.md` — the step's own label, never a fragment it
+  may share with other steps.
+- The 300-token cap applied to the v1 `PIPELINE.md` manifest. It does not apply
+  to `pipeline.yml`, which is configuration rather than prose the executor might
+  load — but a manifest that has grown past a screenful is usually a pipeline
+  that has grown past one job.
 
-If you ever change the executor to auto-load the manifest, you are re-introducing per-iteration token cost and breaking fresh-context self-containment. Don't.
+If you ever change the executor to auto-load the manifest, you are
+re-introducing per-iteration token cost and breaking fresh-context
+self-containment. Don't.
 
 ## Testing the plugin
 
 1. In a scratch directory (e.g. `C:/tmp/pipeline-test`), confirm CWD is the scratch dir.
 2. Run `/pipeline:design Build a small CLI that lists top-level files sorted by size`.
 3. Verify that `./.pipeline/<pipeline-name>/` is created in the scratch dir and contains:
-   - `PIPELINE.md` at the pipeline root with all required sections, ≤ 300 tokens.
-   - A `steps/` subfolder holding at least two iteration files (`steps/01-*.md`, `steps/02-*.md`), each with all required sections and no dependency on the manifest.
+   - `pipeline.yml` at the pipeline root, and `pipeline plan --root <dir>` reports zero errors.
+   - A `steps/` subfolder holding one markdown per step, named after the step (no `NN-` prefix), each with all required sections and no dependency on the manifest.
 4. Verify that **no files were created inside `${CLAUDE_PLUGIN_ROOT}`** — the plugin install directory must stay untouched.
-5. Run `/pipeline:run <absolute-path>/.pipeline/<pipeline-name>/steps/01-*.md`:
+5. Run `/pipeline:run <absolute-path>/.pipeline/<pipeline-name>`:
    - Confirm the skill shows a `▶ Starting pipeline <name>: <end state>` banner before delegation.
-   - Confirm the executor does NOT read `PIPELINE.md` (check its tool-call log — only the current iteration file should be loaded, plus whatever it explicitly references).
+   - Confirm the executor does NOT read the manifest (check its tool-call log — only the current step's prompt should be loaded, plus whatever it explicitly references).
    - Confirm the chain runs to `Pipeline complete.` or halts with a clear blocker message.
 
 ## Reference docs (read on demand)
