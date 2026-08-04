@@ -59,32 +59,76 @@ Every iteration is read by a fresh-context executor on every run, so tokens spen
 
 ## Mental model
 
-A **pipeline** is a folder of markdown files. Each file is one **iteration**: a self-contained task an agent executes in a brand-new context. The designer writes the folder; the executor runs it file-by-file in fresh contexts. Because every iteration is self-contained, the chain can be arbitrarily long without context-window issues.
+A **pipeline** is a folder with a manifest and the markdown its steps read.
+
+**A step is not a file.** It is an entry in `pipeline.yml`, identified by its
+`name:`. Nothing about a step comes from disk — not its identity, not its order,
+not its model, not its type. The files under `steps/` are prose a step is handed.
 
 ```
 <your-project>/.pipeline/
 └── <pipeline-name>/
-    ├── PIPELINE.md            ← required manifest (metadata header, ≤300 tokens)
-    ├── scripts/               ← optional — Python scripts extracted from heavy Steps blocks
-    │   └── <name>.py          ← stdlib-only, cross-platform, called via `python scripts/<name>.py`
-    └── steps/                 ← every iteration file lives here
-        ├── 01-<iteration>.md  ← one PR-sized unit of work
-        ├── 02-<iteration>.md
+    ├── pipeline.yml           ← THE definition: every step, in order
+    ├── PIPELINE.md            ← optional prose for humans; not parsed
+    ├── scripts/               ← optional — scripts called by `type: script` steps
+    │   └── <name>.py          ← stdlib-only, cross-platform
+    ├── _shared/               ← optional — markdown several steps compose in
+    │   └── <fragment>.md
+    └── steps/                 ← the markdown each step reads
+        ├── <step-name>.md     ← no numeric prefix: order lives in the manifest
         └── ...
 ```
 
-All files live inside **your current project** (the working directory from which Claude Code was launched). The plugin itself is read-only at runtime — nothing gets written into the plugin install directory.
+All files live inside **your current project** (the working directory Claude
+Code was launched from). The plugin itself is read-only at runtime.
 
-### The manifest — `PIPELINE.md`
+### The manifest — `pipeline.yml`
 
-Every pipeline folder has a small metadata file named `PIPELINE.md` at its root (sibling to `steps/`). It describes the pipeline's end state, scope, shared project context, and pipeline-wide invariants. It's written by the `/pipeline:design` skill and capped at 300 tokens.
+```yaml
+schema: 2
+name: release-api
+description: Cut a release: bump, changelog, tag, publish.
 
-**It is NOT auto-loaded by the executor.** Iterations stay self-contained, so the executor pays no per-iteration token cost for the manifest. The manifest is used by:
+execution: sequential
+isolation: run
 
-- Humans browsing the pipeline as a knowledge base.
-- The `/pipeline:design` skill when reviewing or editing iterations.
-- `/pipeline:run` once at start, to show a banner like `▶ Starting pipeline <name>: <end state>`.
-- Individual iterations that opt in by explicitly referencing it in their `Context` (rare — only when pipeline-wide invariants are needed mid-execution).
+steps:
+  - name: bump
+    body: steps/bump.md
+    model: haiku
+
+  - name: changelog
+    body: steps/changelog.md
+    model: opus
+
+  - name: publish
+    type: script
+    script: scripts/publish.py
+    timeout: 300
+    self_improve: false
+```
+
+One file says everything: order, models, isolation, which steps are
+deterministic scripts, which prompts an automated pass may not rewrite. **An
+unknown value is an error**, never a warning with a silent fallback — a pipeline
+that looks configured while behaving otherwise is the failure this format exists
+to remove.
+
+Three things follow from "a step is not a file":
+
+- **Order comes from the manifest** (and `needs:` when a step depends on
+  something other than its predecessor). A step does not choose its successor,
+  so a step that forgets to can no longer end the run as a silent success.
+- **A step's prompt may be composed** from several files — `body:` takes a list,
+  optionally conditional — so the paragraph every step needs lives in one place.
+- **Renaming a body file changes nothing.** It is a file; the step is its name.
+
+A pipeline may keep a `PIPELINE.md` for humans reading the folder as a knowledge
+base. It is **not parsed** — configuration put there does nothing.
+
+**Already have a v1 pipeline?** `pipeline migrate --to-manifest --root <dir>`
+generates the manifest and prints the old→new step-name map. v1 pipelines keep
+running meanwhile.
 
 ## Using the plugin in a consumer project
 
@@ -97,7 +141,7 @@ This section is the practical walkthrough — install once, then a small set of 
 | Author a new repeatable workflow | `/pipeline:design <goal>` | n/a (writes files) | one-time design cost |
 | Pick a pipeline for a task and **see** the match before running | `/pipeline:find <task or GH issue URL>` | yes | ~zero LLM tokens |
 | Pick a pipeline for a task and **just run it** | `/pipeline:dispatch <task>` | no | ~zero for ~80% of tasks; cheap Haiku for ambiguous; full only for chains |
-| Run / resume a specific pipeline you already know the path of | `/pipeline:run <abs-path-to-iteration.md>` | no | n/a |
+| Run / resume a specific pipeline you already know the path of | `/pipeline:run <abs-path-to-pipeline-folder>` | no | n/a |
 
 `/pipeline:design` is the only skill that **writes** files (your new pipeline). The matching skills (`find`, `dispatch`) are read-only inspections of `PIPELINE.md` manifests; the run skills (`run`, `dispatch`) execute pipelines that do whatever those pipelines say in their iteration `Steps`.
 
@@ -111,14 +155,14 @@ This section is the practical walkthrough — install once, then a small set of 
    /pipeline:design Cut a release of the API server: bump version, run tests, build image, deploy staging, smoke-test, deploy prod
    ```
 
-   The `/pipeline:design` skill will sketch an iteration list, confirm scope with you when non-trivial, then write files under `./.pipeline/<pipeline-name>/` — a `PIPELINE.md` manifest plus an ordered `steps/01-*.md`, `steps/02-*.md`, …. Each iteration file is a self-contained PR-sized unit of work.
+   The `/pipeline:design` skill will sketch the step list, confirm scope with you when non-trivial, then write the manifest and its step bodies under `./.pipeline/<pipeline-name>/` — a `PIPELINE.md` manifest plus an ordered `steps/01-*.md`, `steps/02-*.md`, …. Each iteration file is a self-contained PR-sized unit of work.
 
 3. **Sanity-check the result.** Open the new folder yourself; read the manifest's `End State` and the first iteration's `Goal` / `Steps` / `Success Criteria`. The designer is good but not infallible — five minutes reading what it produced now saves ten minutes mid-execution. Edit by hand if needed; iteration files are just markdown.
 
 4. **Run it.** Two equivalent options:
 
    ```
-   /pipeline:run ./.pipeline/release-api/steps/01-bump.md
+   /pipeline:run ./.pipeline/release-api
    ```
 
    …or, more naturally, hand the matcher a task and let it find the right pipeline:
@@ -149,7 +193,7 @@ Output looks like:
 Matches:
   1. optimize-db (score 3.42, matched: database, indexes, lookup, query)
      End state: Database query performance is improved through targeted index additions...
-     First iteration: ./.pipeline/optimize-db/steps/01-baseline.md
+     First step: baseline
 
 Excluded by Scope.Out:
   - tune-api-latency: Scope.Out includes ["database index changes"]; matching terms: ["database", "indexes"]
@@ -242,7 +286,7 @@ Two user-facing skills, **same matcher under the hood, different ergonomics on t
 - **`/pipeline:find <task-or-issue-url>`** — inspection variant. Deterministic-only (no LLM). Returns ranked candidates with score, matched terms, and excluded-with-reason output, then asks before running. Use when you want to see the match before committing.
 - **`/pipeline:dispatch <task>`** — autonomous variant. Same matcher in tier 1, plus an LLM tiebreaker on ambiguity (tier 2) and a chain-detection fallback on no match (tier 3). Auto-runs without confirmation. Use when you trust the matcher to decide.
 
-Both share the `pipeline match` command (`apps/pipeline-cli`, run with Bun) — it scores each `PIPELINE.md` with Okapi BM25 over the **positive corpus** (name + `End State` + `Scope.In` + `Glossary`) and hard-filters on the **negative corpus** (`Scope.Out`) via keyword overlap. The corpus split exists because BM25 (and embeddings) don't naturally understand negation — to a frequency-based scorer, "update the database schema" and "do not update the database schema" share most of their tokens and look similar. The structural fix is to score the positive bucket and filter the negative bucket separately. A pipeline whose `Scope.Out` reads "database schema migrations" is excluded — with an explicit reason — from a task that mentions "database schema", instead of being ranked alongside the actually-relevant pipeline.
+Both share the `pipeline match` command (`apps/pipeline-cli`, run with Bun) — it scores each pipeline's manifest with Okapi BM25 over the **positive corpus** (name + `End State` + `Scope.In` + `Glossary`) and hard-filters on the **negative corpus** (`Scope.Out`) via keyword overlap. The corpus split exists because BM25 (and embeddings) don't naturally understand negation — to a frequency-based scorer, "update the database schema" and "do not update the database schema" share most of their tokens and look similar. The structural fix is to score the positive bucket and filter the negative bucket separately. A pipeline whose `Scope.Out` reads "database schema migrations" is excluded — with an explicit reason — from a task that mentions "database schema", instead of being ranked alongside the actually-relevant pipeline.
 
 ### `/pipeline:dispatch`'s three-tier cost ladder
 
@@ -264,7 +308,7 @@ Example output:
 Matches:
   1. release-server (score 5.0, matched: new, release, backend, server, changelog)
      End state: A new tagged release of the backend server is published to production with no rollback required.
-     First iteration: ./.pipeline/release-server/steps/01-bump.md
+     First step: bump
 
 Excluded by Scope.Out:
   - migrate-db: Scope.Out includes ["server release"]; matching terms: ["release", "server"]
@@ -328,44 +372,27 @@ The three-rung extraction ladder:
 
 It is fully backward-compatible: absent `type:`, a step is an `agent` step exactly as before, and an old runtime that doesn't understand `type: script` treats the file as a plain agent step (via a one-line `## Steps` fallback).
 
-A minimal script step (`steps/03-wait-ci.md`):
+A minimal script step — the whole declaration is a manifest entry:
 
-````markdown
----
-type: script
-script: scripts/wait-ci.py     # path relative to the pipeline root
-timeout: 1800
-retries: 2                     # re-run transient failures (network blips, timeouts)
-on-failure: halt               # or 'agent' to fall back to a manual step-executor
-step_id: wait-ci
----
-
-# Wait for CI
-
-## Goal
-Block until the PR's CI reaches a terminal state; expose the result as a flag.
-
-## Params
-```json
-{ "pr_number": { "type": "number", "required": true,
-                 "from": "${steps.open-pr.output.pr_number}" } }
+```yaml
+  - name: wait-ci
+    type: script
+    script: scripts/wait-ci.py     # path relative to the pipeline root
+    timeout: 1800
+    retries: 2                     # re-run transient failures (network blips)
+    on_failure: halt               # or 'agent' to fall back to a step-executor
+    params:
+      pr_number:
+        type: number
+        required: true
+        from: ${steps.open-pr.output.pr_number}
+    output:
+      ci_green:
+        type: boolean
 ```
 
-## Success Criteria
-- CI reached a terminal state and the outcome was reported.
-
-## Steps
-1. Run: `python <abs>/scripts/wait-ci.py` — waits for CI (graceful-degradation line).
-
-## Next
-Pipeline complete.
-````
-
-The script reads its inputs from the JSON file named in `PIPELINE_STEP_PARAMS_FILE`, does its work with stdin closed, and prints ONE JSON object as its **last stdout line**:
-
-```json
-{ "ok": true, "summary": "CI green in 6m12s", "flags": { "ci_green": true }, "output": { "checks_passed": 14 } }
-```
+The script prints one JSON object as its last stdout line:
+`{"ok": true, "flags": {"ci_green": true}, "output": {…}}`.
 
 `ok:true` means "the step did its job" — a domain "no" (CI red, nothing to release) is still `ok:true` with a `flags` entry the pipeline's `## Graph` routes on. `ok:false` is reserved for "the step could not run at all" and (with `on-failure: halt`) stops the run. `flags` become the step's `result_flags`; anything in `output` is persisted so later steps can bind to `${steps.wait-ci.output.checks_passed}`.
 
@@ -375,7 +402,7 @@ Test a script step in isolation before wiring it into a chain — no run require
 pipeline step run ./.pipeline/release-api/steps/03-wait-ci.md --param pr_number=132 --json
 ```
 
-The full contract — frontmatter fields, the `## Params` / `## Output` vocabulary and `${…}` bindings, the **frozen** process I/O contract (env vars, params file, stdin/stdout, exit semantics, the `ok:false` rule), the failure classes + `retries` / `on-failure` agent fallback, the timeout/call-budget ladder, the attempt ledger (idempotency), the outputs store, and secrets handling — is in **[`docs/script-steps.md`](docs/script-steps.md)**.
+The full contract — the manifest keys, the `params:` / `output:` vocabulary and `${…}` bindings, the **frozen** process I/O contract (env vars, params file, stdin/stdout, exit semantics, the `ok:false` rule), the failure classes + `retries` / `on-failure` agent fallback, the timeout/call-budget ladder, the attempt ledger (idempotency), the outputs store, and secrets handling — is in **[`docs/script-steps.md`](docs/script-steps.md)**.
 
 ## Waiting on GitHub CI without burning tokens (`pipeline ci-wait`)
 
@@ -454,19 +481,25 @@ Closed-without-merging, merge conflicts, a red verification gate, or a deadline 
 
 ## Nesting
 
-When a single iteration is too large, the designer nests a sub-folder inside `steps/` with its own ordered sub-iterations. The executor descends into the sub-folder, runs every file in order, then returns to the parent's next file under `steps/`.
+When a single step is too large, split it into several steps. There is no
+nesting to arrange: the manifest is a flat list, and `needs:` says what depends
+on what — so "a sub-pipeline inside a step" is just more entries.
 
-```
-<your-project>/.pipeline/<pipeline-name>/
-├── PIPELINE.md
-└── steps/
-    ├── 01-plan.md
-    ├── 02-scaffold.md
-    ├── 03-implement/            ← nested mini-pipeline (no manifest of its own)
-    │   ├── 01-core-module.md
-    │   ├── 02-adapters.md
-    │   └── 03-wire-up.md
-    └── 04-verify.md
+```yaml
+steps:
+  - name: plan
+    body: steps/plan.md
+  - name: scaffold
+    body: steps/scaffold.md
+  # what used to be a nested folder is three ordinary steps
+  - name: core-module
+    body: steps/core-module.md
+  - name: adapters
+    body: steps/adapters.md
+  - name: wire-up
+    body: steps/wire-up.md
+  - name: verify
+    body: steps/verify.md
 ```
 
 ## Parallel / DAG pipelines (opt-in)
@@ -475,18 +508,18 @@ By default a pipeline is a **linear chain** — iterations run one after another
 
 When a pipeline has **genuinely independent branches** — steps that touch disjoint files and have no ordering dependency on each other — you can let them run **concurrently**. Two optional fields turn it on:
 
-- In `PIPELINE.md` frontmatter: `execution: parallel`.
-- On the independent `steps/NN-*.md` files: `step_id: <short-id>` and `depends-on: [<step_id>, ...]` to declare exactly which steps must finish first.
+- In the manifest: `execution: parallel`.
+- On each independent step: `needs: [<step-name>, ...]` to declare exactly which steps must finish first.
 
-A pipeline runs in DAG mode **only when `execution: parallel` is set** on `PIPELINE.md` — `depends-on` by itself is not enough (a step that declares `depends-on` without `execution: parallel` runs sequentially, and you'll see a warning saying so). So whenever you add `depends-on`, also set `execution: parallel`. Otherwise it stays sequential. In DAG mode the `pipeline-manager` runs each ready set of steps concurrently, **each in its own throwaway git worktree** (under `.claude/worktrees/`), then merges the finished branches back into your working branch one at a time. Because the steps are supposed to be independent, those merges should never conflict — if two parallel steps DID edit the same file, the merge conflicts and the whole run halts with a clear message (that means the pipeline was mis-designed; make those steps sequential or split the shared file out).
+A pipeline runs in DAG mode **only when `execution: parallel` is set** — `needs:` by itself is not enough. The graph is DATA: `needs:` always means what it says, and `execution:` decides only how much of it may run at once. So whenever you add `needss-on`, also set `execution: parallel`. Otherwise it stays sequential. In DAG mode the `pipeline-manager` runs each ready set of steps concurrently, **each in its own throwaway git worktree** (under `.claude/worktrees/`), then merges the finished branches back into your working branch one at a time. Because the steps are supposed to be independent, those merges should never conflict — if two parallel steps DID edit the same file, the merge conflicts and the whole run halts with a clear message (that means the pipeline was mis-designed; make those steps sequential or split the shared file out).
 
-**Bringing your own isolation (`isolation: manual`).** The per-step git worktree above isolates files but NOT environment/ports. If your pipeline already manages its own isolation — e.g. each step creates its own worktree and customises an env file so concurrent servers/ports don't overlap — set `isolation: manual` in `PIPELINE.md` frontmatter (default is `worktree`). In `manual` mode the manager spawns the parallel steps **in place** and does not create or merge any worktree of its own — your pipeline owns isolation end-to-end. Use it only when you genuinely run your own per-branch worktree/port scheme; otherwise leave the default.
+**Bringing your own isolation (`isolation: none`).** The per-step git worktree above isolates files but NOT environment/ports. If your pipeline already manages its own isolation — e.g. each step creates its own worktree and customises an env file so concurrent servers/ports don't overlap — set `isolation: manual` in `PIPELINE.md` frontmatter (default is `worktree`). In `manual` mode the manager spawns the parallel steps **in place** and does not create or merge any worktree of its own — your pipeline owns isolation end-to-end. Use it only when you genuinely run your own per-branch worktree/port scheme; otherwise leave the default.
 
-Example: an `01-build` step, then `lint` / `typecheck` / `test` of disjoint modules running in parallel (each `depends-on: [build]`), then a `package` step that `depends-on: [lint, typecheck, test]`. Ask the designer to make independent branches parallel, or add the frontmatter by hand — it's just YAML.
+Example: a `build` step, then `lint` / `typecheck` / `test` of disjoint modules running in parallel (each `needs: [build]`), then a `package` step that `depends-on: [lint, typecheck, test]`. Ask the designer to make independent branches parallel, or add the frontmatter by hand — it's just YAML.
 
 Keep it sequential when in doubt; parallelism is an optimization for independent work, not a default.
 
-- **`isolation: external` (run-level, sequential-only) — bring a consumer-provisioned worktree.** For *sequential* pipelines whose steps need project-specific provisioning the git-only worktree can't supply (allocated ports, dev secrets, a rendered `.env`, submodule worktrees), set `isolation: external` in `PIPELINE.md` frontmatter. The plugin then provisions ONE worktree per run: the bundled `pipeline next` CLI executes your convention-path hook scripts at `<project>/.pipeline/.hooks/worktree-{create,destroy}` itself, in-process (deterministic subprocess work — no agent involvement) — once at run start (before the first step), shared by every step, and torn down once on every terminal outcome (including halt). The hook contract is unchanged and frozen: inputs arrive as `PIPELINE_WT_*` environment variables, the create hook prints one JSON object (`worktree_path`/`branch`/`env_file`/`ports`) on stdout and is idempotent per name, the destroy hook prints `{"ok":true}` or soft-fails with `{"ok":false,"detail":"…"}` — existing hooks work unmodified. Your steps just `cd` into the provisioned worktree and source its env file; they don't re-allocate anything. Declare the submodules to include via `submodules: [a, b, c]`. If the hooks are missing the run halts (it never silently runs in-place). Combining `isolation: external` with `execution: parallel` degrades to `isolation: manual` with a warning — `external` is sequential-only.
+- **`isolation: run` (run-level, sequential-only) — bring a consumer-provisioned worktree.** For *sequential* pipelines whose steps need project-specific provisioning the git-only worktree can't supply (allocated ports, dev secrets, a rendered `.env`, submodule worktrees), set `isolation: external` in `PIPELINE.md` frontmatter. The plugin then provisions ONE worktree per run: the bundled `pipeline next` CLI executes your convention-path hook scripts at `<project>/.pipeline/.hooks/worktree-{create,destroy}` itself, in-process (deterministic subprocess work — no agent involvement) — once at run start (before the first step), shared by every step, and torn down once on every terminal outcome (including halt). The hook contract is unchanged and frozen: inputs arrive as `PIPELINE_WT_*` environment variables, the create hook prints one JSON object (`worktree_path`/`branch`/`env_file`/`ports`) on stdout and is idempotent per name, the destroy hook prints `{"ok":true}` or soft-fails with `{"ok":false,"detail":"…"}` — existing hooks work unmodified. Your steps just `cd` into the provisioned worktree and source its env file; they don't re-allocate anything. Declare the submodules to include via `submodules: [a, b, c]`. If the hooks are missing the run halts (it never silently runs in-place). Combining `isolation: external` with `execution: parallel` degrades to `isolation: manual` with a warning — `external` is sequential-only.
 
   **Optional mandatory `finalize` stage.** For a run that must not be considered "done" until some project-defined terminal action has SUCCEEDED, add a `worktree-finalize` hook (its presence opts you in; or set `finalize: true` in `PIPELINE.md`). The CLI runs it once at the very end of a COMPLETED run — after the last step, before teardown — and it **must return `{"ok":true}` or the whole run HALTS with the worktree preserved** (so nothing is reaped). It is entirely GENERIC: the plugin has zero knowledge of what your finalize hook does (commit something, push, publish — anything); it only requires `ok`. The hook runs with `PIPELINE_WT_ACTION=finalize` plus the same `PIPELINE_WT_*` context as create/destroy. A pipeline that ships no finalize hook (and no `finalize: true`) is byte-for-byte unchanged — the stage never fires.
 
@@ -498,34 +531,57 @@ Keep it sequential when in doubt; parallelism is an optimization for independent
 
 Everything configurable, in one place. All fields are OPTIONAL — a pipeline with no frontmatter at all is a plain sequential chain driven by a pipeline-manager, with every step inheriting your session model.
 
-**`PIPELINE.md` frontmatter (pipeline-level):**
+**`pipeline.yml` — pipeline-level keys:**
 
-| Field | Values (default first) | What it does |
+| Key | Values (default first) | What it does |
 |---|---|---|
-| `model:` | *(inherit)* \| `haiku` \| `sonnet` \| `opus` \| `fable` \| any `claude-*` id | Default model for every step (a step's own `model:` overrides it). |
-| `effort:` | *(inherit)* \| `low` \| `medium` \| `high` \| `xhigh` \| `max` | Default reasoning effort for every step (a step's own `effort:` overrides it). Applied for real by headless runs (`claude --effort` per step) and dashboard chat sessions; manager runs pass it to the Agent tool only when the harness supports a per-call effort param. |
-| `execution:` | `sequential` \| `parallel` | `parallel` enables DAG mode — steps with satisfied `depends-on` run concurrently. Required gate: `depends-on` alone is ignored. |
-| `isolation:` | `worktree` \| `manual` \| `external` | How steps are isolated. `worktree`/`manual` apply to parallel mode (git worktree per step vs. the pipeline owns its own scheme). `external` is run-level + sequential-only: YOUR hooks provision one worktree per run. |
-| `runner:` | `manager` \| `headless` | Who drives the run: a `pipeline-manager` subagent (default), or the `pipeline drive` CLI with no manager agent at all (EXPERIMENTAL; v1 skips self-improvement). Headless runs get schema-validated step records from the claude JSON envelope, per-step cost/token stats, and resumable pinned sessions: a step that lacks information reports `needs-input` and parks the run (exit 4) — answer with `pipeline drive --resume --start <same-iteration> --answer "<text>"` and the SAME executor session continues where it stopped; interrupted attempts crash-resume the same way (2 tries per step). |
-| `base_branch:` | `main` | External isolation only — the branch your create hook forks the run worktree from. |
-| `delete_branches:` | `true` | External isolation only — on a COMPLETED run the destroy hook receives `PIPELINE_WT_DELETE_BRANCHES=1` (delete the run branch; the work is done). Set `false` to always keep branches. Failed runs always preserve. |
-| `submodules:` | `[]` | External isolation only — submodule names the worktree should include (passed to your hook). |
-| `finalize:` | `false` | External isolation only — require a `worktree-finalize` hook to SUCCEED before a completed run may finish (a `worktree-finalize.*` hook's presence also opts in). |
-| `worktree_hook_dir:` | `.pipeline/.hooks` | Where your external-isolation hook scripts live. |
+| `schema:` | `2` | Required, exact. A manifest that does not say which format it is written in is the ambiguity v2 removes. |
+| `name:` | — | Required. The pipeline's name. |
+| `description:` | — | One line — shown by `/pipeline:find`, and matched against your task. |
+| `execution:` | `sequential` \| `parallel` | `parallel` dispatches each dependency layer at once. The graph itself is `needs:`; this decides only how much of it may run together. |
+| `isolation:` | `none` \| `step` \| `run` | The SCOPE of a git worktree: none, one per step (parallel layers, merged after), or one per run (consumer-provisioned, sequential-only). |
+| `defaults:` | — | `model:` / `effort:` inherited by every step that does not set its own. |
+| `base_branch:` | `main` | `isolation: run` only — what your create hook forks the run worktree from. |
+| `submodules:` | `[]` | `isolation: run` only — submodule names the worktree should include. |
+| `vars:` | — | `${PP_NAME}` values substituted into step prompts. |
+| `self_improve:` | `true` | Whether automated passes may edit step prompts. A step can override it. |
+| `flow:` | — | Conditional routing: step name → edges. Absent ⇒ the step list is the order. |
 
-**`steps/NN-*.md` frontmatter (per-step):**
+**`pipeline.yml` — per-step keys:**
 
-| Field | Values (default first) | What it does |
+| Key | Values (default first) | What it does |
 |---|---|---|
-| `model:` | *(pipeline default)* \| `haiku` \| `sonnet` \| `opus` \| `fable` \| `claude-*` | Pin this one step to a model tier. |
-| `effort:` | *(pipeline default)* \| `low` \| `medium` \| `high` \| `xhigh` \| `max` | Pin this one step's reasoning effort (e.g. `max` on the hard reasoning step, `low` on scaffolding). |
-| `step_id:` | *(filename stem)* | Short id other steps' `depends-on` and the `## Graph` reference. |
-| `depends-on:` | *(previous step)* | `[id, id]` — DAG edges; honored only with `execution: parallel`. |
-| `permission-mode:` | `acceptEdits` \| `dontAsk` \| `plan` \| … \| `inherit` | Headless runs only — the `--permission-mode` the `pipeline drive` executor subprocess gets for this step (also settable pipeline-wide in `PIPELINE.md`; `inherit` passes no flag). Manager runs ignore it. |
+| `name:` | — | Required, unique. THE step's identity — in `needs:`, in `flow:`, in `--start`, in the journal. |
+| `type:` | `agent` \| `script` \| `pipeline` \| `gate` | What runs it. |
+| `body:` | — | The markdown it reads. A path, or a LIST to compose several (optionally conditional). Required for an agent step. |
+| `needs:` | *(the previous step)* | Which steps must finish first. `[]` means none — that is how a step joins the first layer. |
+| `model:` / `effort:` | *(pipeline default)* | Pin this one step. |
+| `retries:` | `0` | Bounded re-dispatch after a transient failure (agent and script steps). |
+| `self_improve:` | *(pipeline default)* | `false` freezes this step's prompt — and every file it composes. |
+| `script:` | — | `type: script` — the script to run, pipeline-root-relative. |
+| `timeout:` / `on_failure:` | `600` / `halt` | `type: script` — seconds, and `halt` or an `agent` fallback. |
+| `params:` / `output:` | — | `type: script` — its inputs and what it publishes downstream. |
+| `pipeline:` / `args:` | — | `type: pipeline` — a child pipeline and its inputs. |
+| `required_role:` / `message:` | — | `type: gate` — who may approve, and the prompt they see. |
 
-**Per-run model & effort overrides (no file edits):** to run the SAME pipeline once with different models or reasoning efforts on specific steps, pass overrides at invocation — `/pipeline:run <path> --model 02-implement=fable --effort 03-refine=max` (or just ask in words: "run steps 02 and 03 on fable, think as hard as possible on the review step"). An override beats the step's own frontmatter for that run only (`inherit` forces your session default); all other steps keep their configured values. Overrides persist in the run's state, so resumes keep them. The headless runner takes the same flags on `pipeline drive`; the dashboard's Launch form has default-model/default-effort rows plus per-step pickers for both.
+A key on a step kind that cannot use it is an **error**, not a warning. A step
+whose declared inputs never bind is the loudest failure this format prevents.
 
-**`PIPELINE.md` body — `## Graph` section (optional):** a fenced JSON block of `step_id` → conditional edges (`{"when": "<flag>", "goto": "<id>", "max": N}`) for declarative loops, skips, and bounded retries, routed on the `result_flags` steps report. No `## Graph` = plain `Next`-link chain.
+**Per-run model & effort overrides (no file edits):** to run the SAME pipeline once with different models or reasoning efforts on specific steps, pass overrides on the command — they beat the manifest for that run only and are persisted so resumes keep them.
+
+**`flow:` (optional)** — conditional routing, as data rather than a mode:
+
+```yaml
+flow:
+  review:
+    - { when: changes_needed, goto: implement, max: 3 }
+    - { goto: package }
+  package:
+    - { done: true }
+```
+
+`when` matches a result flag a step reported; `max` bounds how many times an
+edge may be taken per run. Always end a conditional node with a default edge.
 
 **Environment variables** (dashboard on/off, prompt-match hook, headless executor command, hook timeouts, debug flags): see [Environment variables (reference)](#environment-variables-reference) below.
 
