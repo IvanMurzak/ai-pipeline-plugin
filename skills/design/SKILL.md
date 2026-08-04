@@ -1,6 +1,6 @@
 ---
 name: design
-description: Design a new repeatable long-chain AI workflow as a pipeline of ordered iteration files under this project's .pipeline/. Invoke only for workflows that will be re-run many times, such as releases, recurring audits, and generic task templates; route one-shot tasks through an existing generic pipeline or a regular agent instead.
+description: Design a new repeatable long-chain AI workflow as a pipeline — a pipeline.yml manifest plus the markdown its steps read — under this project's .pipeline/. Invoke only for workflows that will be re-run many times, such as releases, recurring audits, and generic task templates; route one-shot tasks through an existing generic pipeline or a regular agent instead.
 user-invocable: true
 allowed-tools: Read, Edit, Write, Bash, Glob, Grep, WebFetch, WebSearch, Agent
 argument-hint: <high-level goal>
@@ -29,10 +29,22 @@ task through `/pipeline:run` or `/pipeline:dispatch`; if none exists, use a
 regular agent. Explain the alternative briefly. If the user explicitly insists,
 create the pipeline and note that it is an exception.
 
+## What you write
+
+A pipeline is **one `pipeline.yml`** — which declares every step, in order, with
+its type, model and body — plus the markdown those steps read. Nothing about a
+step comes from disk: not its identity, not its order, not its model. A step is
+an entry in the manifest identified by `name:`; the files under `steps/` are
+only prose it is handed, they carry no frontmatter, and their names carry no
+ordering prefix.
+
+Write the manifest FIRST. It is the design; the markdown is what the design says
+to do.
+
 ## Report
 
 After writing the pipeline, report:
 
 - its absolute folder path;
-- its ordered iteration titles; and
-- the command to begin: `/pipeline:run <absolute-path>/steps/01-<first-iteration>.md`.
+- its ordered step names; and
+- the command to begin: `/pipeline:run <absolute-path>`.
