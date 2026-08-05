@@ -18,7 +18,7 @@
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { parseEnvelope } from "../pipeline-cli/src/lib/envelope";
+import { ClaudeStreamParser } from "../pipeline-cli/src/lib/stream-json";
 import { newId } from "../pipeline-cli/src/lib/ids";
 import { isInsidePipelinesDir, type GetProject } from "./launcher.ts";
 import { evictOldestTerminal } from "./lib.ts";
@@ -44,6 +44,10 @@ export interface AiFixJob {
   error: string | null;
   cost_usd: number | null;
   duration_ms: number | null;
+  /** Live counters, updated from the stream-json frames WHILE the session runs
+   *  (ux-v2 b6) — the polled snapshot is no longer blank until it finishes. */
+  tools_called: number;
+  last_tool: string | null;
 }
 
 const jobs = new Map<string, AiFixJob>();
@@ -123,7 +127,21 @@ export async function handleStartAiFix(req: Request, deps: AiFixDeps): Promise<R
   // so a spawn failure is a plain error response, not a phantom "running" job
   // that needs rolling back.
   const startedMs = Date.now();
-  const argv = ["claude", "-p", "--model", model, "--permission-mode", "acceptEdits", "--output-format", "json"];
+  // stream-json + --verbose (ux-v2 b6): frames arrive as the session works, so
+  // the polled job snapshot can show live tool granularity instead of nothing
+  // until it exits. --verbose is REQUIRED — `-p --output-format stream-json`
+  // is rejected at startup without it (measured on claude 2.1.222).
+  const argv = [
+    "claude",
+    "-p",
+    "--model",
+    model,
+    "--permission-mode",
+    "acceptEdits",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+  ];
   const spawnWith = (cmd: string[]) =>
     Bun.spawn({
       cmd,
@@ -162,6 +180,8 @@ export async function handleStartAiFix(req: Request, deps: AiFixDeps): Promise<R
     error: null,
     cost_usd: null,
     duration_ms: null,
+    tools_called: 0,
+    last_tool: null,
   };
   jobs.set(job.job_id, job);
 
@@ -183,8 +203,34 @@ export async function handleStartAiFix(req: Request, deps: AiFixDeps): Promise<R
       }
     }, JOB_TIMEOUT_MS);
     try {
-      const [stdout, stderr, code] = await Promise.all([
-        new Response(child.stdout as ReadableStream).text(),
+      // Same streaming contract `pipeline drive` consumes — one shared parser
+      // (apps/pipeline-cli/src/lib/stream-json.ts). Frames are fed in as they
+      // arrive, so `tools_called` / `last_tool` on the polled snapshot move
+      // during the run; the envelope still comes from the terminal `result`
+      // frame only.
+      const parser = new ClaudeStreamParser({
+        onToolCall: (call) => {
+          job.tools_called += 1;
+          job.last_tool = call.tool;
+        },
+      });
+      let stdout = "";
+      const pump = (async () => {
+        const decoder = new TextDecoder();
+        for await (const chunk of child.stdout as ReadableStream<Uint8Array>) {
+          const text = decoder.decode(chunk, { stream: true });
+          stdout += text;
+          parser.push(text);
+        }
+        const tail = decoder.decode(); // flush a split multi-byte sequence
+        if (tail.length > 0) {
+          stdout += tail;
+          parser.push(tail);
+        }
+        parser.end();
+      })();
+      const [, stderr, code] = await Promise.all([
+        pump,
         new Response(child.stderr as ReadableStream).text(),
         child.exited,
       ]);
@@ -193,8 +239,7 @@ export async function handleStartAiFix(req: Request, deps: AiFixDeps): Promise<R
         finish("failed", { error: (stderr || stdout || `claude exited ${code}`).slice(0, 2000) });
         return;
       }
-      // Same envelope contract `pipeline drive` consumes — one shared parser.
-      const env = parseEnvelope(stdout);
+      const env = parser.summary().envelope;
       finish("done", {
         summary: env?.result?.slice(0, 4000) ?? (stdout.trim().slice(0, 4000) || null),
         cost_usd: env?.total_cost_usd ?? null,
