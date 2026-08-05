@@ -164,23 +164,47 @@ function managerPostPayload(opts: {
   };
 }
 
+/** `ver` — bits 48–51, the high nibble of byte 6 (the first char of a
+ *  canonical UUID's third dash-group). Mirrors apps/pipeline-cli's
+ *  tests/ids.test.ts decoder — duplicated here (not imported) because it is
+ *  test-only decode logic, not product code. */
+function versionNibbleOf(uuid: string): number {
+  return Number.parseInt(uuid.slice(14, 16), 16) >>> 4;
+}
+
+/** `var` — bits 64–65, the top two bits of byte 8 (the first char of a
+ *  canonical UUID's fourth dash-group). RFC variant is `0b10`. */
+function variantBitsOf(uuid: string): number {
+  return Number.parseInt(uuid.slice(19, 21), 16) >>> 6;
+}
+
 describe("bypassRunIdFromToolUseId", () => {
+  // ux-v2 b2: this now derives via `hookIdFromToolUseId` (RFC 9562 §5.5
+  // UUIDv5 over tool_use_id, apps/pipeline-cli/src/lib/ids.ts) instead of a
+  // 12-hex sha1 slice — canonical 36-char UUID, version nibble 5. See
+  // apps/pipeline-ui/tests/hook-bypass-id-determinism.test.ts for the
+  // cross-PROCESS version of the determinism check below (the one that
+  // would actually catch a regression to `newId()`).
   test("is deterministic for the same tool_use_id", () => {
     const a = bypassRunIdFromToolUseId("toolu_abc123");
     const b = bypassRunIdFromToolUseId("toolu_abc123");
     expect(a).toBe(b);
-    expect(a).toHaveLength(12);
+    expect(a).toHaveLength(36);
+    expect(versionNibbleOf(a)).toBe(0b0101);
+    expect(variantBitsOf(a)).toBe(0b10);
   });
 
   test("differs for different tool_use_ids", () => {
     expect(bypassRunIdFromToolUseId("toolu_a")).not.toBe(bypassRunIdFromToolUseId("toolu_b"));
   });
 
-  test("falls back to a random 12-char id when tool_use_id is null/empty", () => {
+  test("falls back to a random UUIDv7 (newId()) when tool_use_id is null/empty", () => {
     const a = bypassRunIdFromToolUseId(null);
     const b = bypassRunIdFromToolUseId(null);
-    expect(a).toHaveLength(12);
-    expect(b).toHaveLength(12);
+    expect(a).toHaveLength(36);
+    expect(b).toHaveLength(36);
+    expect(versionNibbleOf(a)).toBe(0b0111);
+    expect(variantBitsOf(a)).toBe(0b10);
     expect(a).not.toBe(b);
   });
 });

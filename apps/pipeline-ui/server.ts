@@ -79,6 +79,7 @@ import {
 import { handleTranscribe, handleTranscribeStatus } from "./transcribe.ts";
 import { backfillProject } from "../pipeline-cli/src/lib/stats-backfill";
 import { findRunsFiles, parseRunRecords } from "../pipeline-cli/src/lib/stats";
+import { newId } from "../pipeline-cli/src/lib/ids";
 import { handleStartAiFix, handleGetAiFixJob } from "./aifix.ts";
 import {
   collectRunBreakdown,
@@ -203,9 +204,12 @@ const runStatsCache = new Map<
 >();
 
 /** Parse the (large, append-only, machine-GLOBAL) bindings file into a per-run
- *  transcript map, scoped to ONE project — run_ids are short (12 hex) and only
- *  unique within a project, so an index filtered by project_root prevents a
- *  cross-project run_id collision from resolving to the wrong transcript. A
+ *  transcript map, scoped to ONE project. Since ux-v2 b2 a run_id is a UUID
+ *  and collision-free by construction, but the project_root filter stays: the
+ *  file is machine-GLOBAL, and every consumer of this index reads it per
+ *  project, so filtering here keeps another project's runs out of this
+ *  project's map (and keeps a pre-b2 12-hex id — only ever unique WITHIN a
+ *  project — from resolving to the wrong transcript). A
  *  binding is immutable once written (its transcript_path + earliest start_ts
  *  never change), so once a run is in the index we never reparse for it — that
  *  keeps the steady-state poll of a live run off the file entirely; we only
@@ -2601,12 +2605,10 @@ async function handleChatRequest(req: Request): Promise<Response> {
           /* client closed */
         }
       };
-      // Use a UUID-shaped runId so it sorts and dedupes alongside /pipeline:run
-      // ids and shows up cleanly in the existing RunList.
-      const runId = createHash("sha1")
-        .update(`${Date.now()}-${Math.random()}`)
-        .digest("hex")
-        .slice(0, 12);
+      // THE mint point (ux-v2 b2): every run id in the plugin comes from
+      // newId(), an RFC 9562 UUIDv7 — so it sorts and dedupes alongside
+      // /pipeline:run ids and shows up cleanly in the existing RunList.
+      const runId = newId();
 
       let sawResult = false;
       let sawError = false;

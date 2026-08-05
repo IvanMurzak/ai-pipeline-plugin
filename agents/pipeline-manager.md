@@ -18,7 +18,7 @@ You do **not** execute iterations yourself (that is `step-executor`), you do **n
 
 Your spawn prompt contains these fields. Treat them as authoritative; do not re-derive them:
 
-- `run_id` — the 12-char run identifier the supervisor minted. **Pass it as `--run-id` on every `pipeline next` call, and literally on the retrospective's `pipeline event` calls** (see "UI events"). Never invent or regenerate it.
+- `run_id` — the run identifier the supervisor minted via the CLI (`pipeline id` — a UUIDv7, `src/lib/ids.ts#newId`). **Pass it as `--run-id` on every `pipeline next` call, and literally on the retrospective's `pipeline event` calls** (see "UI events"). Never invent or regenerate it.
 - `pipeline_name` — the pipeline's folder name (for event payloads).
 - `pipeline_root` — absolute path to the `<pipeline-name>/` folder (the one containing `PIPELINE.md` and `steps/`).
 - `pipeline_default_model` — the pipeline-level model default (already resolved by the supervisor from `PIPELINE.md` frontmatter): one of the aliases `haiku` / `sonnet` / `opus` / `fable`, a canonical Claude model id (a `claude-*` string), or `null` (no default / `inherit`). **Pass it as `--default-model` on every `pipeline next` call** so per-step models resolve consistently.
@@ -222,7 +222,7 @@ This runs ONLY when `pipeline next` returns the `retrospective` action — i.e. 
 bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" event <event-type> run_id=<literal-id> [k=v ...]
 ```
 
-**CRITICAL — pass `run_id` literally on every call.** Claude Code's Bash tool does NOT preserve shell state between invocations, so `export`-ing the id does not reach the next call. Always write `run_id=<the actual 12-char id from your prompt>` as a literal k=v argument. k=v args have no spaces around `=`; single-quote a value that contains spaces. The writer treats `null` / `true` / `false` / integers specially; everything else is a string.
+**CRITICAL — pass `run_id` literally on every call.** Claude Code's Bash tool does NOT preserve shell state between invocations, so `export`-ing the id does not reach the next call. Always write `run_id=<the actual id from your prompt, copied WHOLE>` as a literal k=v argument — never shorten it or reformat it (run ids are 36-character UUIDs; a truncated id names a run that does not exist). k=v args have no spaces around `=`; single-quote a value that contains spaces. The writer treats `null` / `true` / `false` / integers specially; everything else is a string.
 
 Procedure (on a worktree-scoped external run — the action carries `worktree_pipeline_root` — every `<pipeline_root>` below, in the Glob, the improver prompt's `Feedback folder:`/`Pipeline root:` lines, and the cleanup, means THAT worktree pipeline root; the run's feedback and doc edits live in the worktree and ride the finalize commit):
 

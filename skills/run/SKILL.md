@@ -62,7 +62,7 @@ A pipeline and each iteration may also opt into a **reasoning effort** via the O
 
 You emit the **run-level lifecycle** to `<project>/.pipeline/.runtime/events.jsonl`; the per-iteration events (`iteration.*`, `improver.*`, `script_creator.*`, `worktree.*`) are auto-emitted in-process by the `pipeline next` CLI the manager drives (the manager itself emits only the retrospective's improver/script events). Because the whole run shares one `session_id`, the mirror binding you register below lets the daemon correlate the manager's and step-executors' tool calls to this run. Emissions are best-effort — never let a failure halt the run.
 
-**One-time setup at the start of the Procedure:** generate a 12-char run id, e.g. `bun -e "console.log(require('crypto').randomBytes(6).toString('hex'))"`. Capture the literal value (e.g. `abc123def456`).
+**One-time setup at the start of the Procedure:** mint the run id by calling the CLI — never generate one yourself or invent a format: `bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" id`. Capture the literal value it prints (a UUIDv7, e.g. `019fc762-5762-7000-a9bf-922ed8fa00be`).
 
 **CRITICAL — pass `run_id` literally on every writer call.** Claude Code's Bash tool does not preserve shell state between invocations, so an exported env var does not reach the next `pipeline event` call. Pass `run_id=<the-literal-id>` as a k=v argument on EVERY call. k=v args have no spaces around `=`; single-quote a value containing spaces.
 
@@ -209,7 +209,7 @@ Brief fields: `parent_task_repo`, `parent_task_issue`, `parent_branch`, `parent_
    gh issue create --repo <blocker_target_repo> --title "<new_issue_title>" --body "<new_issue_body>"
    ```
 
-   Record `blocker_issue_number` and `blocker_issue_url`. If a `--label` fails because the label doesn't exist, drop it and retry. Emit `blocker.delegated run_id=<id> parent_iteration_path=<abs> blocker_issue_url=<url> child_run_id=<child-id> blocker_target_repo=<owner/repo>` (mint a `child_run_id` now for the child run).
+   Record `blocker_issue_number` and `blocker_issue_url`. If a `--label` fails because the label doesn't exist, drop it and retry. Mint `child_run_id` for the child run the same way as the top-level run id — `bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" id` — never invent a format. Emit `blocker.delegated run_id=<id> parent_iteration_path=<abs> blocker_issue_url=<url> child_run_id=<child-id> blocker_target_repo=<owner/repo>`.
 
 2. **Back-link the parent's tracking issue** (skip when `parent_task_issue` is empty):
 

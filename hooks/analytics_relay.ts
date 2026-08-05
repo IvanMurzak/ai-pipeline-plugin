@@ -86,9 +86,9 @@ import {
   readSync,
   closeSync,
 } from "node:fs";
-import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { newId, hookIdFromToolUseId } from "../apps/pipeline-cli/src/lib/ids.ts";
 
 const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
 const log = (msg: string) => DEBUG && console.error(`[analytics_relay] ${msg}`);
@@ -549,7 +549,7 @@ const BYPASS_DEDUP_WINDOW_MS = 10 * 60 * 1000;
  *  Without case 2, the chain controller's first `pipeline.started` carries
  *  `first_iteration_path=step01` and matches step 01 only; steps 02..N
  *  would each be misclassified as a Path-C bypass spawn and get phantom
- *  one-step "runs" minted under fresh sha1(tool_use_id) ids. Including
+ *  one-step "runs" minted under fresh hookIdFromToolUseId ids. Including
  *  case 2 keeps the entire chain attributed to its real controller run.
  *
  *  Most-recent-matching-event-wins (we scan from the end and return on
@@ -1051,22 +1051,33 @@ function journalHasPipelineStarted(runId: string, projectRoot: string): boolean 
   return false;
 }
 
-/** Derive a 12-char run_id from the PostToolUse / PreToolUse tool_use_id
- *  so the same Path-C spawn produces the same run_id no matter which
- *  hook synthesizes its lifecycle events first. Without this, Phase 2's
+/** Derive a run_id from the PostToolUse / PreToolUse tool_use_id so the
+ *  same Path-C spawn produces the same run_id no matter which hook
+ *  synthesizes its lifecycle events first. Without this, Phase 2's
  *  PreToolUse hook would write a binding with run_id=A, then Phase 1's
  *  PostToolUse would mint a different run_id=B for the synthesized
  *  lifecycle events, leaving the chat panel decoupled from the run's
  *  stats panel.
  *
- *  When tool_use_id is missing (defensive), fall back to a random id —
- *  PreToolUse and PostToolUse will pick different ids in that case, but
- *  Phase 1 behavior is preserved. */
+ *  ux-v2 b2: this is a DERIVATION (`hookIdFromToolUseId` — RFC 9562 §5.5
+ *  UUIDv5 over `tool_use_id`), never `newId()`. PreToolUse and PostToolUse
+ *  are separate process invocations with no shared state (see the "Run-
+ *  correlation" header comment and the schema note above), so the ONLY way
+ *  they can agree on one id is to compute it deterministically from the one
+ *  input they share. Swapping this for `newId()` would silently break that
+ *  agreement — see `tests/hook-bypass-id-determinism.test.ts` for a test
+ *  that actually catches it (calling the function twice in ONE process is
+ *  not enough; the regression this guards against only shows up across two).
+ *
+ *  When tool_use_id is missing (defensive), fall back to a genuinely random
+ *  id via `newId()` — PreToolUse and PostToolUse will pick different ids in
+ *  that case (there is no shared input to derive from), but Phase 1
+ *  behavior is preserved. */
 function bypassRunIdFromToolUseId(toolUseId: string | null): string {
   if (toolUseId && toolUseId.length > 0) {
-    return createHash("sha1").update(toolUseId).digest("hex").slice(0, 12);
+    return hookIdFromToolUseId(toolUseId);
   }
-  return randomUUID().replace(/-/g, "").slice(0, 12);
+  return newId();
 }
 
 // --------------------------------------------------------------------
@@ -1098,17 +1109,44 @@ function bypassRunIdFromToolUseId(toolUseId: string | null): string {
 //     each worker spawn, so the run already exists).
 // --------------------------------------------------------------------
 
-/** Pull the literal `run_id = <12-hex>` the supervisor writes into the
+/** The run-id shapes that can legitimately appear on a `run_id = …` line.
+ *
+ *  1. A canonical 36-char UUID — what every mint site produces since ux-v2
+ *     b2. Deliberately VERSION-AGNOSTIC: `newId()` mints v7, while
+ *     `hookIdFromToolUseId()` mints v5 for bypass spawns, and a supervisor
+ *     may legitimately be echoing either. This function extracts an id; it
+ *     does not adjudicate which class minted it.
+ *  2. The pre-b2 12-lowercase-hex id (`randomBytes(6).toString('hex')`).
+ *     Kept so a run already in flight when the plugin updates — its manager
+ *     prompt written under the old scheme — keeps its Path-B ownership
+ *     instead of sprouting a phantom mid-chain.
+ *
+ *  Ordered UUID-first: the 12-hex alternative cannot match a UUID anyway (a
+ *  hyphen sits at offset 8), but leading with the longer shape keeps the
+ *  intent obvious and forbids a truncated-prefix match by construction. */
+const PROMPT_RUN_ID_RE =
+  /\brun_id\s*[=:]\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{12})\b/i;
+
+/** Pull the literal `run_id = <id>` the supervisor writes into the
  *  `pipeline-manager` spawn prompt. A strong Path-B ownership signal that
  *  survives a resume (where the journal scan by iteration_path can miss,
  *  because the supervisor's single `pipeline.started` carries the FIRST
  *  iteration path, not the resume iteration). Returns null when no such
- *  line is present (e.g. a Path-C hand spawn that omits it). */
+ *  line is present (e.g. a Path-C hand spawn that omits it).
+ *
+ *  Load-bearing, and quietly so: when this misses, the caller falls through
+ *  to `findChainControllerRunId`, and where THAT also misses — the matching
+ *  journal event aged out of `BYPASS_DEDUP_WINDOW_MS`, was pushed past the
+ *  500-line tail cap, or is simply absent — the spawn is misclassified
+ *  `bypass-spawn`, a different run id is minted, and `synthesizeBypassStart`
+ *  announces a PHANTOM second run on the dashboard. See
+ *  apps/pipeline-ui/tests/hook-runid-shape-ownership.test.ts, which pins
+ *  exactly that population (a fresh chain does NOT reproduce it). */
 function extractRunIdFromPrompt(toolInput: Record<string, unknown>): string | null {
   const candidates = [toolInput.prompt, toolInput.description, toolInput.message];
   for (const c of candidates) {
     if (typeof c !== "string" || c.length === 0) continue;
-    const m = /\brun_id\s*[=:]\s*([0-9a-f]{12})\b/i.exec(c);
+    const m = PROMPT_RUN_ID_RE.exec(c);
     if (m) return m[1];
   }
   return null;
@@ -1145,7 +1183,7 @@ function handlePreToolUse(payload: Record<string, unknown>, projectRoot: string,
       ?? findChainControllerRunId(managerParsed.iterationPath, projectRoot);
     // Without tool_use_id, the Phase-2 PreToolUse binding cannot correlate
     // with the PostToolUse synthesis: bypassRunIdFromToolUseId would fall
-    // back to randomUUID() and the two hooks would pick different run_ids.
+    // back to newId() and the two hooks would pick different run_ids.
     // Bail out so PostToolUse handles the binding exclusively in this
     // defensive case — synthesis still works without PreToolUse, just with
     // a longer "no messages yet" window.
