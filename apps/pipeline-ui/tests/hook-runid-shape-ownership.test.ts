@@ -255,6 +255,20 @@ describe("extractRunIdFromPrompt — accepts every id shape a mint site produces
     expect(extractRunIdFromPrompt({ prompt: `run_id = ${id}` })).not.toBe(id.slice(0, 12));
   });
 
+  test("`parent_run_id` / `child_run_id` are NOT mistaken for `run_id`, in either order", () => {
+    // A blocker-delegation child spawn carries BOTH lines (skills/run/SKILL.md
+    // §4: "its own run_id=<child_run_id> and parent_run_id=<id>"), and since b2
+    // both are UUIDs — so the prompt now holds two ids of identical shape and
+    // only the `\b` prefix guard separates them. Picking the wrong one would
+    // bind the child's manager transcript to the PARENT's run.
+    const child = "019fd0b9-6313-701d-8b44-9861d85e1be7";
+    const parent = "019fd0a0-0000-7000-8000-000000000001";
+    expect(extractRunIdFromPrompt({ prompt: `parent_run_id = ${parent}\nrun_id = ${child}\n` })).toBe(child);
+    expect(extractRunIdFromPrompt({ prompt: `run_id = ${child}\nparent_run_id = ${parent}\n` })).toBe(child);
+    expect(extractRunIdFromPrompt({ prompt: `child_run_id = ${child}\n` })).toBeNull();
+    expect(extractRunIdFromPrompt({ prompt: `parent_run_id = ${parent}\n` })).toBeNull();
+  });
+
   test("the un-substituted SKILL.md placeholder and a shapeless id return null", () => {
     expect(extractRunIdFromPrompt({ prompt: "run_id = <literal run id>" })).toBeNull();
     expect(extractRunIdFromPrompt({ prompt: "run_id = not-an-id" })).toBeNull();
