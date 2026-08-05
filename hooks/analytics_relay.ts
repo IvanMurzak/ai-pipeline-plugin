@@ -98,12 +98,14 @@ import {
   readFileSync,
   statSync,
   writeFileSync,
+  unlinkSync,
   openSync,
   readSync,
   closeSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { spawn } from "node:child_process";
 import { newId, hookIdFromToolUseId } from "../apps/pipeline-cli/src/lib/ids.ts";
 
 const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
@@ -1174,6 +1176,349 @@ function bypassRunIdFromToolUseId(toolUseId: string | null): string {
 }
 
 // --------------------------------------------------------------------
+// Telemetry uploader daemon — "ensure it is running" (ux-v2 b11)
+//
+// `apps/pipeline-cli/src/lib/telemetry-upload.ts`'s `flushOnce()` header says
+// outright: "the only intended caller ... is the DETACHED uploader daemon
+// (b11)". This is the OTHER half of that daemon's contract — the code that
+// decides whether one needs to be spawned, called once per `pipeline-manager`
+// spawn (a run's start; see the call site in `handlePreToolUse` below), which
+// is what makes it contribute to the `08` J2 budget: "≤1 process spawned at
+// run start".
+//
+// THE LOCK, AND WHY IT IS ATOMIC WHERE THE NOTIFIER'S IS NOT
+// (`hooks/department_notifier_relay.ts`'s `ensureDaemonRunning` /
+// `spawnNotifyDaemon`, `:135, :162-173`): that function's shape is CHECK
+// (`existsSync`) → SPAWN → WRITE (`writeFileSync`, plain). Two callers that
+// both read "no lock" before either has written one both spawn — the pid file
+// only ever recorded the LAST writer, so nothing here can even detect that it
+// happened. The fix is not "check harder" — no read-then-write pair is ever
+// atomic against a second process doing the same thing — it is to make the
+// WRITE ITSELF be the check: `acquireTelemetryDaemonLock` below creates the
+// lock file with the `wx` (`O_EXCL`) flag BEFORE any spawn happens, using
+// THIS process's own pid as a short-lived placeholder (finalized to the real
+// daemon pid — see `finalizeTelemetryDaemonLock` — the instant `spawn()`
+// returns one, a handful of synchronous fs calls later with nothing else able
+// to run on this thread in between). `wx` either creates the file or fails
+// with `EEXIST` — there is no window between "does it exist" and "create it"
+// for a second caller to land in, because those are the SAME filesystem
+// operation. Only the caller whose `wx` call wins is told `'acquired'`; every
+// other concurrent caller is told `'already-running'` or `'skip'` and never
+// spawns. See `apps/pipeline-ui/tests/hook-telemetry-daemon-lock.test.ts` for
+// the race test AND the mutation check (this scheme reverted to
+// `existsSync`-then-write, showing two acquisitions instead of one).
+//
+// THE STALE-LOCK RECLAIM, AND WHY IT MATTERS MORE THAN THE RACE:
+// `wx` alone is worse than the bug it fixes the FIRST time a daemon dies
+// without cleaning up — SIGKILL, OOM, `taskkill /F`, a crashed machine. Every
+// later `wx` create then fails on that dead lock FOREVER, and telemetry stops
+// moving permanently — a wedge, not merely a doubled process. So a lock is
+// reclaimed (unlinked, then the `wx` create retried ONCE) when EITHER:
+//
+//   - the recorded pid is no longer alive (`isProcessAlive` throws on
+//     `process.kill(pid, 0)`) — the PRIMARY signal, and it fires immediately
+//     (no age wait) for exactly the SIGKILL case above; or
+//   - the lock is older than `TELEMETRY_LOCK_STALE_AGE_MS` — a defense
+//     against PID REUSE: a dead daemon's pid gets recycled by an unrelated
+//     live process before anything ever reclaims the lock, which would make
+//     `isProcessAlive` answer "alive" about the wrong process forever. This
+//     bound is comfortably ABOVE the daemon's own `DEFAULT_MAX_WALL_CLOCK_MS`
+//     (`commands/telemetry-daemon.ts`) so a live, spec-compliant daemon's
+//     lock is never reclaimed out from under it — only a pid that outlived
+//     what any correct daemon could legitimately run for is suspect.
+//
+// The reclaim retry is single-shot: if the post-reclaim `wx` create ALSO
+// fails (a concurrent reclaimer won it first), this caller backs off
+// (`'skip'`) rather than looping — the next `pipeline-manager` spawn tries
+// again from a clean read. `TELEMETRY_LOCK_STALE_AGE_MS` MUST track
+// `commands/telemetry-daemon.ts`'s `LOCK_STALE_AGE_MS` — duplicated, not
+// imported (see that file's header for why), so
+// `tests/telemetry-daemon-lock-parity.test.ts` pins the two equal.
+//
+// This "wx create, then EITHER dead-pid OR age reclaims it" shape is not
+// novel to this file: `lib/credential-lock.ts` (a5) already ships the exact
+// same argument for the credential-store lock — "exclusive file creation ...
+// there is no window where two callers can both believe they created it" —
+// and this scheme's `isProcessAlive` below borrows that module's EPERM fix
+// (see its own doc comment). The difference is shape, not principle:
+// `credential-lock.ts`'s `acquireLock` BLOCKS (polls with a timeout) because
+// a caller genuinely needs the lock before it can proceed; a hook must never
+// block Claude Code, so `acquireTelemetryDaemonLock` below tries ONCE and, on
+// any loss, simply does not spawn — the next run start tries again fresh.
+//
+// WHY THIS WHOLE BLOCK IS DUPLICATED HERE RATHER THAN IMPORTED FROM
+// `commands/telemetry-daemon.ts`: that module pulls in the outbox/upload/
+// vendor-privacy chain at top level, real (if small) parse-and-eval cost a
+// HOT hook — this file runs on every Agent/Task spawn — should not pay just
+// to decide whether a daemon is already running. Same reasoning
+// `submoduleWorktreeOf`'s own doc comment above gives for copying rather than
+// importing `pipeline-ui/lib.ts`.
+//
+// GATING, so this never touches disk (beyond the two checks below) for a
+// project that has no telemetry to ever send: `PIPELINE_SYNC_LOCAL_STATS`
+// (parsed with this file's own falsy convention, duplicated from
+// `telemetry-outbox.ts`'s `telemetrySyncEnabled` for the SAME hot-hook reason
+// as above) and — mirroring F7 ("no cloud account ⇒ the subsystem is ABSENT,
+// not merely inert", and matrix 4's "no cloud account: run succeeds; nothing
+// surfaced, nothing spawned") — a project that has never run
+// `pipeline cloud connect` (no `.pipeline/cloud.json`) gets no daemon either;
+// `resolveUploadTarget` would return null anyway, so spawning one that can
+// only ever idle-exit is pure waste `08` J2's "≤1 process spawned" budget
+// does not need to spend.
+// --------------------------------------------------------------------
+
+const TELEMETRY_SYNC_ENV = "PIPELINE_SYNC_LOCAL_STATS";
+
+/** Same falsy-parse convention as `pipelineUiEnabled`/`awaitingInputEnabled`
+ *  above; duplicated (not imported) from `telemetry-outbox.ts`'s
+ *  `telemetrySyncEnabled` for the same "keep this hot hook's import graph
+ *  light" reason the rest of this block explains. */
+function telemetryDaemonSyncEnabled(): boolean {
+  const v = (process.env[TELEMETRY_SYNC_ENV] ?? "").trim().toLowerCase();
+  return v !== "0" && v !== "false" && v !== "no" && v !== "off";
+}
+
+/** `<project>/.pipeline/.runtime/telemetry/daemon.lock` — DUPLICATED (not
+ *  imported) from `commands/telemetry-daemon.ts`'s `telemetryDaemonLockPath`;
+ *  `tests/telemetry-daemon-lock-parity.test.ts` asserts the two agree. */
+function telemetryDaemonLockPath(projectRoot: string): string {
+  return join(projectRoot, ".pipeline", ".runtime", "telemetry", "daemon.lock");
+}
+
+/** MUST track `commands/telemetry-daemon.ts`'s `LOCK_STALE_AGE_MS` exactly —
+ *  see this block's header comment and the parity test. */
+const TELEMETRY_LOCK_STALE_AGE_MS = 35 * 60_000; // 30 min daemon cap + 5 min grace
+
+interface TelemetryDaemonLock {
+  pid: number;
+  started_at: string;
+}
+
+/** Duplicated from `department_notifier_relay.ts`'s own `isProcessAlive` —
+ *  hooks cannot import a sibling at runtime; see that file's header — with
+ *  ONE correctness fix pulled from this repo's OTHER `wx`-lock precedent,
+ *  `lib/credential-lock.ts`'s own `isProcessAlive` (a5): `EPERM` means the
+ *  process exists but this one lacks permission to signal it — still alive.
+ *  Anything else (`ESRCH`, or the Windows equivalent Node's libuv shim
+ *  throws) means it is gone. The notifier's copy treats EPERM as "dead",
+ *  which would misclassify a live daemon running under another account as
+ *  stale and reclaim a lock that is not actually free. */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function readTelemetryDaemonLock(lockPath: string): TelemetryDaemonLock | null {
+  if (!existsSync(lockPath)) return null;
+  try {
+    const txt = readFileSync(lockPath, "utf-8").trim();
+    if (!txt) return null;
+    const parsed = JSON.parse(txt) as Partial<TelemetryDaemonLock>;
+    if (typeof parsed.pid !== "number") return null;
+    return { pid: parsed.pid, started_at: String(parsed.started_at ?? "") };
+  } catch (e) {
+    log(`telemetry daemon lock unreadable: ${e}`);
+    return null;
+  }
+}
+
+function telemetryLockAgeMs(lock: TelemetryDaemonLock, now: number): number {
+  const t = Date.parse(lock.started_at);
+  return Number.isFinite(t) ? Math.max(0, now - t) : Number.POSITIVE_INFINITY;
+}
+
+/** A lock is stale when its pid is dead (the primary, immediate signal) OR
+ *  it has outlived any correct daemon's own wall-clock cap plus grace (the
+ *  pid-reuse defense) — see this block's header comment. */
+function isTelemetryLockStale(lock: TelemetryDaemonLock, now: number): boolean {
+  if (!isProcessAlive(lock.pid)) return true;
+  return telemetryLockAgeMs(lock, now) >= TELEMETRY_LOCK_STALE_AGE_MS;
+}
+
+type TelemetryLockAcquireResult =
+  | { action: "already-running"; pid: number }
+  | { action: "acquired" }
+  | { action: "skip" };
+
+/** Attempt the ONE atomic operation this whole scheme rests on: create
+ *  `lockPath` with `wx`, or fail `EEXIST` if anything is there right now.
+ *  Any OTHER failure (permissions, a vanished parent dir) also returns
+ *  `false` — logged, and treated identically to losing the race: never
+ *  spawn on an uncertain lock state. */
+function tryCreateTelemetryDaemonLock(lockPath: string, pid: number, now: number): boolean {
+  try {
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ pid, started_at: new Date(now).toISOString() } satisfies TelemetryDaemonLock) + "\n",
+      { flag: "wx" },
+    );
+    return true;
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException)?.code;
+    if (code !== "EEXIST") log(`telemetry daemon lock create failed: ${e}`);
+    return false;
+  }
+}
+
+/**
+ * Atomically claim the right to spawn this project's telemetry daemon. See
+ * this block's header comment for the full race + stale-lock reasoning.
+ * Exported for `apps/pipeline-ui/tests/hook-telemetry-daemon-lock.test.ts`.
+ *
+ * ORDER MATTERS, and matches `lib/credential-lock.ts`'s own `acquireLock`
+ * loop exactly (`tryCreate` first; `isStale` — a FRESH read — only ever
+ * consulted AFTER a create has already failed): the exclusive `wx` create is
+ * attempted BEFORE any unlink, on every call, with no preceding read. A
+ * cross-process race test
+ * (`apps/pipeline-ui/tests/hook-telemetry-daemon-lock-cross-process.test.ts`)
+ * caught the ORIGINAL, wrong order the hard way: reading first and THEN
+ * unconditionally unlinking whatever the read had called "absent" or "stale"
+ * — even after a concurrent winner had ALREADY written a brand-new, live
+ * lock in the gap between that read and the unlink — deleted the winner's
+ * lock out from under it and let a second caller "acquire" too. Attempting
+ * the create FIRST removes that gap entirely for the common case (no lock
+ * exists yet): the `wx` syscall IS the check, so nothing between "read" and
+ * "act" can go stale, because there is no read before it. The residual
+ * reclaim path below (reached only once a create has ALREADY failed) reads
+ * fresh, immediately before its own unlink+retry — a far smaller window,
+ * confined to the genuinely rare case where a stale lock exists at all.
+ */
+function acquireTelemetryDaemonLock(lockPath: string, now: number, selfPid: number): TelemetryLockAcquireResult {
+  // FAST PATH — an optimization only, and never itself a write: skips the
+  // create attempt entirely when a snapshot read already shows a live,
+  // non-stale lock (the overwhelmingly common steady-state case — most
+  // manager spawns in a run land here). Every correctness guarantee below
+  // holds with this block deleted; the identical "already-running"
+  // determination is repeated, from a FRESH read, immediately after a
+  // failed create if this fast path is skipped or its snapshot was wrong.
+  const snapshot = readTelemetryDaemonLock(lockPath);
+  if (snapshot !== null && !isTelemetryLockStale(snapshot, now)) {
+    return { action: "already-running", pid: snapshot.pid };
+  }
+
+  if (tryCreateTelemetryDaemonLock(lockPath, selfPid, now)) {
+    return { action: "acquired" };
+  }
+
+  // Lost the create — something occupies the path RIGHT NOW. Re-read it
+  // FRESH (never trust `snapshot` here: it describes a moment that has
+  // already been proven stale by this very failure).
+  const current = readTelemetryDaemonLock(lockPath);
+  if (current !== null && !isTelemetryLockStale(current, now)) {
+    return { action: "already-running", pid: current.pid };
+  }
+  // Absent again (the holder released it between our failed create and this
+  // read), stale, or corrupt/unreadable — clear it and retry ONCE, based
+  // ONLY on what this fresh read just observed.
+  try {
+    unlinkSync(lockPath);
+  } catch {
+    /* already gone, or a concurrent reclaimer beat us to it */
+  }
+  if (tryCreateTelemetryDaemonLock(lockPath, selfPid, now)) {
+    return { action: "acquired" };
+  }
+  // A concurrent reclaimer won the retry. Back off rather than loop again —
+  // the next pipeline-manager spawn tries from a clean read.
+  return { action: "skip" };
+}
+
+/** Overwrite a lock this process just won (via `acquireTelemetryDaemonLock`
+ *  returning `'acquired'`) with the REAL daemon pid once `spawn()` returns
+ *  one. Safe as a plain write — exclusivity was already established by the
+ *  `wx` create; this only ever follows a successful acquisition for the same
+ *  lock path in the same process. */
+function finalizeTelemetryDaemonLock(lockPath: string, pid: number, now: number): void {
+  try {
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ pid, started_at: new Date(now).toISOString() } satisfies TelemetryDaemonLock) + "\n",
+    );
+  } catch (e) {
+    log(`telemetry daemon lock finalize failed: ${e}`);
+  }
+}
+
+const TELEMETRY_PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT ?? resolve(import.meta.dir, "..");
+const TELEMETRY_CLI_ENTRY = join(TELEMETRY_PLUGIN_ROOT, "apps", "pipeline-cli", "src", "cli.ts");
+
+/** Spawn `pipeline telemetry-daemon` detached — the SAME spawn shape as
+ *  `department_notifier_relay.ts`'s `spawnNotifyDaemon` (`detached: true`,
+ *  `stdio: "ignore"`, `windowsHide: true`, `child.unref()`; the Windows
+ *  console-window concern is a verified non-issue there, and copied here
+ *  unchanged), using `process.execPath` rather than a bare `bun` on PATH for
+ *  the same Windows npm-shim reason that file documents. Only called after
+ *  `acquireTelemetryDaemonLock` has already returned `'acquired'` — this
+ *  function never decides whether to spawn, only how. */
+function spawnTelemetryDaemon(lockPath: string, projectRoot: string, reservedAt: number): void {
+  if (!existsSync(TELEMETRY_CLI_ENTRY)) {
+    log(`telemetry daemon: cli entry not found at ${TELEMETRY_CLI_ENTRY}`);
+    return;
+  }
+  try {
+    const child = spawn(
+      process.execPath,
+      [TELEMETRY_CLI_ENTRY, "telemetry-daemon", "--project-root", projectRoot],
+      {
+        detached: true,
+        stdio: "ignore",
+        env: { ...process.env },
+        windowsHide: true,
+      },
+    );
+    child.unref();
+    if (typeof child.pid === "number") {
+      finalizeTelemetryDaemonLock(lockPath, child.pid, reservedAt);
+      log(`spawned telemetry daemon pid=${child.pid} for ${projectRoot}`);
+    } else {
+      // No pid to finalize with. The lock stays reserved under THIS process's
+      // (the hook's) own pid, which is fine, not a wedge: the hook process
+      // exits within milliseconds of returning from main(), at which point
+      // isProcessAlive(lock.pid) immediately answers false and the very next
+      // pipeline-manager spawn reclaims the lock and tries again.
+      log("telemetry daemon spawn returned no pid — leaving the reservation to self-heal");
+    }
+  } catch (e) {
+    log(`failed to spawn telemetry daemon: ${e}`);
+  }
+}
+
+/**
+ * Ensure this project's telemetry daemon is running, spawning one if the
+ * lock is absent, stale, or points at a dead pid. Called once per
+ * `pipeline-manager` spawn (`handlePreToolUse` below) — a run's start.
+ *
+ * Best-effort and NEVER throws (mirrors `department_notifier_relay.ts`'s own
+ * `ensureDaemonRunning`): any failure here must never block Claude Code or
+ * fail the surrounding hook. No network work happens in this function or
+ * anything it calls — only local fs checks and, at most once, a detached
+ * spawn — matching this task's "no network work in the hook" rule.
+ */
+function ensureTelemetryDaemonRunning(projectRoot: string): void {
+  try {
+    if (!telemetryDaemonSyncEnabled()) return;
+    // F7 / matrix 4: no cloud account ⇒ nothing to ever upload ⇒ spawn
+    // nothing. `resolveUploadTarget` would reach the same "null" conclusion
+    // over the network path this hook must never take; checking the local
+    // project binding first is the whole reason this can stay synchronous.
+    if (!existsSync(join(projectRoot, ".pipeline", "cloud.json"))) return;
+
+    const lockPath = telemetryDaemonLockPath(projectRoot);
+    mkdirSync(dirname(lockPath), { recursive: true });
+    const now = Date.now();
+    const result = acquireTelemetryDaemonLock(lockPath, now, process.pid);
+    if (result.action !== "acquired") return;
+    spawnTelemetryDaemon(lockPath, projectRoot, now);
+  } catch (e) {
+    log(`ensureTelemetryDaemonRunning threw: ${e}`);
+  }
+}
+
+// --------------------------------------------------------------------
 // PreToolUse handler — fires BEFORE the executor subagent runs.
 //
 // Two spawn shapes are recognized, anchored on the AGENT being spawned:
@@ -1268,6 +1613,15 @@ function handlePreToolUse(payload: Record<string, unknown>, projectRoot: string,
   // --- MANAGER spawn: the run anchor. ---
   const managerParsed = parseManagerSpawn(input);
   if (managerParsed) {
+    // ux-v2 b11: a pipeline-manager spawn IS a run's start (Path B or Path C
+    // alike — the supervisor spawns it exactly once per run, same as a
+    // bypass session), so this is where the daemon-ensure check belongs —
+    // NOT in the (per-step, many-times-per-run) worker branch below. Cheap
+    // (see the block's own header: sync-enabled + a `.pipeline/cloud.json`
+    // existence check, then a lock read; never network work) and idempotent
+    // — once a live daemon is running, every later call in the same run is a
+    // couple of local fs stats.
+    ensureTelemetryDaemonRunning(projectRoot);
     // Path-B ownership: the supervisor passes its run_id literally in the
     // manager prompt; failing that, scan the journal for a recent
     // pipeline.started/iteration.started on this iteration path.
@@ -1942,8 +2296,13 @@ export {
   MIRROR_BINDING_SCHEMA,
   SCHEMA_VERSION,
   BINDING_MAX_AGE_MS,
+  ensureTelemetryDaemonRunning,
+  acquireTelemetryDaemonLock,
+  telemetryDaemonLockPath,
+  telemetryDaemonSyncEnabled,
+  TELEMETRY_LOCK_STALE_AGE_MS,
 };
-export type { MirrorBinding, ParsedSpawn };
+export type { MirrorBinding, ParsedSpawn, TelemetryLockAcquireResult };
 
 // Only run the hook loop when invoked as a script (e.g. `bun
 // hooks/analytics_relay.ts`), NOT when imported by a test file.
