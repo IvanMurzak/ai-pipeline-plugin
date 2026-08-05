@@ -64,6 +64,12 @@ export interface MirrorBindingRecord {
   event: "bound" | "terminal";
   tool_use_id: string | null;
   run_id: string;
+  /** The step the bound session performs (ux-v2 b7). Present only on
+   *  `kind: "drive-session"` records — `pipeline drive` pre-writes them before
+   *  spawning a headless `claude -p` so the hooks firing inside that child can
+   *  name the step as well as the run. The daemon does not read it (the hooks
+   *  do); it is declared here so the record shape stays one description. */
+  step_uuid?: string | null;
   session_id: string | null;
   transcript_path: string | null;
   project_root: string;
@@ -72,7 +78,16 @@ export interface MirrorBindingRecord {
   iteration_path: string;
   start_ts: string;
   end_ts?: string;
-  kind: "bypass-spawn" | "bypass-spawn-failed" | "chain-controller" | "subagent";
+  kind:
+    | "bypass-spawn"
+    | "bypass-spawn-failed"
+    | "chain-controller"
+    | "subagent"
+    /** `pipeline drive`'s pre-spawn session binding (ux-v2 b7). Always carries
+     *  `transcript_path: null` — the child's transcript does not exist yet at
+     *  pre-write time — so `indexRunTranscripts` skips it and MirrorService
+     *  tails nothing new: issue #11's scope discipline is untouched. */
+    | "drive-session";
   schema: number;
 }
 

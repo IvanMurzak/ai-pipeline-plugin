@@ -60,14 +60,14 @@ Deliberately NOT renamed, for reasons that outlive the rename:
 | `blocker.resolved` | merge succeeded | `{ blocker_issue_url, merged_pr_url }` |
 | `pipeline.completed` | terminal iteration ran cleanly | `{ pipeline_name }` |
 | `pipeline.halted` | chain halted | `{ pipeline_name, iteration_path, halt_reason }` |
-| `manager.stopped` | SubagentStop hook when a `pipeline-manager` subagent ends | `{ run_id, agent_id \| null }` |
+| `manager.stopped` | SubagentStop hook when a `pipeline-manager` subagent ends | `{ run_id, agent_id \| null, step_uuid? }` |
 | `worktree.created` | `pipeline next` after executing the consumer's create hook in-process (external isolation, run start) | `{ worktree_path, branch, env_file \| null, port_base \| null, ok: bool, hook_dir }` |
 | `worktree.finalized` | `pipeline next` after executing the consumer's MANDATORY finalize hook in-process (external isolation, opted-in, at the end of a COMPLETED run before teardown) | `{ worktree_path \| null, ok: bool, outcome, detail \| null }` |
 | `worktree.destroyed` | `pipeline next` after executing the consumer's destroy hook in-process (external isolation, run end) | `{ worktree_path \| null, ok: bool, outcome, detail \| null }` |
-| `tool.called` | PostToolUse hook after every tool call | `{ tool_name, success, agent_spawn, tool_use_id }` |
-| `turn.usage` | Stop hook (one per assistant Stop event, summed across new transcript turns) | `{ assistant_turns, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens }` |
+| `tool.called` | PostToolUse hook after every tool call | `{ tool_name, success, agent_spawn, tool_use_id, step_uuid? }` |
+| `turn.usage` | Stop hook (one per assistant Stop event, summed across new transcript turns) | `{ assistant_turns, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, step_uuid? }` |
 | `awaiting_input` | `pipeline drive` at EVERY needs-input park (agent-step question AND approval gate; repeat parks re-emit) | `{ run_id, iteration, question_id, question: { text, context \| null, options \| null, question_id?, approval?: { required_role } }, step_name?, iteration_path? }` |
-| `run.awaiting_input` | Notification hook, when a permission prompt or an input request blocks the session (see the disambiguation below — NOT the same as `awaiting_input`) | `{ kind: "permission" | "input", message_excerpt: string }` |
+| `run.awaiting_input` | Notification hook, when a permission prompt or an input request blocks the session (see the disambiguation below — NOT the same as `awaiting_input`) | `{ kind: "permission" | "input", message_excerpt: string, step_uuid? }` |
 
 ### Envelope-level kv overrides on `pipeline event`
 
@@ -326,7 +326,8 @@ the `PIPELINE_UI_ENABLED` opt-out: a blocked run is worth surfacing through
 
 Emitted by the **SubagentStop** hook (`analytics_relay.ts`) when a
 `pipeline-manager` subagent ends — the PRIMARY "the run's orchestrator is
-gone" signal. Shape: `{ run_id, agent_id | null }`. The `run_id` is resolved
+gone" signal. Shape: `{ run_id, agent_id | null, step_uuid? }`. The `run_id` is
+resolved
 via the same session-keyed mirror-binding recovery the `tool.called` /
 `turn.usage` events use (env → `active-mirror-bindings.jsonl` lookup), since
 the manager shares the run's `session_id` across all nesting depths. A
@@ -438,6 +439,8 @@ The **RUN_ANALYTICS** panel (per-run tools / failures / agents / tokens) is fold
 ### Hook-event correlation (legacy — still drives the per-iteration tree)
 
 `tool.called` and `turn.usage` carry a `run_id` field — set by the `/pipeline:run` skill via the `PIPELINE_UI_RUN_ID` env var, or recovered by the hooks via the session-keyed mirror-binding lookup. Events outside any pipeline run land in the journal as ambient telemetry, excluded from per-run aggregates. These events still feed the **per-iteration** tree breakdown (`IterationTree`/`StepDetail`), which has not yet been migrated to the transcript fold — so the per-iteration numbers remain subject to the undercount described above. (The per-RUN panel no longer uses them.)
+
+**Step attribution on the driven path (ux-v2 b7).** When the resolved binding is one of `pipeline drive`'s pre-spawn records, the same lookup also yields the **step** UUID, and `tool.called` / `turn.usage` / `manager.stopped` / `run.awaiting_input` carry it as `data.step_uuid`. The field is **absent, not null, when unresolved** — absent means "not known", never "no step" — so every pre-b7 event shape is unchanged and no schema bump is involved. This makes a driven step's tool calls and tokens attributable to one execution without correlating timestamps against `iteration.started`/`iteration.completed` windows (the LIFO-open-window rule above stays as the fallback for events that carry no `step_uuid` — everything on Paths A/B/C). Measured on live `pipeline drive` runs: hook events emitted inside `claude -p` went from **100% `run_id: null` (10/10 over two runs) to 0% (0/11)**, all of them additionally naming the step. The residual `run_id: null` on that path is `session.opened`, which `hooks/pipeline_ui_relay.ts` writes as a literal null and which never consults the resolver.
 
 The UI computes derived stats client-side from the event stream:
 
@@ -588,16 +591,31 @@ The optional `source` field is set to `"mirror"` only for rows written by the ta
 
 ## active-mirror-bindings.jsonl (per-user, NOT per-project)
 
-Lives at `~/.claude/pipeline-ui/active-mirror-bindings.jsonl`. Append-only journal of mirror bindings — the hooks (PreToolUse + PostToolUse in `analytics_relay.ts`, plus `pipeline event register-mirror-binding` for Path B) write a record whenever a `pipeline-manager` or worker (`step-executor`, or legacy `pipeline-executor`) spawn should have its transcript mirrored into the chat panel.
+Lives at `~/.claude/pipeline-ui/active-mirror-bindings.jsonl`. Append-only journal of mirror bindings — the hooks (PreToolUse + PostToolUse in `analytics_relay.ts`, plus `pipeline event register-mirror-binding` for Path B) write a record whenever a `pipeline-manager` or worker (`step-executor`, or legacy `pipeline-executor`) spawn should have its transcript mirrored into the chat panel. **`pipeline drive` also writes here** (`kind: "drive-session"`, ux-v2 b7) — not to mirror anything, but to declare which run and step own the headless `claude -p` child it is about to spawn.
 
 ```json
-{"event":"bound","tool_use_id":"toolu_...","run_id":"<id>","session_id":"<id-or-null>",
+{"event":"bound","tool_use_id":"toolu_...","run_id":"<id>","step_uuid":"<uuid-or-null>",
+ "session_id":"<id-or-null>",
  "transcript_path":"<abs-or-null>","project_root":"<abs>","worktree":"<abs-or-null>",
  "pipeline_name":"<name>","iteration_path":"<abs>","start_ts":"<iso>",
- "kind":"bypass-spawn|bypass-spawn-failed|chain-controller|subagent","schema":1}
+ "kind":"bypass-spawn|bypass-spawn-failed|chain-controller|subagent|drive-session","schema":1}
 ```
 
+`step_uuid` is written only by `kind: "drive-session"` records; every other writer binds at Agent-spawn time, where no step identity exists yet, and omits the field. Readers treat **absent as null** — the field is additive and does NOT bump the binding schema.
+
 The daemon's MirrorService rebuilds its in-memory binding map from this file on boot, polls it for new lines, and tails the bound transcripts. Strict scope: a transcript path is only ever read if a hook explicitly bound it, OR if it was discovered as a child subagent of an already-bound transcript. Sessions that never spawn a `pipeline-manager` or worker never appear in this file and are never read.
+
+### `kind: "drive-session"` — the pre-spawn binding (ux-v2 b7)
+
+`pipeline drive` pins the session id of every headless spawn itself (`claude --session-id <uuid>`), and Claude Code hands that same value to every hook that fires **inside** the child. So drive writes the record BEFORE the spawn — `registerDriveSessionBinding` in `apps/pipeline-cli/src/lib/event.ts`, called from `drive.ts`'s `bindSession` immediately after the session is persisted — and the hooks recover `{ run_id, step_uuid }` from it by construction. The write must precede the spawn: the child's first hook can fire within milliseconds of exec.
+
+Three properties are load-bearing:
+
+- **`transcript_path` is always `null`.** At pre-write time the child's transcript file does not exist. `indexRunTranscripts` skips pointer-less records and `MirrorService` binds nothing, so this record does NOT widen transcript-mirroring scope (issue #11).
+- **No `terminal` record is written, and none is needed.** `findRunIdForSession` already treats a binding as terminated once `pipeline.completed`/`pipeline.halted` appears for its `run_id` in the project journal — which retires every drive-session record of that run at once. A run that never terminates ages out at `BINDING_MAX_AGE_MS` (7 days), and the daemon compacts the file to its newest `BINDINGS_MAX_LINES` records. Growth is one line per step-session (the same order as the Path-B worker bindings already written per Agent spawn); a record whose spawn never happened names a session id that will never exist and can therefore never be matched by anything.
+- **`PIPELINE_UI_ENABLED` gates it.** The master opt-out promises "no events, no mirror bindings"; drive writes these unprompted, so `registerDriveSessionBinding` returns early when the switch is off.
+
+**Shelf life, stated deliberately:** this depends on plugin hooks firing inside `claude -p`. When `-p` defaults to `--bare` they stop, and the mechanism has nothing to attach to. It is a near-term improvement, not an architecture — the identity minting it propagates (ux-v2 b4) is the half that survives.
 
 ## Project identity (worktree handling)
 
