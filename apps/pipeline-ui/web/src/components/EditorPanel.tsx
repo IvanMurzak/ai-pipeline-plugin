@@ -469,6 +469,15 @@ export function EditorPanel({ projectId, pipelineName, pipelineRoot, onClose }: 
               {fixRunning && fixJob && (
                 <span className="flex items-center gap-1.5 font-mono text-[10px] tabular-nums text-accent2">
                   <TickingSince startedAt={fixJob.started_at} />
+                  {/* Live tool granularity (ux-v2 b6): the session streams its
+                      frames, so the running job says what it is doing rather
+                      than only how long it has been doing it. */}
+                  {fixJob.last_tool && (
+                    <span className="text-muted">
+                      {fixJob.last_tool}
+                      {fixJob.tools_called ? ` ·${fixJob.tools_called}` : ""}
+                    </span>
+                  )}
                   <span className="relative h-1 w-24 overflow-hidden border border-accent2/40 bg-panel2">
                     <span className="shimmer absolute inset-0" aria-hidden />
                   </span>

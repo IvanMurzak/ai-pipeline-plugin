@@ -437,4 +437,8 @@ export interface AiFixJob {
   error: string | null;
   cost_usd: number | null;
   duration_ms: number | null;
+  /** Live counters from the session's stream-json frames (ux-v2 b6). Optional
+   *  so a snapshot from an older daemon still typechecks. */
+  tools_called?: number;
+  last_tool?: string | null;
 }
