@@ -48,13 +48,13 @@ Deliberately NOT renamed, for reasons that outlive the rename:
 |---|---|---|
 | `session.opened` | SessionStart hook fires | `{ claude_pid }` |
 | `pipeline.started` | `/pipeline:run` step 3 | `{ pipeline_name, first_iteration_path, pipeline_root, default_model?: ModelValue\|null }` |
-| `iteration.started` | `pipeline next` (CLI, auto-emitted in-process before printing a `run-step` action) | `{ iteration_path, index, resolved_model?: ModelValue\|null, step_name?: string, step_type?: "script" }` |
+| `iteration.started` | `pipeline next` (CLI, auto-emitted in-process before printing a `run-step` action) | `{ iteration_path, index, resolved_model?: ModelValue\|null, step_name?: string, step_type?: "script", step_uuid?: string }` |
 | `iteration.resumed` | `/api/chat/resume` re-attaches an SDK session | `{ iteration_path, index, resolved_model?: ModelValue\|null, step_name?: string }` |
-| `iteration.completed` | `pipeline next` (CLI, derived from the incoming step/layer `--record`) | `{ iteration_path, outcome, next_iteration_path \| null, has_improvement_brief, has_blocker_delegation, halt_reason \| null, terminal: bool, step_name?: string, step_type?: "script", failure_class?: string }` |
-| `improver.started` | `pipeline next` around a Tier-1 `run-improver` action; the `pipeline-manager` emits it directly for the retrospective's batch pass | `{ iteration_path }` |
-| `improver.completed` | `pipeline next` from the improver `--record`; manager-emitted in the retrospective | `{ iteration_path, applied: boolean, has_script_brief: boolean }` |
-| `script_creator.started` | `pipeline next` around a Tier-1 `run-script-creator` action; manager-emitted in the retrospective | `{ iteration_path }` |
-| `script_creator.completed` | `pipeline next` from the script `--record` (carries its `script_path`); manager-emitted in the retrospective | `{ iteration_path, script_path \| null, outcome: "created" \| "updated" \| "refused" }` |
+| `iteration.completed` | `pipeline next` (CLI, derived from the incoming step/layer `--record`) | `{ iteration_path, outcome, next_iteration_path \| null, has_improvement_brief, has_blocker_delegation, halt_reason \| null, terminal: bool, step_name?: string, step_type?: "script", failure_class?: string, step_uuid?: string }` |
+| `improver.started` | `pipeline next` around a Tier-1 `run-improver` action; the `pipeline-manager` (shelling out to `pipeline event`) or `pipeline drive` (in-process) emits it directly for the retrospective's batch pass | `{ iteration_path, step_uuid?: string }` |
+| `improver.completed` | `pipeline next` from the improver `--record`; manager- or drive-emitted in the retrospective | `{ iteration_path, applied: boolean, has_script_brief: boolean, step_uuid?: string }` |
+| `script_creator.started` | `pipeline next` around a Tier-1 `run-script-creator` action; manager- or drive-emitted in the retrospective | `{ iteration_path, step_uuid?: string }` |
+| `script_creator.completed` | `pipeline next` from the script `--record` (carries its `script_path`); manager- or drive-emitted in the retrospective | `{ iteration_path, script_path \| null, outcome: "created" \| "updated" \| "refused", step_uuid?: string }` |
 | `blocker.delegated` | issue filed + child spawned | `{ parent_iteration_path, blocker_issue_url, child_run_id, blocker_target_repo }` |
 | `blocker.polling` | each poll tick | `{ blocker_issue_url, pr_state }` |
 | `blocker.resolved` | merge succeeded | `{ blocker_issue_url, merged_pr_url }` |
@@ -229,6 +229,34 @@ Values-only addition — NOT a `SCHEMA_VERSION` bump (same precedent as v4's
 step-identity field / 0.69 `resolved_effort` / 0.71 `step_type`): one new event type old
 consumers ignore (the daemon tolerates unknown types) plus one optional `data`
 field. Journals from older emitters parse identically.
+
+### `step_uuid` on `iteration.started`/`.completed`, `improver.started`/`.completed`, `script_creator.started`/`.completed` (ux-v2 b4 — values-only addition, schema stays 5)
+
+One new optional `data` field, on every event a **client-started** step class
+emits: iteration steps, `improver:*`, and `script_creator:*` (the retrospective's
+batch spawns included). A UUIDv7 row identity for **this one execution**,
+minted once at step start and carried unchanged onto that same execution's
+terminal event — distinct from `step_name`/`step_id` (the step_key
+*dimension*, which groups the same step across DIFFERENT runs and is
+completely unaffected by this addition). A re-run of the same step — a retry,
+a §6.3 fallback re-dispatch, a fresh graph loop-back, or simply a second
+invocation of the pipeline — mints a NEW `step_uuid` even though `step_name`/
+`step_id` stays identical; an idempotent re-emission of a dispatch already in
+flight (§7 `continue`, a crash re-entry) reuses the SAME one, since nothing
+executed a second time. The identical value also rides the paired
+`.stats/<pipeline>/runs.jsonl` `StepStat.step_uuid` (additive there too,
+alongside the unchanged `StepStat.id`), so the two independent reporting
+paths — the live event stream and the end-of-run stats fold — name one
+execution once (`02-target-architecture.md` D15; the server-side ingest
+migration that stops writing two rows per step is `c2-step-uuid-migration`,
+downstream of this addition, not part of it).
+
+Absent means "recorded before this addition" (the same event-shape fallback
+every other values-only field here uses) — never treated as a second
+identity or backfilled. `manager` and `step:path:*`, the two step classes the
+SERVER derives rather than observes, carry no client event and therefore no
+`step_uuid` here; the server assigns them a UUIDv5 derived from the run UUID
+on its own side.
 
 ### Dead-run protection — third trigger: the interrupt watchdog (observability a3)
 
