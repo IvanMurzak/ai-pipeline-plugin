@@ -58,10 +58,12 @@
  *        which never reaches Claude Code's parent process, and a
  *        terminal Path-C session never exports it at all.
  *     3. A session_id lookup against
- *        ~/.claude/pipeline-ui/active-mirror-bindings.jsonl. Both
- *        `/pipeline:run` (via `pipeline event register-mirror-binding`) and
- *        the bypass-spawn PreToolUse handler write bindings keyed by
- *        session_id, so this catches the env-var miss for Paths B and C.
+ *        ~/.claude/pipeline-ui/active-mirror-bindings.jsonl. THREE writers
+ *        key bindings by session_id: `/pipeline:run` (via `pipeline event
+ *        register-mirror-binding`), the bypass-spawn PreToolUse handler, and
+ *        — since ux-v2 b7 — `pipeline drive`, which PRE-WRITES a binding for
+ *        the session UUID it is about to pin on a headless `claude -p` child.
+ *        This catches the env-var miss for Paths B, C and the driven path.
  *     4. Otherwise the event lands as ambient telemetry with run_id=null
  *        and the UI's per-run aggregates ignore it.
  *
@@ -69,6 +71,20 @@
  *   and turn.usage events emitted during Path-B and Path-C runs always
  *   carried run_id=null — making the UI's RUN_ANALYTICS panel render zero
  *   tools, zero agents, zero tokens for any actively-running pipeline.
+ *
+ *   STEP correlation (ux-v2 b7): drive's binding also carries the step's
+ *   UUID, so source #3 resolves { run_id, step_uuid } — `resolveBinding
+ *   FromEnvOrSession`. Events fired inside a driven step therefore name the
+ *   step as well as the run, by construction rather than by correlating
+ *   timestamps after the fact. Sources #1/#2 carry no step identity (an env
+ *   var and a synthesized bypass id are run-scoped), so those events keep
+ *   omitting `step_uuid` — absent means "not known", never "no step".
+ *
+ *   SHELF LIFE, stated deliberately: all of this depends on plugin hooks
+ *   firing INSIDE `claude -p`. When `-p` defaults to `--bare` they stop, and
+ *   this mechanism has nothing left to attach to (`02` § --bare risk). It is
+ *   a near-term improvement, not an architecture; the identity minting it
+ *   propagates (b4) is the half that survives.
  *
  * Gated: skips entirely if the current cwd has no `.pipeline/`.
  *
@@ -615,9 +631,59 @@ function resolveRunIdFromEnvOrSession(
   sessionId: string | null,
   projectRoot: string,
 ): string | null {
+  return resolveBindingFromEnvOrSession(sessionId, projectRoot).runId;
+}
+
+/** What a session-keyed binding resolves to. `stepUuid` is present only when
+ *  the matched binding carries one — today that means a `pipeline drive`
+ *  pre-spawn binding (ux-v2 b7); the Path-B/Path-C writers have no step
+ *  identity at binding time, so they resolve `{runId, stepUuid: null}` exactly
+ *  as before. */
+interface ResolvedBinding {
+  runId: string | null;
+  stepUuid: string | null;
+}
+
+/** The RESOLVER (ux-v2 b7): the same env→session-binding ladder
+ *  `resolveRunIdFromEnvOrSession` has always applied, widened to return the
+ *  STEP identity alongside the run identity.
+ *
+ *  Precedence is unchanged and deliberate: `PIPELINE_UI_RUN_ID` still wins for
+ *  the run id (an explicit env override must stay authoritative). The binding
+ *  is still consulted in that case, but only to recover a `step_uuid`, and only
+ *  from a binding that agrees with the env var about which run this is — a
+ *  step uuid borrowed from a DIFFERENT run would be worse than none. That costs
+ *  one extra bindings read on the env-set path, which no shipped caller takes
+ *  any more (README lists the var as internal/do-not-set and nothing in the
+ *  product exports it — `/pipeline:run` passes `run_id=` as a kv argument
+ *  instead); every hot path already read the file.
+ *
+ *  This function is the single read of `PIPELINE_UI_RUN_ID` for correlation
+ *  purposes; new event sources call it (or the run-id wrapper above) rather
+ *  than reading the env var themselves — see docs/ui-subsystem.md's
+ *  run-correlation invariant. */
+function resolveBindingFromEnvOrSession(
+  sessionId: string | null,
+  projectRoot: string,
+): ResolvedBinding {
   const env = process.env.PIPELINE_UI_RUN_ID;
-  if (env && env.length > 0) return env;
-  return findRunIdForSession(sessionId, projectRoot);
+  const hit = findBindingForSession(sessionId, projectRoot);
+  if (env && env.length > 0) {
+    return {
+      runId: env,
+      // Only adopt the step when the binding is talking about the same run.
+      stepUuid: hit && hit.runId === env ? hit.stepUuid : null,
+    };
+  }
+  return { runId: hit?.runId ?? null, stepUuid: hit?.stepUuid ?? null };
+}
+
+/** Spread helper: turn a resolved step uuid into the event-`data` fragment that
+ *  carries it. Absent (not `null`) when unresolved, so a v5 consumer sees the
+ *  field only when it means something and every pre-b7 event shape is byte-
+ *  identical to what it was. */
+function stepUuidData(stepUuid: string | null): Record<string, string> {
+  return stepUuid ? { step_uuid: stepUuid } : {};
 }
 
 /** Scan ~/.claude/pipeline-ui/active-mirror-bindings.jsonl for the most
@@ -656,6 +722,15 @@ function findRunIdForSession(
   sessionId: string | null,
   projectRoot: string,
 ): string | null {
+  return findBindingForSession(sessionId, projectRoot)?.runId ?? null;
+}
+
+/** As `findRunIdForSession`, but returning the matched binding's `step_uuid`
+ *  too (ux-v2 b7). One file read serves both. */
+function findBindingForSession(
+  sessionId: string | null,
+  projectRoot: string,
+): { runId: string; stepUuid: string | null } | null {
   if (!sessionId) return null;
   const path = mirrorBindingsPath();
   if (!existsSync(path)) return null;
@@ -697,6 +772,13 @@ interface RunBindingState {
    *  emitters — `pipeline event`'s utcNowIso and analytics_relay's
    *  Date.toISOString() both produce `YYYY-MM-DDTHH:mm:ss.sssZ`). */
   latestTs: string;
+  /** `step_uuid` from the newest record seen for this run in this window
+   *  (ux-v2 b7). Null for every binding writer that has no step identity —
+   *  the Path-B chain controller and the Path-C bypass spawn. A later record
+   *  WITHOUT the field does not erase one that had it: within a single
+   *  session id the only writer that re-binds is drive's own crash/answer
+   *  resume, which re-states the same step. */
+  stepUuid: string | null;
   /** Monotone counter capturing record-file order, used as the tie-break
    *  when two non-terminated runs share an identical millisecond
    *  start_ts. The later file-order wins (most-recently-bound). */
@@ -714,7 +796,7 @@ function pickActiveRunFromWindow(
   sessionId: string,
   projectRoot: string,
   terminatedRunIds: Set<string>,
-): string | null {
+): { runId: string; stepUuid: string | null } | null {
   const byRun = new Map<string, RunBindingState>();
   let counter = 0;
   for (let i = start; i < end; i++) {
@@ -734,21 +816,26 @@ function pickActiveRunFromWindow(
     const ts = typeof r.start_ts === "string" ? r.start_ts : "";
     if (ts && isBindingTooOld(ts)) continue;
     counter += 1;
+    const stepUuid = typeof r.step_uuid === "string" && r.step_uuid ? r.step_uuid : null;
     const prev = byRun.get(r.run_id);
     const isTerminalRecord = r.event === "terminal";
     if (!prev) {
       byRun.set(r.run_id, {
         latestTs: ts,
+        stepUuid,
         insertionOrder: counter,
         terminal: isTerminalRecord || terminatedRunIds.has(r.run_id),
       });
     } else {
       if (ts > prev.latestTs) prev.latestTs = ts;
+      // Last non-null wins: a `terminal` record (which never carries one) must
+      // not blank out the step identity its `bound` record established.
+      if (stepUuid) prev.stepUuid = stepUuid;
       prev.insertionOrder = counter;
       if (isTerminalRecord) prev.terminal = true;
     }
   }
-  let best: { runId: string; ts: string; order: number } | null = null;
+  let best: { runId: string; ts: string; order: number; stepUuid: string | null } | null = null;
   for (const [runId, st] of byRun) {
     if (st.terminal) continue;
     if (
@@ -756,10 +843,10 @@ function pickActiveRunFromWindow(
       || st.latestTs > best.ts
       || (st.latestTs === best.ts && st.insertionOrder > best.order)
     ) {
-      best = { runId, ts: st.latestTs, order: st.insertionOrder };
+      best = { runId, ts: st.latestTs, order: st.insertionOrder, stepUuid: st.stepUuid };
     }
   }
-  return best?.runId ?? null;
+  return best === null ? null : { runId: best.runId, stepUuid: best.stepUuid };
 }
 
 function isBindingTooOld(startTs: string): boolean {
@@ -843,6 +930,12 @@ interface MirrorBinding {
   event: "bound" | "terminal";
   tool_use_id: string | null;
   run_id: string;
+  /** The STEP this binding's session performs (ux-v2 b7). Written only by
+   *  `pipeline drive`'s pre-spawn binding (`kind: "drive-session"`, minted by
+   *  ux-v2 b4) — this hook's own writers bind at Agent-spawn time, where no
+   *  step identity exists yet, so they omit the field entirely and every
+   *  reader treats absent as null. */
+  step_uuid?: string | null;
   session_id: string | null;
   transcript_path: string | null;
   project_root: string;
@@ -850,7 +943,7 @@ interface MirrorBinding {
   pipeline_name: string;
   iteration_path: string;
   start_ts: string;
-  kind: "bypass-spawn" | "bypass-spawn-failed" | "chain-controller";
+  kind: "bypass-spawn" | "bypass-spawn-failed" | "chain-controller" | "drive-session";
   schema: number;
 }
 
@@ -1353,6 +1446,11 @@ function handlePostToolUse(payload: Record<string, unknown>, projectRoot: string
     ? payload.session_id
     : null;
   let toolCalledOpts: AppendEventOpts;
+  // ux-v2 b7: the step this tool call belongs to, when the binding names one.
+  // Sources 1 and 2 are Agent-SPAWN attributions — the spawn is what starts a
+  // step, so there is no step identity to inherit; only the session-keyed
+  // binding (source 3) can carry one.
+  let toolCalledStepUuid: string | null = null;
   if (bypassRunId) {
     toolCalledOpts = { runId: bypassRunId, parentRunId: null, sessionId: null };
   } else if (mirrorBindingRunId) {
@@ -1364,9 +1462,9 @@ function handlePostToolUse(payload: Record<string, unknown>, projectRoot: string
     // explicit-null override seals the leak in appendEvent's fallback
     // (`process.env.PIPELINE_UI_RUN_ID ?? null` returns "" for an empty
     // env, which is neither null nor a valid run_id).
-    toolCalledOpts = {
-      runId: resolveRunIdFromEnvOrSession(sessionIdForLookup, projectRoot),
-    };
+    const resolved = resolveBindingFromEnvOrSession(sessionIdForLookup, projectRoot);
+    toolCalledOpts = { runId: resolved.runId };
+    toolCalledStepUuid = resolved.stepUuid;
   }
 
   appendEvent(
@@ -1378,6 +1476,7 @@ function handlePostToolUse(payload: Record<string, unknown>, projectRoot: string
       success,
       agent_spawn: agentSpawn,
       tool_use_id: payload.tool_use_id ?? null,
+      ...stepUuidData(toolCalledStepUuid),
     },
     toolCalledOpts,
   );
@@ -1578,6 +1677,7 @@ function handleStop(payload: Record<string, unknown>, projectRoot: string, workt
     // Explicit runId override (even when null) seals the same empty-
     // string env leak as the PostToolUse path — see the comment in
     // handlePostToolUse's `else` branch.
+    const resolved = resolveBindingFromEnvOrSession(sessionId || null, projectRoot);
     appendEvent(
       projectRoot,
       worktree,
@@ -1588,8 +1688,12 @@ function handleStop(payload: Record<string, unknown>, projectRoot: string, workt
         output_tokens: output,
         cache_read_tokens: cacheRead,
         cache_creation_tokens: cacheCreation,
+        // ux-v2 b7: on the driven path this Stop hook fires INSIDE the
+        // step-executor's own `claude -p`, so the tokens it just tallied are
+        // that step's — say so, instead of leaving the run to guess.
+        ...stepUuidData(resolved.stepUuid),
       },
-      { runId: resolveRunIdFromEnvOrSession(sessionId || null, projectRoot) },
+      { runId: resolved.runId },
     );
   }
 }
@@ -1641,7 +1745,8 @@ function handleSubagentStop(payload: Record<string, unknown>, projectRoot: strin
     const v = payload.session_id;
     return typeof v === "string" && v.length > 0 ? v : null;
   })();
-  const runId = resolveRunIdFromEnvOrSession(sessionId, projectRoot);
+  const resolved = resolveBindingFromEnvOrSession(sessionId, projectRoot);
+  const runId = resolved.runId;
   if (!runId) {
     log(`SubagentStop(${agentType}): no run_id resolved, skipping manager.stopped`);
     return;
@@ -1659,7 +1764,7 @@ function handleSubagentStop(payload: Record<string, unknown>, projectRoot: strin
     projectRoot,
     worktree,
     "manager.stopped",
-    { run_id: runId, agent_id: agentId },
+    { run_id: runId, agent_id: agentId, ...stepUuidData(resolved.stepUuid) },
     { runId, parentRunId: null, sessionId: null },
   );
 }
@@ -1723,13 +1828,18 @@ function handleNotification(
     return;
   }
   const sessionId = String(payload.session_id ?? "") || null;
-  const runId = resolveRunIdFromEnvOrSession(sessionId, projectRoot);
+  const resolved = resolveBindingFromEnvOrSession(sessionId, projectRoot);
   appendEvent(
     projectRoot,
     worktree,
     "run.awaiting_input",
-    { kind, message_excerpt: String(payload.message ?? "").slice(0, AWAITING_EXCERPT_MAX) },
-    { runId, parentRunId: null, sessionId },
+    {
+      kind,
+      message_excerpt: String(payload.message ?? "").slice(0, AWAITING_EXCERPT_MAX),
+      // ux-v2 b7: which step is blocked, not just which run.
+      ...stepUuidData(resolved.stepUuid),
+    },
+    { runId: resolved.runId, parentRunId: null, sessionId },
   );
 }
 
@@ -1822,6 +1932,8 @@ export {
   mirrorBindingsPath,
   bypassRunIdFromToolUseId,
   findRunIdForSession,
+  findBindingForSession,
+  resolveBindingFromEnvOrSession,
   resolveRunIdFromEnvOrSession,
   collectTerminatedRunIds,
   pathsMatch,
