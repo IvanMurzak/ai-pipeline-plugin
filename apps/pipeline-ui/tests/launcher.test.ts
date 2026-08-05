@@ -277,6 +277,12 @@ describe("launcher", () => {
     });
     expect(r.status).toBe(202);
     const { run_id } = (await r.json()) as { run_id: string };
+    // ux-v2 b2 mint-site conformance: launcher.ts:547's `runId = mintId("drv")`
+    // is retired — every launched run_id is now `newId()`, a canonical
+    // RFC 9562 UUIDv7 (36 chars, version nibble 7, variant bits 0b10).
+    expect(run_id).toHaveLength(36);
+    expect(Number.parseInt(run_id.slice(14, 16), 16) >>> 4).toBe(0b0111);
+    expect(Number.parseInt(run_id.slice(19, 21), 16) >>> 6).toBe(0b10);
 
     const done = await pollRun(run_id, (x) => x.status !== "running");
     expect(done.status).toBe("completed");

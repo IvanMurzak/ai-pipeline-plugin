@@ -207,7 +207,11 @@ describe("appendMirrorBinding writer (PostToolUse path) — manager anchor", () 
     expect(b.pipeline_name).toBe("demo");
     expect(b.iteration_path).toBe(iter);
     expect(typeof b.run_id).toBe("string");
-    expect(b.run_id.length).toBe(12);
+    // ux-v2 b2: canonical UUIDv5 (hookIdFromToolUseId), not a 12-hex sha1
+    // slice — 36 chars, version nibble 5.
+    expect(b.run_id.length).toBe(36);
+    expect(Number.parseInt(b.run_id.slice(14, 16), 16) >>> 4).toBe(0b0101);
+    expect(Number.parseInt(b.run_id.slice(19, 21), 16) >>> 6).toBe(0b10);
     expect(b.schema).toBe(MIRROR_BINDING_SCHEMA);
     expect(Number.isFinite(Date.parse(b.start_ts))).toBe(true);
   });

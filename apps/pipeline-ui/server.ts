@@ -79,6 +79,7 @@ import {
 import { handleTranscribe, handleTranscribeStatus } from "./transcribe.ts";
 import { backfillProject } from "../pipeline-cli/src/lib/stats-backfill";
 import { findRunsFiles, parseRunRecords } from "../pipeline-cli/src/lib/stats";
+import { newId } from "../pipeline-cli/src/lib/ids";
 import { handleStartAiFix, handleGetAiFixJob } from "./aifix.ts";
 import {
   collectRunBreakdown,
@@ -2601,12 +2602,10 @@ async function handleChatRequest(req: Request): Promise<Response> {
           /* client closed */
         }
       };
-      // Use a UUID-shaped runId so it sorts and dedupes alongside /pipeline:run
-      // ids and shows up cleanly in the existing RunList.
-      const runId = createHash("sha1")
-        .update(`${Date.now()}-${Math.random()}`)
-        .digest("hex")
-        .slice(0, 12);
+      // THE mint point (ux-v2 b2): every run id in the plugin comes from
+      // newId(), an RFC 9562 UUIDv7 — so it sorts and dedupes alongside
+      // /pipeline:run ids and shows up cleanly in the existing RunList.
+      const runId = newId();
 
       let sawResult = false;
       let sawError = false;

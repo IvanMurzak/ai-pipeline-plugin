@@ -10,7 +10,7 @@ Runs with env vars:
 
 - `PIPELINE_WT_ACTION=create`
 - `PIPELINE_WT_RUN_ID`
-- `PIPELINE_WT_NAME` — defaults to the run id (12 hex chars, filesystem-safe); drives the worktree slot, branch `worktree-<name>`, and registry key
+- `PIPELINE_WT_NAME` — defaults to the run id (a UUIDv7 canonical string, filesystem-safe); drives the worktree slot, branch `worktree-<name>`, and registry key
 - `PIPELINE_WT_PIPELINE_NAME`, `PIPELINE_WT_PIPELINE_ROOT`, `PIPELINE_WT_PROJECT_ROOT`
 - `PIPELINE_WT_BASE_BRANCH` (from the pipeline's optional `base_branch:` frontmatter; default `main`)
 - `PIPELINE_WT_SUBMODULES` (comma-list, possibly empty)

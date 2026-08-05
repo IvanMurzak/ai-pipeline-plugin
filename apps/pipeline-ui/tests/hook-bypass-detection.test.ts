@@ -314,11 +314,15 @@ describe("handlePostToolUse synthesizes Path-C RUN-LEVEL lifecycle (manager anch
     expect(types).not.toContain("iteration.completed");
 
     // All three events share the synthesized run_id so the manager-spawn
-    // tool call shows up in the synthesized run's stats panel.
+    // tool call shows up in the synthesized run's stats panel. ux-v2 b2:
+    // this is now a canonical UUIDv5 (hookIdFromToolUseId over tool_use_id),
+    // not a 12-hex sha1 slice — 36 chars, version nibble 5.
     const runId = events[0].run_id;
     expect(runId).not.toBeNull();
     expect(typeof runId).toBe("string");
-    expect((runId as string).length).toBe(12);
+    expect((runId as string).length).toBe(36);
+    expect(Number.parseInt((runId as string).slice(14, 16), 16) >>> 4).toBe(0b0101);
+    expect(Number.parseInt((runId as string).slice(19, 21), 16) >>> 6).toBe(0b10);
     for (const e of events) {
       expect(e.run_id).toBe(runId);
       expect(e.schema).toBe(SCHEMA_VERSION);

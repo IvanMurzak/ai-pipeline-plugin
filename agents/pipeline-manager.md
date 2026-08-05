@@ -18,7 +18,7 @@ You do **not** execute iterations yourself (that is `step-executor`), you do **n
 
 Your spawn prompt contains these fields. Treat them as authoritative; do not re-derive them:
 
-- `run_id` — the 12-char run identifier the supervisor minted. **Pass it as `--run-id` on every `pipeline next` call, and literally on the retrospective's `pipeline event` calls** (see "UI events"). Never invent or regenerate it.
+- `run_id` — the run identifier the supervisor minted via the CLI (`pipeline id` — a UUIDv7, `src/lib/ids.ts#newId`). **Pass it as `--run-id` on every `pipeline next` call, and literally on the retrospective's `pipeline event` calls** (see "UI events"). Never invent or regenerate it.
 - `pipeline_name` — the pipeline's folder name (for event payloads).
 - `pipeline_root` — absolute path to the `<pipeline-name>/` folder (the one containing `PIPELINE.md` and `steps/`).
 - `pipeline_default_model` — the pipeline-level model default (already resolved by the supervisor from `PIPELINE.md` frontmatter): one of the aliases `haiku` / `sonnet` / `opus` / `fable`, a canonical Claude model id (a `claude-*` string), or `null` (no default / `inherit`). **Pass it as `--default-model` on every `pipeline next` call** so per-step models resolve consistently.

@@ -42,6 +42,7 @@ import { computePlan } from "../pipeline-cli/src/lib/plan";
 import { splitSections } from "../pipeline-cli/src/lib/match";
 import { extractQuestion } from "../pipeline-cli/src/lib/step-schema";
 import type { EnvelopeUsage } from "../pipeline-cli/src/lib/envelope";
+import { newId } from "../pipeline-cli/src/lib/ids";
 import { evictOldestTerminal, normalizePathForCompare } from "./lib.ts";
 
 // ---------------------------------------------------------------------------
@@ -155,11 +156,6 @@ function evictTerminalDriveRuns(): void {
     (r) => r.run_id,
     MAX_TERMINAL_DRIVE_RUNS,
   );
-}
-
-/** Short unique id for daemon-minted objects (drive runs, AI-fix jobs). */
-export function mintId(prefix: string): string {
-  return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -544,7 +540,10 @@ export async function handleLaunchRun(req: Request, deps: LauncherDeps): Promise
     );
   }
 
-  const runId = mintId("drv");
+  // THE mint point (ux-v2 b2): every run id in the plugin comes from
+  // newId(), an RFC 9562 UUIDv7 — mintId()'s bespoke `<prefix><ts36><rand4>`
+  // format is retired.
+  const runId = newId();
   const args = ["--root", pipelineRoot, "--run-id", runId, "--start", start, "--json"];
   if (body.default_model) args.push("--default-model", body.default_model);
   for (const [stepId, model] of Object.entries(body.model_overrides ?? {})) {

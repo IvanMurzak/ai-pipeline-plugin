@@ -19,7 +19,8 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseEnvelope } from "../pipeline-cli/src/lib/envelope";
-import { isInsidePipelinesDir, mintId, type GetProject } from "./launcher.ts";
+import { newId } from "../pipeline-cli/src/lib/ids";
+import { isInsidePipelinesDir, type GetProject } from "./launcher.ts";
 import { evictOldestTerminal } from "./lib.ts";
 
 export interface AiFixDeps {
@@ -148,7 +149,8 @@ export async function handleStartAiFix(req: Request, deps: AiFixDeps): Promise<R
   }
 
   const job: AiFixJob = {
-    job_id: mintId("fix"),
+    // THE mint point (ux-v2 b2): every id in the plugin comes from newId().
+    job_id: newId(),
     project_id: body.project_id,
     pipeline_root: pipelineRoot.replaceAll("\\", "/"),
     model,
