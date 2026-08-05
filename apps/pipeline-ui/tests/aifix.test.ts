@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildAiFixPrompt, handleGetAiFixJob, handleStartAiFix } from "../aifix.ts";
+import { buildAiFixChildEnv, buildAiFixPrompt, handleGetAiFixJob, handleStartAiFix } from "../aifix.ts";
 
 test("buildAiFixPrompt embeds the pipeline root, every issue, and the write-scope rule", () => {
   const root = "C:/proj/.pipeline/demo";
@@ -52,4 +52,23 @@ test("start validates inputs before spawning anything", async () => {
       )
     ).status,
   ).toBe(404);
+});
+
+// ux-v2 b8 / T18: CLAUDE_CODE_FORWARD_SUBAGENT_TEXT must never reach the
+// spawned `claude -p` session's environment, even when the parent shell
+// (here: the process that launched pipeline-ui) exports it.
+test("buildAiFixChildEnv deletes CLAUDE_CODE_FORWARD_SUBAGENT_TEXT even when the base env carries it", () => {
+  const base = { ...process.env, CLAUDE_CODE_FORWARD_SUBAGENT_TEXT: "1", OTHER_VAR: "kept" };
+  const child = buildAiFixChildEnv(base);
+  expect("CLAUDE_CODE_FORWARD_SUBAGENT_TEXT" in child).toBe(false);
+  expect(child.OTHER_VAR).toBe("kept");
+  // The base object itself is untouched — the deletion is on the copy only.
+  expect(base.CLAUDE_CODE_FORWARD_SUBAGENT_TEXT).toBe("1");
+});
+
+test("buildAiFixChildEnv is a no-op when the variable was never set", () => {
+  const base = { ...process.env };
+  delete base.CLAUDE_CODE_FORWARD_SUBAGENT_TEXT;
+  const child = buildAiFixChildEnv(base);
+  expect("CLAUDE_CODE_FORWARD_SUBAGENT_TEXT" in child).toBe(false);
 });

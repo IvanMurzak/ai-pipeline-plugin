@@ -88,6 +88,23 @@ export function buildAiFixPrompt(pipelineRoot: string, issues: string[]): string
   ].join("\n");
 }
 
+/**
+ * The `claude -p` child's environment. ux-v2 b8 / T18:
+ * `CLAUDE_CODE_FORWARD_SUBAGENT_TEXT` enables the same subagent-text/thinking
+ * forwarding as `--forward-subagent-text` (never passed on this session's
+ * argv), and a child inherits it from whatever shell launched the
+ * `pipeline-ui` daemon. Not omitting the flag is therefore not enough — the
+ * variable is deleted from the CHILD's environment explicitly, not merely
+ * left off the argv, so an operator's or CI's exported var can't reach this
+ * session either. Exported (and taking `base` rather than reading
+ * `process.env` itself) so a test can prove the deletion without spawning a
+ * real `claude` process. */
+export function buildAiFixChildEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base };
+  delete env.CLAUDE_CODE_FORWARD_SUBAGENT_TEXT;
+  return env;
+}
+
 export async function handleStartAiFix(req: Request, deps: AiFixDeps): Promise<Response> {
   let body: { project_id?: string; pipeline_root?: string; model?: string; issues?: unknown };
   try {
@@ -142,6 +159,7 @@ export async function handleStartAiFix(req: Request, deps: AiFixDeps): Promise<R
     "stream-json",
     "--verbose",
   ];
+  const childEnv = buildAiFixChildEnv();
   const spawnWith = (cmd: string[]) =>
     Bun.spawn({
       cmd,
@@ -149,7 +167,7 @@ export async function handleStartAiFix(req: Request, deps: AiFixDeps): Promise<R
       stdin: new TextEncoder().encode(buildAiFixPrompt(pipelineRoot, issues)),
       stdout: "pipe",
       stderr: "pipe",
-      env: { ...process.env },
+      env: childEnv,
     });
   let child: ReturnType<typeof spawnWith>;
   try {
