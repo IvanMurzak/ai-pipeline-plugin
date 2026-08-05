@@ -204,9 +204,12 @@ const runStatsCache = new Map<
 >();
 
 /** Parse the (large, append-only, machine-GLOBAL) bindings file into a per-run
- *  transcript map, scoped to ONE project — run_ids are short (12 hex) and only
- *  unique within a project, so an index filtered by project_root prevents a
- *  cross-project run_id collision from resolving to the wrong transcript. A
+ *  transcript map, scoped to ONE project. Since ux-v2 b2 a run_id is a UUID
+ *  and collision-free by construction, but the project_root filter stays: the
+ *  file is machine-GLOBAL, and every consumer of this index reads it per
+ *  project, so filtering here keeps another project's runs out of this
+ *  project's map (and keeps a pre-b2 12-hex id — only ever unique WITHIN a
+ *  project — from resolving to the wrong transcript). A
  *  binding is immutable once written (its transcript_path + earliest start_ts
  *  never change), so once a run is in the index we never reparse for it — that
  *  keeps the steady-state poll of a live run off the file entirely; we only
