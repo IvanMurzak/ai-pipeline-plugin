@@ -1242,9 +1242,9 @@ export function iterationToolStatsForRun(events: JournalEvent[]): IterationToolS
           // the previously-active legacy window (steps never overlap here).
           // Close every still-open LEGACY window (there is normally one).
           for (let i = open.length - 1; i >= 0; i--) {
-            if (open[i].key.startsWith(" legacy:")) open.splice(i, 1);
+            if (open[i].key.startsWith("\u0000legacy:")) open.splice(i, 1);
           }
-          const key = ` legacy:${ipath ?? "?"}`;
+          const key = `\u0000legacy:${ipath ?? "?"}`;
           let stats = buckets.get(key);
           if (!stats) {
             stats = emptyIterToolStats(ipath ?? "(unknown)", ipath);
