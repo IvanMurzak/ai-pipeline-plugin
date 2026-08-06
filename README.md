@@ -1,6 +1,6 @@
 # pipeline
 
-Repository: [`IvanMurzak/pipeline-claude`](https://github.com/IvanMurzak/pipeline-claude). This is the source for the installable Claude Code plugin `pipeline` — the manifest, six agents, skills, hooks, and the bundled `pipeline` CLI + local dashboard UI under `apps/`. Looking for the optional remote runner that lets connected compute pick up work dispatched by a pipeline? That lives in the sibling repo [`IvanMurzak/pipeline-runner`](https://github.com/IvanMurzak/pipeline-runner).
+Repository: [`IvanMurzak/pipeline-claude`](https://github.com/IvanMurzak/pipeline-claude). This is the source for the installable Claude Code plugin `pipeline` — the manifest, six agents, skills, hooks, and the bundled `pipeline` CLI under `apps/`. Looking for the optional remote runner that lets connected compute pick up work dispatched by a pipeline? That lives in the sibling repo [`IvanMurzak/pipeline-runner`](https://github.com/IvanMurzak/pipeline-runner).
 
 Claude Code plugin for designing and executing long-chain AI workflows as ordered, self-contained iteration files under the consumer project's `.pipeline/` directory. Ships six coordinated agents — one that designs pipelines, a depth-0 `/pipeline:run` supervisor + a `pipeline-manager` orchestrator + per-step `step-executor`s that run them, one that feeds discovered knowledge back into the pipeline's own docs, one that extracts heavy procedural blocks out of iteration markdown into per-pipeline Python scripts so each fresh-context run pays fewer tokens, and a cheap Haiku disambiguator for matching tasks to pipelines.
 
@@ -36,16 +36,15 @@ The same two commands with real terminal output, start to finish: [Get started](
 /plugin install pipeline@ai-pipeline
 ```
 
-This repository is itself the plugin, so the `pipeline` CLI and the local dashboard UI under `apps/` ship inside — nothing else to fetch or build, and every `/pipeline:*` skill shells that bundled copy rather than a global install. Updates arrive via `/plugin update` whenever this repo's `.claude-plugin/plugin.json` version is bumped. The global `bun add -g` install is the same CLI released to npm on its own version line (`@baizor/pipeline`), for use from a bare terminal; the two are versioned independently, so a command can land in the bundled copy before it appears in the published package.
+This repository is itself the plugin, so the `pipeline` CLI under `apps/` ships inside — nothing else to fetch or build, and every `/pipeline:*` skill shells that bundled copy rather than a global install. Updates arrive via `/plugin update` whenever this repo's `.claude-plugin/plugin.json` version is bumped. The global `bun add -g` install is the same CLI released to npm on its own version line (`@baizor/pipeline`), for use from a bare terminal; the two are versioned independently, so a command can land in the bundled copy before it appears in the published package.
 
 ## What you get
 
 - **`/pipeline:design <high-level goal>`** — directly designs an ordered chain of iteration files under `./.pipeline/<pipeline-name>/`. Each file is one PR-sized unit of work.
 - **`/pipeline:clone <template-name>`** — scaffolds a bundled, ready-made pipeline template into `./.pipeline/<template-name>/` so you have a working pipeline to run and adapt without authoring one (or a global `bun add -g @baizor/pipeline`) — it shells the CLI that ships inside the plugin. Run `/pipeline:clone --list` to see the templates (e.g. `support-answer`, `ship-feature`, `example-minimal`); pass `--force` to overwrite an existing target or `--dir <path>` to clone into a different project root.
-- **`/pipeline:run <absolute-path-to-iteration.md>`** — drives the pipeline end-to-end. It mints the run id, owns UI liveness, and spawns a single `pipeline-manager` (depth 1) that drives the chain — running a fresh `step-executor` per iteration (depth 2) and dispatching `pipeline-improver` / `pipeline-script-creator` between steps. `/pipeline:run` itself stays in the main session: subagents can now nest (up to 5 levels deep), but the supervisor stays at depth 0 because a subagent's context is finite, it cannot wait hours for an external condition (the nested-blocker poll-wait), and it has no stable pid for liveness tracking.
+- **`/pipeline:run <absolute-path-to-iteration.md>`** — drives the pipeline end-to-end. It mints the run id, owns run liveness, and spawns a single `pipeline-manager` (depth 1) that drives the chain — running a fresh `step-executor` per iteration (depth 2) and dispatching `pipeline-improver` / `pipeline-script-creator` between steps. `/pipeline:run` itself stays in the main session: subagents can now nest (up to 5 levels deep), but the supervisor stays at depth 0 because a subagent's context is finite, it cannot wait hours for an external condition (the nested-blocker poll-wait), and it has no stable pid for liveness tracking.
 - **`/pipeline:dispatch <task>`** — autonomous task-to-pipeline orchestrator. Walks a three-tier cost ladder per call: (1) deterministic BM25 match via the bundled `pipeline match` CLI — free, resolves most tasks; (2) Haiku-based disambiguator agent — cheap, only runs when the top-2 BM25 candidates are within 2× of each other; (3) full-context chain detection in the main session — expensive, only runs when the matcher returns zero candidates AND the task has chain phrasing. Auto-runs the chosen pipeline(s) without confirmation.
 - **`/pipeline:find <task-or-github-issue-url>`** — deterministic, AI-free matcher (the inspection variant of dispatch). Shares dispatch's first-stage matcher (the bundled `pipeline match` CLI) but stops there — no LLM tiers, no auto-run. Returns ranked candidates with score + matched terms plus explicit excluded-with-reason output, then asks before running. Accepts a GitHub issue URL / `owner/repo#NUMBER` / plain issue number — fetches title+body via `gh issue view` and matches against that. Runs with Bun (no `pip install`).
-- **`/pipeline:ui`** — opens a live dashboard in the browser. Single shared local Bun daemon (one per machine, one stable port) that aggregates every project on this machine that uses the plugin, with iteration trees, active-run cards, blocker-child views, per-run analytics (tool counts, agent spawns, token usage), light/dark themes, and live SSE updates. The daemon is auto-launched by a `SessionStart` hook the first time you open Claude Code in any pipeline-using project, and self-shuts-down when idle. See "Live dashboard (/pipeline:ui)" below.
 - **Five subagents** usable via the `Agent` tool: `pipeline-manager`, `step-executor`, `pipeline-improver`, `pipeline-script-creator`, and `pipeline-disambiguator`. Pipeline authoring is the directly invocable `/pipeline:design` skill. Most subagents are normally invoked through automated chains — see "Self-improving pipelines", "Token-cheap iterations via script extraction", and "Finding the right pipeline for a task" below. The disambiguator runs on Haiku 4.5 to keep the matching ladder cheap.
 - **A remote MCP server + background notifier** for [ai-pipeline.dev](https://ai-pipeline.dev) departments — delegate a task to another agent/department straight from Claude Code (`/mcp` connects with a one-time browser OAuth consent, no token to paste) and get notified even after this session ends when that task needs your input or finishes. The bundled CLI also carries `pipeline department new` / `validate` / `serve` / `status` / `stop` / `retire`, which publish a folder of your own as a department other people can call. See "Departments (`/mcp` + background notifier)" below.
 
@@ -320,7 +319,7 @@ Run "release-server" now? [Y/n]            # /pipeline:find — asks
 
 For a GitHub issue, run either skill with the URL: `/pipeline:find https://github.com/owner/repo/issues/123`. The matcher calls `gh issue view --json title,body` and uses that as the task. Useful when triaging incoming issues.
 
-The matcher and the disambiguator both live in this plugin — nothing to install in the consumer project beyond **Bun** (already required by the `/pipeline:ui` dashboard); the matcher runs as the bundled `pipeline match` CLI. (`gh` is needed only for the `--issue` form.)
+The matcher and the disambiguator both live in this plugin — nothing to install in the consumer project beyond **Bun** (already required by the bundled CLI); the matcher runs as the bundled `pipeline match` CLI. (`gh` is needed only for the `--issue` form.)
 
 ## Self-improving pipelines
 
@@ -429,8 +428,8 @@ Every pipeline run is measured by **pure software — no AI agent, zero LLM toke
 default (`PIPELINE_STATS_ENABLED=0` disables). The `pipeline next` engine appends a timeline as the
 run progresses and finalizes it at the terminal action; token counts are then folded in from the raw
 manager + subagent transcripts (the only complete token source) by whichever rung gets there first —
-the `Stop`/`SubagentStop` relay, the next run's init, the dashboard daemon's periodic sweep, or
-`pipeline stats backfill` on demand. All four call one shared core, so the numbers are identical
+the `Stop`/`SubagentStop` relay, the next run's init, or
+`pipeline stats backfill` on demand. All three call one shared core, so the numbers are identical
 whichever one fills them in, and a run whose enrichment was missed is reconciled later instead of
 staying blank forever. You get
 simple text files to review whenever you like:
@@ -617,92 +616,37 @@ pipeline gc --clean    # prune + remove merged-only worktrees + safe-delete (-d)
 
 The plugin never writes inside itself. Every pipeline file, every code edit performed by an executor, every log entry — all land in the consumer project's working directory.
 
-## Live dashboard (`/pipeline:ui`)
+## Watching a run
 
-The plugin ships a browser-based dashboard: watch pipelines run in real time, **launch runs**, answer their questions, and **edit pipeline files** — from a desktop or a phone (the layout is fully responsive; below the desktop breakpoint it becomes a single-pane app with bottom navigation).
+Runs are recorded as they happen in an append-only journal at
+`<project>/.pipeline/.runtime/events.jsonl`. There are two ways to watch one.
 
-> **The UI/analytics system is ON BY DEFAULT** — the dashboard, daemon, and analytics hooks work out of the box, no setup required. To turn it off, explicitly opt out with `PIPELINE_UI_ENABLED=0` (see [The UI/analytics master switch](#the-uianalytics-master-switch--pipeline_ui_enabled) below). Prefer the terminal? `pipeline logs -f` works with no daemon at all.
+**The hosted dashboard at [ai-pipeline.dev](https://ai-pipeline.dev)** is the UI.
+Run `pipeline cloud connect` once and every run — from `/pipeline:run`,
+`/pipeline:dispatch`, `pipeline drive`, or cloud dispatch — streams there: run
+list, step tree, timings, token counts and cost, tool-call and failure counts,
+the parked-question surface, and per-run analytics. It is installable as a web
+app, so it works from a phone without exposing anything on your network. What it
+receives is step metadata only — your prompts, transcripts, code, file paths,
+tool arguments and error text never leave your machine
+([privacy](https://ai-pipeline.dev/docs/privacy)).
 
-### Launching runs from the browser
+**`pipeline logs` is the offline path** and needs no account, no daemon and no
+network — see the next section. `pipeline logs -f` tails the same journal live,
+and `pipeline logs --chat <run-id>` renders a finished headless run's Claude Code
+transcript in the terminal, which is the post-mortem a `pipeline drive` run
+otherwise leaves scattered across files nobody opens.
 
-The **Launch** tab lists every pipeline in the project (with its planned steps and configured models) in a **type-to-search picker** (every word of the query must match the pipeline's name or end-state), takes a task as typed text, **dictated speech**, or a path to a task file, and lets you override the model per step before launching. Launch runs through the interactive headless runner (`pipeline drive`): the run's events stream into the dashboard like any other run, and when a step reports `needs-input` the run parks and **its question appears on the run's board** — answer by tapping an option, typing, or dictating, and the SAME executor session resumes where it stopped.
+> **Historical note.** Earlier versions shipped a *local* browser dashboard
+> (`/pipeline:ui`, a background Bun daemon serving a React app). It was deleted:
+> the hosted dashboard is already better at the shared 90%, and the two local
+> capabilities without a cloud equivalent were moved into the CLI as
+> `pipeline logs --chat` and `pipeline fix` before it went. `pipeline ui`,
+> `/pipeline:ui`, the daemon and its `SessionStart` launcher no longer exist.
 
-Every active run — UI-launched or not — carries a **Stop** button (run cards + the overview board): it kills a UI-launched runner's process outright, and for a run that is actually dead but still shows "running" it appends the halt so the run finally leaves the Active view.
+### Terminal logs — `pipeline logs`
 
-### Watching several runs at once
-
-When nothing specific is selected, the middle pane is the **overview board**: every active run as a card (status, current step, progress, elapsed) with parked questions answerable right on the card — no switching required. The strip under the top bar (`ALL_n` + one chip per run) jumps between the overview and individual runs; a run waiting for an answer is flagged with `?`.
-
-Selecting a run shows its **live analytics**: the RUN_ANALYTICS header carries status, a ticking total-elapsed clock, and the current step; each row of the iteration tree gets a **wall-clock chip** (active work time across attempts, ticking while the step runs; parked needs-input time excluded) plus the full per-step breakdown — tools (+fails), agents, in/out tokens, cache read/write, and the step's configured model/effort/permission-mode. Tools/tokens/cost come from the transcript fold (`/api/run-stats`), which now finds the run's session even when the mirror binding lacks a transcript path. The **TOOLS, FAIL, and AGENTS tiles are clickable**: TOOLS opens per-tool aggregates (call counts, failures, total/avg/slowest durations) with every individual timed call expandable; FAIL lists every failed call (tool, input, error text, step, manager vs subagent); AGENTS lists every spawned agent with its type, task description, duration, and its own token spend (in/out/cache) folded from that agent's transcript.
-
-A run of a **target-family pipeline** (`<hub>/targets/<name>/`) shows its full expected chain: the target's own entry steps plus the hub's shared steps it chains into, with the current step tracked across both folders. Each not-yet-run step also shows its **configured model** from the step file's frontmatter (the observed model takes over once the step runs) — and the tree, the launch form, and the step detail all refresh automatically when a pipeline file changes on disk, whether saved from the built-in editor or edited externally.
-
-### Voice input — quality model optional
-
-Dictation has two engines. Out of the box it uses the browser's built-in Web Speech API (Chrome/Edge/Safari). For **Whisper-class quality**, give the daemon a transcription provider — set one of these in the environment the daemon starts from:
-
-| Env | Provider / model |
-|---|---|
-| `OPENAI_API_KEY` | OpenAI `whisper-1` |
-| `GROQ_API_KEY` | Groq `whisper-large-v3-turbo` (fast + cheap) |
-| `PIPELINE_STT_URL` (+ `PIPELINE_STT_KEY`, `PIPELINE_STT_MODEL`) | any OpenAI-compatible endpoint, e.g. a local whisper server |
-
-With a provider configured, the mic button records (tap to start/stop) and transcribes server-side — the key never reaches the browser, audio goes only to your chosen provider and is not persisted. `PIPELINE_STT_PROVIDER=openai|groq|custom` picks one when several are set. The language toggle offers **AUTO** (the default, server engine only): no language hint is sent, so Whisper detects it per utterance and **mixed-language dictation — e.g. Russian and English in one sentence — comes out right**; RU/EN pin a single language, and the browser fallback engine is always single-language.
-
-### Editing pipelines from the browser
-
-The **Pipelines** tab shows the project's pipelines as a **folder tree** mirroring the on-disk category layout (`workflows/…`, target families under `targets/`), with per-row ▶ Launch and ✎ Edit actions. The editor opens any file of the pipeline (manifest, steps, context modules, scripts); steps and the manifest get a **structured config form** — `model`, `step_id`, `depends-on`, `permission-mode` (plus `execution`/`runner` on the manifest) — that edits the frontmatter without touching keys it doesn't know, with the markdown body edited below. Save-conflict detection, an **add step** scaffold (designer's required-sections template, auto-numbered), **delete step**, and a **Validate** button running `pipeline plan`'s lint. When validate reports errors or warnings, an **AI Fix** button appears: pick a model (haiku/sonnet/opus/fable, default sonnet) and a background `claude -p` session edits the pipeline files to resolve the issues — the button shows a ticking timer while it works, then the editor re-validates and reloads automatically. Writes are strictly confined to `<project>/.pipeline/` — the daemon refuses anything else. On desktop both side columns are mouse-resizable (widths persist).
-
-### Phone access
-
-The daemon binds `127.0.0.1` only by default. To open it from a phone on your network, set `PIPELINE_UI_HOST=0.0.0.0` **and** `PIPELINE_UI_TOKEN=<secret>` (mandatory — the UI can launch runs and edit files), then open `http://<machine-ip>:<port>/?token=<secret>` once; a cookie keeps the session signed in. Without a token the daemon refuses the wide bind and falls back to loopback. A VPN/tunnel (Tailscale etc.) works the same way and is preferable on untrusted networks.
-
-Open it with:
-
-```
-/pipeline:ui
-```
-
-Architecture in one paragraph: a single shared Bun daemon (lives inside the plugin install dir, never touches your project files) listens on `127.0.0.1` on a stable high-ephemeral port derived from your home directory. Every project that uses this plugin (and has the UI enabled) registers itself with the daemon automatically on `SessionStart`, so opening Claude Code in any pipeline-using project makes that project appear in the dashboard's project picker. The daemon **never writes inside the consumer project** — it only reads `<project>/.pipeline/.runtime/events.jsonl` (an append-only journal written by `/pipeline:run` and the analytics hooks) and the pipeline manifests. Two completely different projects → two entries in the same dashboard, switchable from the top bar. A git **worktree** of a project resolves back to its main repo, so a worktree never appears as a separate project — its events show up under the main project with a `worktree` tag.
-
-### What's shown
-
-- **Active runs** with status badge (running / improving / extracting script / awaiting blocker), elapsed time, and progress bar.
-- **Iteration tree** for the selected run — completed iterations checked, current one shimmering, pending greyed.
-- **Blocker children** nested under their parent run, so the nested-blocker delegation flow is visible as a tree.
-- **Live event stream** filtered to the selected run, animated in as events arrive.
-- **Analytics panel** per run: tools called, tools failed, agents spawned, input/output/cache tokens — all collected via the plugin's `PostToolUse` and `Stop` hooks and aggregated client-side.
-- **Light / dark theme** with animated transition; persisted to `localStorage`.
-
-### What it stores on disk
-
-- Daemon bookkeeping (port, pid, project registry): `~/.claude/pipeline-ui/` (per-user, not per-project).
-- Event journal per project: `<project>/.pipeline/.runtime/events.jsonl` (gitignored — add `.runtime/` to your project's `.gitignore` if it isn't already).
-- The plugin install dir itself is read-only — daemon code lives there but every byte of state lives elsewhere.
-
-### Requirements & gotchas
-
-- **Bun** ([bun.sh](https://bun.sh)) is required for the UI daemon and hooks (and for the bundled `pipeline` CLI).
-- The daemon binds to `127.0.0.1` only. Not network-exposed.
-- Two Claude Code sessions in the same project → both feed events into the same journal → one dashboard shows them.
-- A separate project on the same machine → registers automatically → picker has two entries → same dashboard.
-- Idle daemon auto-exits after 60 minutes (override with `PIPELINE_UI_IDLE_MINUTES`).
-
-### Upgrades & restarts
-
-The daemon follows the installed plugin version automatically (a plugin update mid-session hands the port off to the new version within ~30 s; a new Claude Code session reconciles on start). The one gap: a daemon that was **already running when you installed the update** and hasn't seen a new session keeps serving the old version. When that happens the dashboard's top bar shows an **UPDATE v\<new\>** button — click it and the daemon restarts into the installed version on the same port; open tabs reconnect and reload themselves (unsaved editor changes prompt first). The same restart is available from a terminal:
-
-```bash
-bun "<plugin>/apps/pipeline-cli/src/cli.ts" ui --restart   # or: curl -X POST http://127.0.0.1:<port>/api/restart
-```
-
-### If the dashboard is empty
-
-You probably haven't run a pipeline yet in any registered project. The picker shows projects that have at least registered themselves via `SessionStart` or emitted any event. Run `/pipeline:design` or `/pipeline:run` somewhere — the project shows up immediately and events stream in.
-
-### Terminal logs instead of the browser — `pipeline logs`
-
-Prefer to watch events scroll by in a terminal? Tail the same event journal the dashboard reads, pretty-printed as one line per event:
+Watch events scroll by in a terminal, pretty-printed as one line per event:
 
 ```bash
 # from anywhere inside a pipeline project:
@@ -716,32 +660,33 @@ bun "<plugin>/apps/pipeline-cli/src/cli.ts" logs --follow
 08:00:05 ✓ pipeline.completed abcdef12  build-cli
 ```
 
-Flags: `-f`/`--follow` to stream live, `--tail <n>` (default 20) for the initial backlog, `--all` for the whole journal, `--json` for raw JSON lines, `--no-color`, and `--project <path>` to point at a project other than the cwd. It is **read-only** — it never starts the daemon or writes anything — so it works whether or not the dashboard is enabled. Stop it with Ctrl-C.
+Flags: `-f`/`--follow` to stream live, `--tail <n>` (default 20) for the initial backlog, `--all` for the whole journal, `--json` for raw JSON lines, `--no-color`, and `--project <path>` to point at a project other than the cwd. It is **read-only** — it starts no background process and writes nothing — so it works with or without a cloud account. Stop it with Ctrl-C.
 
-### The UI/analytics master switch — `PIPELINE_UI_ENABLED`
+`pipeline logs --chat <run-id>` is the other half: it renders that run's Claude Code transcript(s) in the terminal — the post-mortem for a headless `pipeline drive` run, whose steps execute as separate processes and whose subagent transcripts otherwise become files nobody opens. It reads only what is already on your disk and uploads nothing.
 
-**The dashboard, the daemon, and the analytics hooks are ON BY DEFAULT** — they work out of the box, with no setup. To turn the whole system off, explicitly opt out by setting the environment variable `PIPELINE_UI_ENABLED` to a falsy value (`0`, `false`, `no`, or `off`):
+### The journal/analytics master switch — `PIPELINE_UI_ENABLED`
+
+**The analytics hooks are ON BY DEFAULT** — they work out of the box, with no setup. To turn the whole system off, explicitly opt out by setting the environment variable `PIPELINE_UI_ENABLED` to a falsy value (`0`, `false`, `no`, or `off`):
 
 ```jsonc
 // .claude/settings.json  (per project — hooks inherit the session env)
 { "env": { "PIPELINE_UI_ENABLED": "0" } }
 ```
 
+> The `PIPELINE_UI_` prefix is a leftover from the deleted local dashboard. These variables gate the **journal**, which is not going anywhere; renaming them is planned.
+
 While it is **unset** (the default), or set to any non-falsy value, the system is on:
 
-- the `SessionStart` hook launches/registers the daemon and writes `session.opened`,
-- the analytics hooks (`PreToolUse`/`PostToolUse`/`SubagentStop`/`Stop`) emit events and mirror bindings (the `Notification` hook is separate — it keeps its own `PIPELINE_AWAITING_INPUT_ENABLED` switch and still reports a blocked run when the UI is opted out),
-- `/pipeline:ui` starts the dashboard and prints its URL.
+- the `SessionStart` hook writes `session.opened`,
+- the analytics hooks (`PreToolUse`/`PostToolUse`/`SubagentStop`/`Stop`) emit events and mirror bindings (the `Notification` hook is separate — it keeps its own `PIPELINE_AWAITING_INPUT_ENABLED` switch and still reports a blocked run when the rest is opted out).
 
-When you opt out (`0`/`false`/`no`/`off`): the `SessionStart` hook does not launch/register the daemon or write `session.opened`, the analytics hooks emit nothing and do no filesystem work, and `/pipeline:ui` prints that it was opted out (with how to re-enable) instead of starting the dashboard. Either way your pipelines run identically — the variable only controls the observability layer. You can also set it in your shell or OS environment before launching Claude Code. Because the hook *registrations* live in the plugin, Claude Code still launches each hook's (instantly-exiting) process even when opted out; to remove even that, disable the plugin. Your core run lifecycle is always journaled by `/pipeline:run`, so `pipeline logs` works as a lightweight terminal view regardless of this setting.
+When you opt out (`0`/`false`/`no`/`off`): the `SessionStart` hook does not write `session.opened`, and the analytics hooks emit nothing and do no filesystem work. Either way your pipelines run identically — the variable only controls the observability layer. You can also set it in your shell or OS environment before launching Claude Code. Because the hook *registrations* live in the plugin, Claude Code still launches each hook's (instantly-exiting) process even when opted out; to remove even that, disable the plugin. Your core run lifecycle is always journaled by `/pipeline:run`, so `pipeline logs` works as a lightweight terminal view regardless of this setting.
 
-> **Opting out never changes the network binding.** This flag toggles only the enable default — the daemon still binds `127.0.0.1` only, and exposing it on the network still requires the explicit `PIPELINE_UI_HOST=0.0.0.0` **plus** a mandatory `PIPELINE_UI_TOKEN` (see [Phone access](#phone-access) above).
+> Performance note: `SubagentStop` only fires the hook for the `pipeline-manager` subagent (via a `matcher`), so the dozens of other subagent stops in a run no longer spawn a hook process.
 
-> Performance note: even with the UI enabled, `SubagentStop` only fires the hook for the `pipeline-manager` subagent (via a `matcher`), so the dozens of other subagent stops in a run no longer spawn a hook process.
+### Transcript opt-out — `PIPELINE_UI_TRANSCRIPTS`
 
-### Transcript-mirroring opt-out — `PIPELINE_UI_TRANSCRIPTS`
-
-Keep the dashboard on, but opt **out of the one privacy-sensitive part**: the reading and copying of your Claude Code **transcripts**. `PIPELINE_UI_TRANSCRIPTS` is **ON BY DEFAULT** and, unlike the master switch above, gates **only** the transcript mirroring/fold — nothing else. Set it to a falsy value (`0`, `false`, `no`, or `off`) to disable just that:
+Keep the journal on, but opt **out of the one privacy-sensitive part**: reading your Claude Code **transcripts**. `PIPELINE_UI_TRANSCRIPTS` is **ON BY DEFAULT** and, unlike the master switch above, gates **only** the transcript work — nothing else. Set it to a falsy value (`0`, `false`, `no`, or `off`) to disable just that:
 
 ```jsonc
 // .claude/settings.json
@@ -750,19 +695,16 @@ Keep the dashboard on, but opt **out of the one privacy-sensitive part**: the re
 
 What it gates (all OFF when opted out):
 
-- the daemon **copying transcript content** into a run's live **chat panel** (the message mirror),
-- the per-run **token/tool analytics** that are **folded from the raw transcripts** (`/api/run-stats`, `-failures`, `-breakdown` — the RUN_ANALYTICS panel),
+- the **transcript pointer** recorded on a run's mirror binding — the thing that makes a session's transcript reachable at all,
 - the `Stop` hook's transcript **token tail** (`turn.usage`).
 
-What keeps working (the UI + basic events are untouched):
+What keeps working:
 
-- the dashboard, the daemon, and `/pipeline:ui`,
 - the basic pipeline-lifecycle events — `pipeline.*`, `iteration.*`, `tool.called`, `manager.stopped`, `session.opened` — and the run timeline/liveness they drive,
-- run correlation: the mirror **binding is still written** (so events still attribute to the right run), just **without the transcript pointer**.
+- run correlation: the mirror **binding is still written** (so events still attribute to the right run), just **without the transcript pointer**,
+- `pipeline logs --chat`, which reads a transcript on your own disk on demand and never involves a pointer.
 
-The dashboard **degrades gracefully**: a run shows its lifecycle, steps, and timeline as usual; the transcript-derived token/tool panels simply read empty (a headless `pipeline drive` run still surfaces its own envelope token/cost, which never comes from a transcript). No crash, no error state.
-
-This switch is **orthogonal** to the two neighbours: it is **not** the network binding (that is still `PIPELINE_UI_HOST` + a mandatory `PIPELINE_UI_TOKEN`), and it is **not** `PIPELINE_STATS_ENABLED` — the separate local `.pipeline/.stats/` measurement fold keeps its own switch and its own default. Setting `PIPELINE_UI_ENABLED=0` (the master switch) already turns everything off, so `PIPELINE_UI_TRANSCRIPTS` only matters while the UI is on. The daemon snapshots this at boot, so change it before the daemon starts (or restart the daemon) for it to take effect.
+This switch is **orthogonal** to `PIPELINE_STATS_ENABLED` — the separate local `.pipeline/.stats/` measurement fold keeps its own switch and its own default. Setting `PIPELINE_UI_ENABLED=0` (the master switch) already turns everything off, so `PIPELINE_UI_TRANSCRIPTS` only matters while the hooks are on.
 
 ### Prompt match hook (opt-in) — `PIPELINE_PROMPT_MATCH_ENABLED`
 
@@ -785,21 +727,15 @@ Everything the plugin reads from the environment, in one place. Set the per-proj
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PIPELINE_UI_ENABLED` | **on** | Master opt-OUT for the whole UI/analytics system (dashboard daemon + analytics hooks). Enabled unless explicitly set to a falsy value; `0`/`false`/`no`/`off` disables, unset/empty/any other value enables. Does NOT affect the `PIPELINE_UI_HOST`/`PIPELINE_UI_TOKEN` binding security. |
-| `PIPELINE_UI_TRANSCRIPTS` | **on** | Opt-OUT for **only** the transcript mirroring/fold: the chat-panel message mirror, the transcript-folded per-run token/tool analytics, and the `Stop` hook's token tail. `0`/`false`/`no`/`off` disables just that; the UI + basic lifecycle events keep working (the dashboard degrades gracefully). Orthogonal to `PIPELINE_UI_ENABLED`, `PIPELINE_STATS_ENABLED`, and the host/token binding. Snapshotted at daemon boot. |
+| `PIPELINE_UI_ENABLED` | **on** | Master opt-OUT for the journal/analytics hooks (`SessionStart` + `PreToolUse`/`PostToolUse`/`SubagentStop`/`Stop`). Enabled unless explicitly set to a falsy value; `0`/`false`/`no`/`off` disables, unset/empty/any other value enables. The `_UI_` in the name is a leftover from the deleted local dashboard — it gates the journal. |
+| `PIPELINE_UI_TRANSCRIPTS` | **on** | Opt-OUT for **only** the transcript work: the `transcript_path` pointer recorded on a mirror binding, and the `Stop` hook's token tail. `0`/`false`/`no`/`off` disables just that; the basic lifecycle events and run correlation keep working. Orthogonal to `PIPELINE_UI_ENABLED` and `PIPELINE_STATS_ENABLED`. |
 | `PIPELINE_STATS_ENABLED` | **on** | Per-run measurement files under `.pipeline/.stats/` (durations, per-step timings, outcomes, tokens, tool failures — see "Measuring every run" above). Set `0`/`false`/`no`/`off` to disable. Independent of `PIPELINE_UI_ENABLED` and `PIPELINE_UI_TRANSCRIPTS`. |
-| `PIPELINE_AWAITING_INPUT_ENABLED` | **on** | The `Notification` hook that journals `run.awaiting_input` when a permission prompt or an input request blocks the session — the WAITING badge in the dashboard and the `⏸` line in `pipeline logs`. Deliberately INDEPENDENT of `PIPELINE_UI_ENABLED`: a blocked run is worth surfacing even with no dashboard running. `0`/`false`/`no`/`off` disables. |
-| `PIPELINE_UI_WATCHDOG_ENABLED` | **on** | The daemon's interrupt watchdog: a run whose session you interrupted with Esc fires no hook at all, so after 30 s of silence the daemon reads the transcript and, if the interrupt is still the last thing that happened, retires the run instead of leaving it "running" forever. `0`/`false`/`no`/`off` disables. Requires `PIPELINE_UI_TRANSCRIPTS` (there is nothing to read without it). Snapshotted at daemon boot. |
+| `PIPELINE_AWAITING_INPUT_ENABLED` | **on** | The `Notification` hook that journals `run.awaiting_input` when a permission prompt or an input request blocks the session — the `⏸` line in `pipeline logs` and the awaiting-input surface in the cloud dashboard. Deliberately INDEPENDENT of `PIPELINE_UI_ENABLED`: a blocked run is worth surfacing even when the rest is opted out. `0`/`false`/`no`/`off` disables. |
 | `PIPELINE_PROMPT_MATCH_ENABLED` | off | Opt-in for the `UserPromptSubmit` pipeline-match hook (section above). Same non-falsy semantics. |
-| `PIPELINE_DEPARTMENT_NOTIFY_ENABLED` | **on** | Opt-OUT for the departments background notifier (section above): the `SessionStart` daemon launcher and the pending-notification drain. `0`/`false`/`no`/`off` disables; no-ops anyway until `pipeline cloud connect` has been run once. The old name, `PIPELINE_MESH_NOTIFY_ENABLED`, is still read as a fallback (with a deprecation warning) when this one is unset. |
+| `PIPELINE_DEPARTMENT_NOTIFY_ENABLED` | **on** | Opt-OUT for the departments background notifier (section above): its `SessionStart` launcher and the pending-notification drain. `0`/`false`/`no`/`off` disables; no-ops anyway until `pipeline cloud connect` has been run once. The old name, `PIPELINE_MESH_NOTIFY_ENABLED`, is still read as a fallback (with a deprecation warning) when this one is unset. |
 | `PIPELINE_CLOUD_API` | `https://api.ai-pipeline.dev` | Overrides the control-plane API base used by `pipeline cloud connect` and the department notifier. |
 | `PIPELINE_CLOUD_HOME` | platform default (`%APPDATA%\claude-pipeline` on Windows, `$XDG_CONFIG_HOME/claude-pipeline` / `~/.config/claude-pipeline` elsewhere) | Overrides the per-user directory holding the cloud credential store and the department notifier's journal/lock files. |
 | `PIPELINE_MACHINE_TOKEN` | unset | The no-human path for `pipeline cloud connect` (bots, CI, autonomous agents): an `aip_m_<client-id>.<secret>` machine credential from your dashboard's Settings → Machine credentials. Its presence suppresses every prompt and browser/device-code attempt — pass `--org <slug>` too (a machine credential has no discoverable org). `--machine-token <token>` is the flag equivalent; the env var is preferred since argv is world-readable in `ps`. Combining either with `--device` is a usage error (exit 2). |
-| `PIPELINE_UI_IDLE_MINUTES` | `60` | Minutes of inactivity before the dashboard daemon auto-exits. |
-| `PIPELINE_UI_HOST` | `127.0.0.1` | Daemon bind address. Any non-loopback value (e.g. `0.0.0.0` for phone access) REQUIRES `PIPELINE_UI_TOKEN` — otherwise the daemon falls back to loopback with a warning. |
-| `PIPELINE_UI_TOKEN` | unset | Access token enforced on every request when set (`Authorization: Bearer`, `?token=`, or the cookie the first `?token=` page-load pins). Mandatory for a non-loopback bind: the UI can launch runs and edit pipeline files. |
-| `OPENAI_API_KEY` / `GROQ_API_KEY` | unset | Enables server-side Whisper-class dictation in the dashboard (`/api/transcribe`). Without either, voice input falls back to the browser's Web Speech API. |
-| `PIPELINE_STT_URL` / `PIPELINE_STT_KEY` / `PIPELINE_STT_MODEL` / `PIPELINE_STT_PROVIDER` | unset | Custom OpenAI-compatible transcription endpoint (e.g. a local whisper server), its key/model, and a provider override (`openai`\|`groq`\|`custom`) when several are configured. |
 | `PIPELINE_DRIVE_EXECUTOR_CMD` | `claude -p --agent pipeline:step-executor --model {model} --effort {effort} --permission-mode {permissions} --session-id {session} --add-dir {record_dir} --plugin-dir {plugin_dir} --output-format stream-json --verbose --json-schema {schema}` | Overrides the command template the EXPERIMENTAL headless runner (`pipeline drive`) spawns per step. Whitespace-split; tokens `{model}` / `{effort}` / `{permissions}` / `{session}` / `{record_dir}` / `{plugin_dir}` / `{schema}` are substituted (a flag+token pair is dropped when the token has no value; on an answer/crash resume the flag before `{session}` becomes `--resume`); the step prompt always arrives on stdin. `{plugin_dir}` (CLAUDE_PLUGIN_ROOT) keeps `--agent pipeline:step-executor` resolvable once `-p` defaults to `--bare`; unlike `{session}`/`{record_dir}` it is never appended to a template that omits it, so a pre-existing override is unaffected. Equivalent to `--executor-cmd`. |
 | `PIPELINE_HOOK_TIMEOUT_MS` | per-hook (600 000 create/finalize, 300 000 destroy) | Overrides the external-isolation worktree-hook timeout (positive integer, milliseconds). Mostly useful for testing hooks. |
 | `PIPELINE_WORKTREE_SCOPED` | on | Worktree-scoped pipeline I/O for `isolation: external` runs (the run plans from, and self-improves into, the run worktree's pipeline copy — committed state only). `0`/`false` restores the legacy main-scoped reads. FROZEN per run into `next.json` at init — a mid-run flip never mixes path models within one run. |

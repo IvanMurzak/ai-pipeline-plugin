@@ -12,9 +12,3 @@ NUL
 
 .vscode/
 .idea/
-
-# Pipeline-UI build artifacts not meant to live in the plugin repo
-# (a more specific .gitignore lives at apps/pipeline-ui/.gitignore).
-apps/pipeline-ui/web/node_modules/
-apps/pipeline-ui/web/.vite/
-apps/pipeline-ui/web/*.tsbuildinfo

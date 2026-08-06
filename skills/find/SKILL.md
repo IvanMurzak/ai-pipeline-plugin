@@ -34,7 +34,7 @@ Rules:
 ## Prerequisites
 
 - The current working directory is the consumer project's root (where `./.pipeline/` lives). If unsure, confirm with the user before proceeding.
-- `bun` is available on PATH — the matcher runs via the bundled `pipeline` CLI (`apps/pipeline-cli`, run with Bun). Bun is already required by the plugin's UI daemon; nothing else to install.
+- `bun` is available on PATH — the matcher runs via the bundled `pipeline` CLI (`apps/pipeline-cli`, run with Bun). Bun is already required by the plugin's hooks; nothing else to install.
 - For `--issue` input only: the `gh` CLI is installed and authenticated. If unavailable, fall back to asking the user to paste the task text.
 
 ## Procedure

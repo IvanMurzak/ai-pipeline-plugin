@@ -4,6 +4,47 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## plugin 0.91.0 / CLI 0.12.0 — the local dashboard is gone; the journal it was built for is not
+
+The plugin shipped a local web dashboard: a background Bun daemon, a committed React bundle, a
+`SessionStart` hook that launched it, `pipeline ui`, and `/pipeline:ui`. All of it is **deleted**.
+The hosted dashboard at [ai-pipeline.dev](https://ai-pipeline.dev) is the UI — it is installable as
+a web app, and it is already better at the shared 90%.
+
+Nothing was lost in the gap. The two local capabilities with no cloud equivalent moved into the CLI
+**before** the deletion: `pipeline logs --chat <run-id>` renders a headless run's transcript in the
+terminal, and `pipeline fix` is the browser's AI Fix as a command. Both are offline and upload
+nothing. The browser pipeline editor and the voice-input proxy were deliberately dropped.
+
+**The event journal stays, and this is the part worth reading twice.**
+`<project>/.pipeline/.runtime/events.jsonl` was built for that dashboard and is still named after it
+in every `PIPELINE_UI_*` variable — but it is now the telemetry source: the outbox tails it, the
+uploader ships it, and `pipeline logs` renders it for anyone who has declined the cloud. Every
+writer survived; only the reader and the app went. `tests/journal-end-to-end.test.ts` drives the
+real hook scripts as real subprocesses and then feeds the journal they produce through the real
+outbox and uploader, because a journal that silently stopped being written would not have failed
+anything — it would just have been empty.
+
+### What changed for you
+
+- `pipeline ui` and `/pipeline:ui` no longer exist. `pipeline logs -f` is the live terminal view;
+  `pipeline logs --chat <run-id>` is the post-mortem.
+- No background daemon is started on session start any more, and nothing listens on a local port.
+  `PIPELINE_UI_HOST`, `PIPELINE_UI_TOKEN`, `PIPELINE_UI_IDLE_MINUTES`, `PIPELINE_UI_WATCHDOG_ENABLED`
+  and the `PIPELINE_STT_*` / `OPENAI_API_KEY` / `GROQ_API_KEY` dictation settings are gone with it.
+- `PIPELINE_UI_ENABLED` and `PIPELINE_UI_TRANSCRIPTS` keep working unchanged — they now gate the
+  journal hooks rather than a UI. The names are a leftover and are being renamed separately.
+- **A dead run is no longer swept locally.** The daemon retired runs that had died without a terminal
+  event; the signals it keyed on (`manager.stopped`, the `.alive` pid lockfile) are all still
+  emitted, but nothing consumes them on your machine. The cloud dashboard does its own liveness.
+- `--no-ui` on `pipeline init` remains accepted as a no-op, with an updated message.
+
+### Docs
+
+`apps/pipeline-ui/EVENTS.md` moved to `docs/events.md` and `docs/ui-subsystem.md` became
+`docs/journal-and-hooks.md` — the schema and the hook invariants are unchanged, they just no longer
+live inside a deleted app.
+
 ## plugin 0.90.0 / CLI 0.11.0 — a step is a name, and a connected run reports itself
 
 Two independent bodies of work ship together here. These version numbers were bumped when the

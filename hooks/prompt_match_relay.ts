@@ -78,7 +78,7 @@ export function promptMatchEnabled(): boolean {
  *  checkout there as `core.worktree`. Without this, every worktree of a
  *  submodule registers as its own project under a path inside `.git`.
  *
- *  COPY of apps/pipeline-ui/lib.ts:submoduleWorktreeOf — hooks cannot import
+ *  COPY of apps/pipeline-cli/src/lib/event.ts:submoduleWorktreeOf — hooks cannot import
  *  from a sibling .ts at runtime. tests/resolve-parity.test.ts fails on drift. */
 function submoduleWorktreeOf(commonDir: string): string | null {
   try {

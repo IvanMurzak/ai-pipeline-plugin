@@ -3,8 +3,12 @@
 Four ways to run a pipeline. They differ in **where you start them from**, not in
 what they do — the same pipeline, the same steps, the same result.
 
-Every one of them streams live to your cloud dashboard once you have run
-`pipeline cloud connect`.
+Every one of them streams live to your cloud dashboard at
+[ai-pipeline.dev](https://ai-pipeline.dev) once you have run
+`pipeline cloud connect`. That dashboard is the UI — hosted, installable as a
+web app, nothing to run on your machine. Without an account, `pipeline logs`
+shows you the same runs in the terminal; see
+[Watching without an account](#watching-without-an-account) below.
 
 ## Terminology
 
@@ -152,6 +156,26 @@ To check what has been sent:
 ```
 pipeline stats telemetry
 ```
+
+---
+
+## Watching without an account
+
+Local execution never requires a cloud account, and neither does watching a run.
+Every method above writes an append-only journal at
+`<project>/.pipeline/.runtime/events.jsonl`, and two commands read it — both
+read-only, both offline, neither starting any background process:
+
+```bash
+pipeline logs -f                 # tail the run live, one line per event
+pipeline logs --chat <run-id>    # render a finished run's transcript
+```
+
+`logs -f` is the live view: step starts and finishes, tool calls, parked
+questions, halts. `logs --chat` is the post-mortem — it renders the Claude Code
+transcript of a run that executed headless (`pipeline drive`), whose steps ran
+as separate processes and whose subagent transcripts otherwise sit unread on
+disk. Both read only what is already on your machine and upload nothing.
 
 ---
 

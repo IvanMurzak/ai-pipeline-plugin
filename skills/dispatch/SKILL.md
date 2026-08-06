@@ -40,7 +40,7 @@ The 80% case (one pipeline obviously matches): tier 1 only, no LLM tokens. The 1
 
 - `$1` is non-empty. If empty, ask the user what task to dispatch. Do not proceed.
 - Current working directory is the consumer project's root.
-- `bun` is on PATH — the matcher runs via the bundled `pipeline` CLI (`apps/pipeline-cli`). Bun is already required by the plugin's UI daemon.
+- `bun` is on PATH — the matcher runs via the bundled `pipeline` CLI (`apps/pipeline-cli`). Bun is already required by the plugin's hooks.
 - For `--issue` inputs only: `gh` CLI installed and authenticated.
 - At least one pipeline exists under `./.pipeline/`. If none, stop and tell the user to run `/pipeline:design` first.
 

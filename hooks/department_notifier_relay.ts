@@ -25,7 +25,7 @@
  *      per-user directory apps/pipeline-cli/src/lib/cloud-config.ts already
  *      uses for the cloud credential store) — never spawned twice; respawned
  *      if the previous instance died. Deliberately far simpler than
- *      pipeline_ui_relay.ts's daemon: no HTTP health checks, no version
+ *      the deleted dashboard daemon: no HTTP health checks, no version
  *      handoff — the notifier has no listening port and nothing project-
  *      scoped to reconcile, so "is the pid alive" is the whole contract.
  *
@@ -90,7 +90,7 @@ function isFalsy(v: string): boolean {
   return v === "0" || v === "false" || v === "no" || v === "off";
 }
 
-/** Master enable switch — mirrors pipeline_ui_relay.ts's pipelineUiEnabled():
+/** Master enable switch — mirrors session_relay.ts's pipelineUiEnabled():
  *  ON by default; only an explicit falsy value opts out. Reads the new env
  *  var first; falls back to the deprecated `PIPELINE_MESH_NOTIFY_ENABLED`
  *  (a11/08-terminology.md tier-3 dual-accept window) when the new one is
@@ -148,7 +148,7 @@ function readLock(lockPath: string): DaemonLock | null {
 /** Spawn `pipeline department notify` detached, using the SAME bun binary
  *  that is running this hook (process.execPath) rather than trusting a bare
  *  `bun` on the detached child's PATH — the Windows npm-shim trap
- *  pipeline_ui_relay.ts's spawnDaemon already documents (bun ships as
+ *  the deleted dashboard's launcher hook already documented (bun ships as
  *  bun.ps1/bun.cmd there, not bun.exe on PATH, so a shell-less spawn of the
  *  bare name silently never starts). */
 function spawnNotifyDaemon(lockPath: string): void {
