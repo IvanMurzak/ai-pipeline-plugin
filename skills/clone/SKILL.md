@@ -56,17 +56,16 @@ skill's `allowed-tools` is `Bash` only, which enforces that.)
      of valid templates; relay it so the user can pick a real one.
 
 3. **On a successful clone, tell the user briefly how to run it.** Keep it short:
-   - Launch it from the local **Pipeline UI** (on by default) — a Launch form lets
-     them set options and start the run, or
-   - Run it directly: `/pipeline:run <cwd>/.pipeline/<name>/steps/01-*.md`.
+   - Run it from here: `/pipeline:run <cwd>/.pipeline/<name>/steps/01-*.md`, or
+   - Run it headless from a terminal: `pipeline drive <name>`.
    - For the **`support-answer`** template specifically, mention that it takes two
      pipeline variables — `PP_QUESTION` (the question to answer) and `PP_DOCS_DIR`
-     (the folder to retrieve over) — which they can fill in on the UI Launch form
-     (or pass as `--var PP_QUESTION=... --var PP_DOCS_DIR=...` to `/pipeline:run`).
+     (the folder to retrieve over) — passed as
+     `--var PP_QUESTION=... --var PP_DOCS_DIR=...`.
 
 ## Notes
 
-- **Bun is required** — it runs the bundled CLI (same requirement as `/pipeline:ui`).
+- **Bun is required** — it runs the bundled CLI.
   If the run fails because Bun is missing, point the user at https://bun.sh and
   stop; do not try to install it for them.
 - The available templates are whatever `... clone --list` prints — do not hardcode

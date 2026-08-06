@@ -341,7 +341,7 @@ Secrets **never** travel through params or outputs. Scripts inherit the process 
 
 ## 11. Observability (brief)
 
-Script steps surface additively: `iteration.started` / `iteration.completed` events carry an optional `step_type: "script"`, and `iteration.completed` carries an optional `failure_class`. The run record gains `llm_steps` (count of agent-type steps executed) — a finished run with `llm_steps: 0` finalizes its `tokens` as true zeros. Script failures appear in the run `.log` beside tool fails, so `/pipeline:optimize` sees which scripts are flaky, how often the fallback fired, and what it cost. Full details live in `apps/pipeline-ui/EVENTS.md` and `docs/cli.md`.
+Script steps surface additively: `iteration.started` / `iteration.completed` events carry an optional `step_type: "script"`, and `iteration.completed` carries an optional `failure_class`. The run record gains `llm_steps` (count of agent-type steps executed) — a finished run with `llm_steps: 0` finalizes its `tokens` as true zeros. Script failures appear in the run `.log` beside tool fails, so `/pipeline:optimize` sees which scripts are flaky, how often the fallback fired, and what it cost. Full details live in `docs/events.md` and `docs/cli.md`.
 
 ---
 

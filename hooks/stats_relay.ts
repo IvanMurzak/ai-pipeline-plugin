@@ -10,7 +10,7 @@
  * This hook is phase 2: it fires when a pipeline-manager subagent stops (or
  * on a plain session Stop — same script, registered under both), folds the
  * manager + subagent transcripts through the SAME window-gated fold the
- * dashboard uses (apps/pipeline-ui/transcript-stats.ts — validated as the
+ * CLI uses (apps/pipeline-cli/src/lib/vendor/transcript-walk.ts — validated as the
  * only complete token source), and rewrites the matching runs.jsonl entries
  * in place — tokens, tool counts, AND tool failures (per-tool counts in the
  * record, per-failure detail lines in the run's .log) so /pipeline:optimize

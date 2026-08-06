@@ -173,10 +173,11 @@ recorded error, never thrown — one bad server/org never aborts the whole poll 
 - No-ops entirely (spawns nothing, drains nothing) until `credentialFilePath()` exists — i.e. until
   `pipeline cloud connect` has run once. Re-checked cheaply on every SessionStart.
 - The daemon is spawned via `process.execPath` (the same bun binary running the hook), not a bare `bun`
-  on the detached child's PATH — the same Windows npm-shim trap `hooks/pipeline_ui_relay.ts`'s
+  on the detached child's PATH — the same Windows npm-shim trap the deleted dashboard's launcher hook's
   `spawnDaemon()` already documents.
 - Single-instance guard is a pid+`started_at` lock file, checked with `process.kill(pid, 0)` (the same
-  liveness idiom `pipeline_ui_relay.ts` uses). Deliberately far simpler than the pipeline-ui daemon: no
+  liveness idiom the analytics relay's telemetry-daemon lock uses). Deliberately far simpler than the
+  deleted dashboard daemon it was contrasted with: no
   HTTP health endpoint, no version-handoff protocol — the notifier has no listening port and nothing
   project-scoped to reconcile, so "is the pid alive" is the whole contract.
 
@@ -209,7 +210,7 @@ keep in sync. It is deliberately NOT listed in `cli.ts`'s `--help` output.
   either gates out before that branch (no credential store) or pre-seeds the lock file with the test
   process's own pid (always alive), so `ensureDaemonRunning` takes the "already running" early return.
   The real spawn path is smoke-tested manually and is proven at the `e3` gate — the same deferral
-  `pipeline_ui_relay.ts`'s own `spawnDaemon()` already accepts.
+  the deleted dashboard's launcher hook already accepted.
 
 Full cross-session live proof — a real parked task on a real deployed cloud, a real OAuth-connected
 Claude Code session, the daemon actually detecting the transition and a real toast/context injection
