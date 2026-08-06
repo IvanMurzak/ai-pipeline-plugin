@@ -4,7 +4,55 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
-## plugin 0.90.0 / CLI 0.11.0 — a step is a name, not a file
+## plugin 0.90.0 / CLI 0.11.0 — a step is a name, and a connected run reports itself
+
+Two independent bodies of work ship together here. These version numbers were bumped when the
+manifest work landed and then held for the owner, so neither was ever published — this is the first
+build carrying either. The first half below changes how a pipeline is **defined**; the second
+changes what a run **sends**.
+
+### Telemetry: a connected run reports itself, and you can ask what it sent
+
+A local run's measurements never reached the dashboard. The journal on disk was complete and the
+cloud had an ingest endpoint, but nothing joined them — so connecting a project bought you a page
+that stayed empty while runs finished on your machine.
+
+**Nothing leaves an unconnected machine.** The uploader refuses to build a request body without a
+credential, and the org it uploads to is the one the CREDENTIAL authenticates to, never the one
+`.pipeline/cloud.json` happens to name — so telemetry queued offline under one org cannot surface in
+another's dashboard after you switch. Every payload is filtered through an allowlist before it is
+queued and again at the wire; an unrecognized privacy tier fails CLOSED to the most restrictive one.
+
+- **One place mints an id.** `ids.ts` is a hand-rolled RFC 9562 UUIDv7 with §6.2 Method 1
+  monotonicity, so run ids sort by creation time — and `pipeline id` is the only sanctioned way to
+  get one, rather than each skill inventing a format. Every step gets its own UUID at start, carried
+  on events and on `runs.jsonl`, and a **sequential** step now reports its manifest `step_name` too,
+  so a rollup row names the step instead of `step:<index>`.
+- **The outbox is durable, org-tagged and bounded.** Journal → filtered records → a size-capped
+  on-disk queue with a rotation-safe cursor, which outlives the run that wrote it.
+- **The uploader cannot fail, delay, or alter a run.** It lives in a DETACHED per-project daemon
+  (atomic `wx` lock, one per project) — never in a hook, never on a step's critical path. Each
+  request carries a 5 s timeout, each flush a 20 s wall-clock deadline with backoff clamped to the
+  time remaining, and at most 20 requests. A flush therefore terminates against any server
+  behaviour, including one that hangs forever.
+- **`pipeline drive` prints the run's dashboard link before step 1** and tails telemetry in-process
+  as the run proceeds, reading `stream-json` output from all four spawn templates.
+- **`pipeline stats telemetry [--drain] [--json]`** answers what the subsystem previously left
+  unanswerable: whether it is enabled and connected, to which org and project, whether the daemon is
+  alive, how much is queued, how much was blocked or dropped and why, and what the last error was.
+- **Connecting backfills the runs already on disk**, instead of starting your history at zero.
+- **The credential is protected at rest and expires on inactivity.** The refresh token goes to the
+  platform's own secret store where one exists (macOS `security`, Linux `secret-tool`); the file
+  fallback is written atomically at mode 0600 with a Windows ACL lockdown, and it expires on the
+  same inactivity window the server enforces.
+- **The project fingerprint is keyed by a per-install secret** — 32 CSPRNG bytes created on first
+  use and stored beside the credential — replacing a documented PUBLIC constant that left the
+  fingerprint dictionary-attackable for any guessable git remote or path. It is pseudonymous, never
+  anonymous, and the module now says so plainly.
+- **Security fix:** `CLAUDE_CODE_FORWARD_SUBAGENT_TEXT` is deleted from every `claude -p` child
+  environment, so a subagent's raw text cannot be forwarded out of a spawned step.
+
+### A step is a name, not a file
 
 A pipeline's definition used to be spread across sources that disagreed about who was in charge:
 `PIPELINE.md` frontmatter, every step file's own frontmatter, a `## Graph` section whose mere
