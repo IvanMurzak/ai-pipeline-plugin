@@ -1,0 +1,29 @@
+CHANGELOG.md
+  s_814b73c4ad3936::t_7ff27993f7aa01 37,42-61
+CLAUDE.md
+  s_814b73c4ad3936::t_8484b919704314 69
+docs/journal-and-hooks.md
+  s_814b73c4ad3936::t_2eeb652c08aee4 41-51
+hooks/hooks.json
+  s_814b73c4ad3936::t_9656e72a96c715 2
+hooks/run-hook.sh
+  s_814b73c4ad3936::t_360dcbc939bd3a 2,24-26,31-78,81-93,136-188
+tests/hook-run-shim.test.ts
+  s_814b73c4ad3936::t_986b64c65f4ba4 44-51,256-434
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "d7239ad8bb5c276c0e9cca35b2b9eb2c94780354",
+  "prompts": {},
+  "sessions": {
+    "s_814b73c4ad3936": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_814b73c4ad3936",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
