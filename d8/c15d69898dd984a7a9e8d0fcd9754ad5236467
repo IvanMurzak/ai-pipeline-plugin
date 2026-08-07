@@ -1,0 +1,21 @@
+apps/pipeline-cli/src/lib/vendor/privacy.ts
+  s_c2325d1b86d1af::t_6deb084105592e 86-132,194-473,683-698,744-754,771-775,802-811,821,828-831,838-842
+apps/pipeline-cli/tests/vendor-privacy.test.ts
+  s_c2325d1b86d1af::t_81320a6c17efbe 16-33,36,38-42,97-102,121-122,124,126,150-153,170-181,193-200,209-212,362-683
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "d8c15d69898dd984a7a9e8d0fcd9754ad5236467",
+  "prompts": {},
+  "sessions": {
+    "s_c2325d1b86d1af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_c2325d1b86d1af",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
