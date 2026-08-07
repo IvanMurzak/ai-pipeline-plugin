@@ -63,8 +63,8 @@ jobs:
   # cloning this repository — there is no install step, ever. A root manifest
   # would imply one, would put a second `name`/`version` beside
   # `.claude-plugin/plugin.json`, and would risk the marketplace loader for a
-  # test runner that does not need it: `bun test <dir>` takes a directory and
-  # runs without any manifest at all. That is what this job does.
+  # test runner that does not need it: `bun test` needs no manifest and no
+  # install to run the directory it is started in. That is what this job does.
   #
   # Both operating systems, because these are the files most exposed to the
   # difference: `run-hook.sh` is POSIX sh (its resolution-chain block self-skips
