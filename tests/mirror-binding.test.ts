@@ -46,7 +46,7 @@ import { tmpdir } from "node:os";
 import {
   handlePostToolUse,
   MIRROR_BINDING_SCHEMA,
-} from "../../../hooks/analytics_relay.ts";
+} from "../hooks/analytics_relay.ts";
 
 let tmpRoot: string;
 let homeDir: string;

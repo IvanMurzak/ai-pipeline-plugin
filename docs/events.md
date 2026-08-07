@@ -516,7 +516,7 @@ Lives at `~/.claude/pipeline-ui/active-mirror-bindings.jsonl`. Append-only journ
 
 `step_uuid` is written only by `kind: "drive-session"` records; every other writer binds at Agent-spawn time, where no step identity exists yet, and omits the field. Readers treat **absent as null** — the field is additive and does NOT bump the binding schema.
 
-**Strict scope (issue #11) — still load-bearing.** A session appears in this file only because a hook explicitly bound it, and a transcript is reachable only through a binding that names it. Sessions that never spawn a `pipeline-manager` or worker never appear here at all. The deleted dashboard's `MirrorService` was the first consumer of that guarantee; `analytics_relay.ts`'s own `findBindingForSession` is the one that remains, and it is what makes an event's `run_id`/`step_uuid` resolvable at all. `apps/pipeline-cli/tests/mirror-scope-discipline.test.ts` is the regression test — do not weaken it.
+**Strict scope (issue #11) — still load-bearing.** A session appears in this file only because a hook explicitly bound it, and a transcript is reachable only through a binding that names it. Sessions that never spawn a `pipeline-manager` or worker never appear here at all. The deleted dashboard's `MirrorService` was the first consumer of that guarantee; `analytics_relay.ts`'s own `findBindingForSession` is the one that remains, and it is what makes an event's `run_id`/`step_uuid` resolvable at all. `tests/mirror-scope-discipline.test.ts` is the regression test — do not weaken it.
 
 ### `kind: "drive-session"` — the pre-spawn binding (ux-v2 b7)
 
@@ -534,4 +534,4 @@ Three properties are load-bearing:
 
 `project_root` is always the **main repository's working tree path**, never a worktree path. The writer resolves worktrees by reading `.git` — if it's a file starting with `gitdir: <path>`, it follows `<path>/commondir` to find the parent and uses that. Worktrees still report their location in the `worktree` field.
 
-The resolver is copied into every emitter that cannot import a sibling at runtime (`lib/event.ts`, `hooks/session_relay.ts`, `hooks/analytics_relay.ts`, `hooks/prompt_match_relay.ts`); `apps/pipeline-cli/tests/resolve-parity.test.ts` fails if any copy drifts.
+The resolver is copied into every emitter that cannot import a sibling at runtime (`lib/event.ts`, `hooks/session_relay.ts`, `hooks/analytics_relay.ts`, `hooks/prompt_match_relay.ts`); `<superrepo>/tests/cross-repo/resolve-parity.test.ts` fails if any copy drifts.

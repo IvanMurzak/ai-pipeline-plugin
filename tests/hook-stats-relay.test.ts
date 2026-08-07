@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const HOOK_PATH = resolve(import.meta.dir, '../../../hooks/stats_relay.ts');
+const HOOK_PATH = resolve(import.meta.dir, '../hooks/stats_relay.ts');
 const PRE_REFACTOR_PATH = resolve(import.meta.dir, 'fixtures/stats_relay.pre-refactor.ts');
 
 const created: string[] = [];

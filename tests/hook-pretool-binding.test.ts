@@ -48,7 +48,7 @@ import {
   handlePostToolUse,
   bypassRunIdFromToolUseId,
   MIRROR_BINDING_SCHEMA,
-} from "../../../hooks/analytics_relay.ts";
+} from "../hooks/analytics_relay.ts";
 
 let tmpRoot: string;
 let homeDir: string;
@@ -182,7 +182,7 @@ describe("bypassRunIdFromToolUseId", () => {
   // ux-v2 b2: this now derives via `hookIdFromToolUseId` (RFC 9562 §5.5
   // UUIDv5 over tool_use_id, apps/pipeline-cli/src/lib/ids.ts) instead of a
   // 12-hex sha1 slice — canonical 36-char UUID, version nibble 5. See
-  // apps/pipeline-cli/tests/hook-bypass-id-determinism.test.ts for the
+  // tests/hook-bypass-id-determinism.test.ts for the
   // cross-PROCESS version of the determinism check below (the one that
   // would actually catch a regression to `newId()`).
   test("is deterministic for the same tool_use_id", () => {

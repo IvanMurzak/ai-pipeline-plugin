@@ -42,7 +42,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, readFileSync, rmSync 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const PLUGIN_ROOT = resolve(import.meta.dir, '..', '..', '..');
+const PLUGIN_ROOT = resolve(import.meta.dir, '..');
 const SCRIPT = join(PLUGIN_ROOT, 'hooks', 'run-hook.sh');
 const SH = typeof Bun !== 'undefined' ? Bun.which('sh') : null;
 

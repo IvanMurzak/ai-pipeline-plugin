@@ -23,7 +23,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const HOOKS_FILE = resolve(import.meta.dir, "..", "..", "..", "hooks", "analytics_relay.ts");
+const HOOKS_FILE = resolve(import.meta.dir, "..", "hooks", "analytics_relay.ts");
 
 /** Runs `bypassRunIdFromToolUseId(toolUseId)` in a FRESH bun process (not a
  *  fresh import in the current one) and returns the printed id, trimmed.

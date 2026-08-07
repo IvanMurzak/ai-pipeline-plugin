@@ -47,7 +47,7 @@ import {
   parseManagerSpawn,
   parseWorkerSpawn,
   SCHEMA_VERSION,
-} from "../../../hooks/analytics_relay.ts";
+} from "../hooks/analytics_relay.ts";
 
 let tmpRoot: string;
 let projectRoot: string;

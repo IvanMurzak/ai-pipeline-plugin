@@ -6,7 +6,7 @@
  * backfill-core refactor (the inline SubagentStop enrichment loop, before it
  * became a thin wrapper over `lib/stats-backfill.ts#backfillProject`). Its
  * only job is to be spawned by
- * `apps/pipeline-cli/tests/hook-stats-relay.test.ts` as the "pre-refactor"
+ * `tests/hook-stats-relay.test.ts` as the "pre-refactor"
  * half of the byte-equivalence check — the refactored hook must still
  * produce byte-identical `runs.jsonl` output for the SubagentStop path.
  *

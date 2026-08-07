@@ -53,7 +53,7 @@
 //                        (default 2000)
 
 import { existsSync, writeFileSync } from 'node:fs';
-import { acquireTelemetryDaemonLock } from '../../../../hooks/analytics_relay.ts';
+import { acquireTelemetryDaemonLock } from '../../hooks/analytics_relay.ts';
 
 const lockPath = process.env.WORKER_LOCK_PATH!;
 const barrier = process.env.WORKER_BARRIER!;

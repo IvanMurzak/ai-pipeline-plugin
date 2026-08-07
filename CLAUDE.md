@@ -67,10 +67,12 @@ apps/
 hooks/
   hooks.json                        # Registers Stop + SubagentStop (matcher: pipeline-manager) + SessionStart + PreToolUse + PostToolUse + UserPromptSubmit + Notification hooks (loaded by Claude Code from default plugin location)
   run-hook.sh                       # POSIX-sh shim every hook command routes through: resolves an absolute bun binary (PATH → $BUN_INSTALL/bin → ~/.bun/bin → /opt/homebrew/bin → /usr/local/bin) and `exec`s it against the relay script, because Claude Code runs hooks via non-interactive /bin/sh which never sources ~/.zshrc — the reason `~/.bun/bin` (bun's default macOS install dir) is invisible to a Dock/Finder-launched session. Must stay executable (mode 100755) or the shim itself reintroduces the "bun: command not found" bug it fixes; `--loud` (SessionStart's primary entry only) prints one actionable line on bun-not-found, every other call site stays silent to avoid flooding high-frequency hooks
-  session_relay.ts                  # SessionStart hook — appends ONE `session.opened` line to <project>/.pipeline/.runtime/events.jsonl and nothing else. All that is left of the deleted dashboard's launcher hook (plugin-thin p3): the daemon it launched is gone, the journal it writes is ux-v2's telemetry source and what `pipeline logs` renders, so the writer stays. Gated by PIPELINE_JOURNAL_ENABLED; carries a parity copy of resolveProjectRoot (see apps/pipeline-cli/tests/resolve-parity.test.ts)
+  session_relay.ts                  # SessionStart hook — appends ONE `session.opened` line to <project>/.pipeline/.runtime/events.jsonl and nothing else. All that is left of the deleted dashboard's launcher hook (plugin-thin p3): the daemon it launched is gone, the journal it writes is ux-v2's telemetry source and what `pipeline logs` renders, so the writer stays. Gated by PIPELINE_JOURNAL_ENABLED; carries a parity copy of resolveProjectRoot (see <superrepo>/tests/cross-repo/resolve-parity.test.ts)
   analytics_relay.ts                # Multi-event hook (PreToolUse + PostToolUse + SubagentStop + Stop + Notification) — the Notification branch journals `run.awaiting_input` and is evaluated BEFORE the PIPELINE_JOURNAL_ENABLED opt-out under its own PIPELINE_AWAITING_INPUT_ENABLED (default ON), so a blocked run still shows in `pipeline logs` with no cloud account; mirror bindings, tool.called, run-level bypass synthesis, manager.stopped liveness, turn.usage. The transcript-sensitive bits (binding transcript_path + the Stop turn.usage tail) are separately gated by PIPELINE_JOURNAL_TRANSCRIPTS (default ON; off ⇒ null the pointer + skip the tail, basic events keep flowing) — orthogonal to the PIPELINE_JOURNAL_ENABLED master switch and to PIPELINE_STATS_ENABLED; see docs/journal-and-hooks.md
   stats_relay.ts                    # Stop + SubagentStop (matcher: pipeline-manager) — thin wrapper over lib/stats-backfill.ts; token + tool-failure enrichment for .stats/ run records (transcript fold; per-tool fail counts + .log fail details); gated by PIPELINE_STATS_ENABLED (default ON, independent of PIPELINE_JOURNAL_ENABLED)
   department_notifier_relay.ts      # SessionStart hook (department-mesh task a1, renamed from mesh_notifier_relay.ts at a11) — ensures `pipeline department notify` is running detached (pid-lock guarded) + drains its pending-notification journal into SessionStart additionalContext; gated by PIPELINE_DEPARTMENT_NOTIFY_ENABLED (default ON, falling back to the deprecated PIPELINE_MESH_NOTIFY_ENABLED with a warning), no-ops until `pipeline cloud connect` has run once; see docs/departments-mcp.md
+tests/                              # THE PLUGIN'S OWN TESTS — `hooks/*.ts` + `hooks/run-hook.sh`. Run from the REPO ROOT with `bun test tests/` (no root package.json and none wanted: a plugin install is a git clone with no install step, so a root manifest would imply one and sit beside .claude-plugin/plugin.json as a second name/version; `bun test <dir>` needs no manifest). Gated by the `plugin-hooks` CI job. See "Where a test lives" below
+  fixtures/                         #   spawn workers + the frozen pre-refactor stats_relay copy the byte-equivalence check spawns
 docs/                               # On-demand reference docs split out of CLAUDE.md — read before editing the matching subsystem
   cli.md                            #   the `pipeline` CLI — commands & contracts (plan/match/event/route/next/logs/fix/submodule bump)
   execution-modes.md                #   execution modes (DAG/parallel, external isolation + finalize), model selection, EVENTS schema, self-improvement + nested-blocker loops, spawn-depth rules
@@ -169,6 +171,37 @@ re-doing the token-cost analysis:
 If you ever change the executor to auto-load the manifest, you are
 re-introducing per-iteration token cost and breaking fresh-context
 self-containment. Don't.
+
+## Where a test lives (plugin-thin `p5`)
+
+**A test lives in the tree that contains what it tests.** There are three trees
+and the boundary is not cosmetic — `apps/pipeline-cli` becomes its own
+repository in plugin-thin phase 5 (`02-extract-cli.md`), and anything under
+`apps/pipeline-cli/tests/` that reads a file above `apps/pipeline-cli/` is
+reading something that will not travel with it.
+
+| What the test touches | Where it lives | What runs it |
+| --- | --- | --- |
+| CLI source only | `apps/pipeline-cli/tests/` | `bun run test` there; CI job `pipeline-cli` |
+| `hooks/*` only | **this repo's root `tests/`** | `bun test tests/` from the repo root; CI job `plugin-hooks` |
+| `hooks/*` **and** CLI source | the parent monorepo's `tests/cross-repo/` (written `<superrepo>/tests/cross-repo/` in code comments here) | its CI job `cross-repo` — the only tree with both on disk |
+
+In code comments the two homes outside a file's own package are written
+`<plugin-root>/tests/…` (this repository's root, one level above
+`apps/pipeline-cli/`) and `<superrepo>/tests/cross-repo/…` (the parent
+monorepo, `IvanMurzak/ai-pipeline`, which carries this repository as a
+submodule). Both stay accurate after the CLI is extracted, which a bare
+`tests/…` would not.
+
+The third row is not a new invention: the parent monorepo's `drift` job already
+checks out submodules for exactly this reason. A comparison test that needs two
+repositories is vacuous inside either one of them.
+
+`tests/cli-package-self-contained.test.ts` enforces the first two rows
+mechanically. It resolves **both** syntactic forms — `'../../../hooks/x.ts'`
+and `resolve(import.meta.dir, '..', '..', '..', 'hooks')` — because a grep for
+the first cannot see the second, and that blindness is exactly what let two
+files slip past the sweep that commissioned this split.
 
 ## Testing the plugin
 

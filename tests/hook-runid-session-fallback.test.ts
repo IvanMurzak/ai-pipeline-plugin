@@ -50,7 +50,7 @@ import {
   pathsMatch,
   resolveRunIdFromEnvOrSession,
   type MirrorBinding,
-} from "../../../hooks/analytics_relay.ts";
+} from "../hooks/analytics_relay.ts";
 
 let tmpRoot: string;
 let homeRoot: string;
