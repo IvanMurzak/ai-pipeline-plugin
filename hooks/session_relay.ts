@@ -30,24 +30,24 @@
  * network, no lockfile, no `~/.claude` bookkeeping of any kind.
  *
  * Never blocks Claude Code — always exits 0. All errors are silent unless
- * PIPELINE_UI_DEBUG=1.
+ * PIPELINE_JOURNAL_DEBUG=1.
  */
 
 import { existsSync, mkdirSync, readFileSync, statSync, appendFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 
-const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
+const DEBUG = process.env.PIPELINE_JOURNAL_DEBUG === "1";
 const log = (msg: string) => DEBUG && console.error(`[session-relay] ${msg}`);
 
 /** Master enable switch. The journal/analytics system is ON BY DEFAULT — this
  *  hook runs UNLESS the user has explicitly opted OUT by setting
- *  PIPELINE_UI_ENABLED to a falsy value (0/false/no/off); unset/empty (and any
+ *  PIPELINE_JOURNAL_ENABLED to a falsy value (0/false/no/off); unset/empty (and any
  *  other value) leaves it enabled. When opted out it writes nothing. (The Bun
  *  process still launches because the registration lives in hooks.json, but it
  *  exits immediately. To remove the spawn entirely, disable the plugin.)
  *  Mirrors hooks/analytics_relay.ts. */
-function pipelineUiEnabled(): boolean {
-  const v = (process.env.PIPELINE_UI_ENABLED ?? "").trim().toLowerCase();
+function journalEnabled(): boolean {
+  const v = (process.env.PIPELINE_JOURNAL_ENABLED ?? "").trim().toLowerCase();
   return v !== "0" && v !== "false" && v !== "no" && v !== "off";
 }
 
@@ -168,8 +168,8 @@ function appendSessionOpened(projectRoot: string, worktree: string | null): void
 }
 
 async function main(): Promise<void> {
-  if (!pipelineUiEnabled()) {
-    log("PIPELINE_UI_ENABLED explicitly opted out (0/false/no/off) — not writing session.opened");
+  if (!journalEnabled()) {
+    log("PIPELINE_JOURNAL_ENABLED explicitly opted out (0/false/no/off) — not writing session.opened");
     return;
   }
   // Read (and discard) the hook payload from stdin — Claude Code's hook
@@ -199,7 +199,7 @@ async function main(): Promise<void> {
   appendSessionOpened(project_root, worktree);
 }
 
-export { pipelineUiEnabled, resolveProjectRoot, hasPipelineDirUpTo, appendSessionOpened };
+export { journalEnabled, resolveProjectRoot, hasPipelineDirUpTo, appendSessionOpened };
 
 // Only run the hook loop when invoked as a script (e.g. `bun
 // hooks/session_relay.ts`), NOT when imported by a test file.

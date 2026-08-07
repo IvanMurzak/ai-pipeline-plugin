@@ -49,7 +49,7 @@
  * does appear.
  *
  * Gated by PIPELINE_DEPARTMENT_NOTIFY_ENABLED — ON BY DEFAULT, same
- * falsy-value opt-out convention as PIPELINE_UI_ENABLED (0/false/no/off
+ * falsy-value opt-out convention as PIPELINE_JOURNAL_ENABLED (0/false/no/off
  * disables; any other value, including unset, leaves it enabled). The old
  * name, PIPELINE_MESH_NOTIFY_ENABLED, is still READ as a fallback when the
  * new one is unset — a shell profile or service unit set up before a11 keeps
@@ -80,7 +80,7 @@ import {
   type TaskNotification,
 } from "../apps/pipeline-cli/src/lib/department-notify.ts";
 
-const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
+const DEBUG = process.env.PIPELINE_JOURNAL_DEBUG === "1";
 const log = (msg: string) => DEBUG && console.error(`[department_notifier_relay] ${msg}`);
 
 const NOTIFY_ENABLED_ENV = "PIPELINE_DEPARTMENT_NOTIFY_ENABLED";
@@ -90,11 +90,11 @@ function isFalsy(v: string): boolean {
   return v === "0" || v === "false" || v === "no" || v === "off";
 }
 
-/** Master enable switch — mirrors session_relay.ts's pipelineUiEnabled():
+/** Master enable switch — mirrors session_relay.ts's journalEnabled():
  *  ON by default; only an explicit falsy value opts out. Reads the new env
  *  var first; falls back to the deprecated `PIPELINE_MESH_NOTIFY_ENABLED`
  *  (a11/08-terminology.md tier-3 dual-accept window) when the new one is
- *  unset, warning once on stderr — never gated by PIPELINE_UI_DEBUG, since a
+ *  unset, warning once on stderr — never gated by PIPELINE_JOURNAL_DEBUG, since a
  *  real user relying on the old name should see this even without debug on. */
 export function departmentNotifyEnabled(): boolean {
   const primary = (process.env[NOTIFY_ENABLED_ENV] ?? "").trim().toLowerCase();

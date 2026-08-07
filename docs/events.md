@@ -81,7 +81,7 @@ Deliberately NOT renamed, for reasons that outlive the rename:
 
 > The runtime event emitter is the `pipeline event` command (`apps/pipeline-cli/src/lib/event.ts`, run with Bun). Everything below describes its semantics.
 
-The skill (`/pipeline:run`) passes `run_id`, `parent_run_id`, and `session_id` as **k=v arguments** on every `pipeline event` call, rather than relying on environment variables. Claude Code's Bash tool does not preserve shell state across invocations: a `export PIPELINE_UI_RUN_ID=…` in one Bash call is gone by the next Bash call's `pipeline event …`, which would stamp `run_id: null` on every event after the first and silently drop the run from the UI's fold (events with `run_id: null` are not folded into the run forest).
+The skill (`/pipeline:run`) passes `run_id`, `parent_run_id`, and `session_id` as **k=v arguments** on every `pipeline event` call, rather than relying on environment variables. Claude Code's Bash tool does not preserve shell state across invocations: a `export PIPELINE_RUN_ID=…` in one Bash call is gone by the next Bash call's `pipeline event …`, which would stamp `run_id: null` on every event after the first and silently drop the run from the UI's fold (events with `run_id: null` are not folded into the run forest).
 
 `pipeline event` pops these three names out of the kv payload and uses them as envelope fields:
 
@@ -92,7 +92,7 @@ bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" event iteration.started
     index=2
 ```
 
-The envelope ends up as `{run_id: "abc123def456", parent_run_id: null, session_id: null, data: {iteration_path: …, index: 2}}`. The env vars (`PIPELINE_UI_RUN_ID` etc.) remain a defensive fallback for the rare case where the override is absent. The names `run_id` / `parent_run_id` / `session_id` are therefore **reserved** in the kv namespace — do not use them as data-field names on events.
+The envelope ends up as `{run_id: "abc123def456", parent_run_id: null, session_id: null, data: {iteration_path: …, index: 2}}`. The env vars (`PIPELINE_RUN_ID` etc.) remain a defensive fallback for the rare case where the override is absent. The names `run_id` / `parent_run_id` / `session_id` are therefore **reserved** in the kv namespace — do not use them as data-field names on events.
 
 ### Emission sources for lifecycle events (`pipeline.started` → `pipeline.completed`/`halted`)
 
@@ -288,10 +288,13 @@ calls it PENDING only when the newest interrupt is at-or-after the newest
 activity, comparing timestamps **on the transcript's own clock**; daemon
 wall-clock never enters the comparison, so clock skew between the writing
 machine and the daemon cannot manufacture an interrupt. A resumed session
-self-clears: its new output post-dates the interrupt. Gate
-`PIPELINE_UI_WATCHDOG_ENABLED` (default ON); inert when `PIPELINE_UI_TRANSCRIPTS`
-is off. Accepted gap: an Esc before any model output leaves no marker — an
-idle-timeout heuristic would false-positive on long thinking phases.
+self-clears: its new output post-dates the interrupt. Historically gated by
+`PIPELINE_UI_WATCHDOG_ENABLED`, inert when the transcript switch was off — but
+that switch had zero live-code references after `p3` deleted the daemon that
+read it (`sweepInterruptedRuns` lived in the now-gone `server.ts`), so
+plugin-thin `p4` deleted the dead variable rather than renaming it. Accepted
+gap: an Esc before any model output leaves no marker — an idle-timeout
+heuristic would false-positive on long thinking phases.
 
 ### `run.awaiting_input` (observability a2 — new TYPE, schema stays 4)
 
@@ -327,7 +330,7 @@ fallback matches permission/waiting/approval phrasings and ignores idle
 event while that issue is open.
 
 **Gating.** `PIPELINE_AWAITING_INPUT_ENABLED` (default ON), evaluated BEFORE
-the `PIPELINE_UI_ENABLED` opt-out: a blocked run is worth surfacing through
+the `PIPELINE_JOURNAL_ENABLED` opt-out: a blocked run is worth surfacing through
 `pipeline logs` (`⏸` line) even when no dashboard runs.
 
 ### `manager.stopped` (Phase 2 — agent-lifecycle liveness)
@@ -448,7 +451,7 @@ The live implementation is `apps/pipeline-cli/src/lib/step-transcripts.ts` over 
 
 ### Hook-event correlation (legacy — still drives the per-iteration tree)
 
-`tool.called` and `turn.usage` carry a `run_id` field — set by the `/pipeline:run` skill via the `PIPELINE_UI_RUN_ID` env var, or recovered by the hooks via the session-keyed mirror-binding lookup. Events outside any pipeline run land in the journal as ambient telemetry, excluded from per-run aggregates. These events still feed the **per-iteration** tree breakdown (`IterationTree`/`StepDetail`), which has not yet been migrated to the transcript fold — so the per-iteration numbers remain subject to the undercount described above. (The per-RUN panel no longer uses them.)
+`tool.called` and `turn.usage` carry a `run_id` field — set by the `/pipeline:run` skill via the `PIPELINE_RUN_ID` env var, or recovered by the hooks via the session-keyed mirror-binding lookup. Events outside any pipeline run land in the journal as ambient telemetry, excluded from per-run aggregates. These events still feed the **per-iteration** tree breakdown (`IterationTree`/`StepDetail`), which has not yet been migrated to the transcript fold — so the per-iteration numbers remain subject to the undercount described above. (The per-RUN panel no longer uses them.)
 
 **Step attribution on the driven path (ux-v2 b7).** When the resolved binding is one of `pipeline drive`'s pre-spawn records, the same lookup also yields the **step** UUID, and `tool.called` / `turn.usage` / `manager.stopped` / `run.awaiting_input` carry it as `data.step_uuid`. The field is **absent, not null, when unresolved** — absent means "not known", never "no step" — so every pre-b7 event shape is unchanged and no schema bump is involved. This makes a driven step's tool calls and tokens attributable to one execution without correlating timestamps against `iteration.started`/`iteration.completed` windows (the LIFO-open-window rule above stays as the fallback for events that carry no `step_uuid` — everything on Paths A/B/C). Measured on live `pipeline drive` runs: hook events emitted inside `claude -p` went from **100% `run_id: null` (10/10 over two runs) to 0% (0/11)**, all of them additionally naming the step. The residual `run_id: null` on that path is `session.opened`, which `hooks/session_relay.ts` writes as a literal null and which never consults the resolver.
 
@@ -488,11 +491,12 @@ sweeper is cheap only while they still exist.
 
 ## Environment overrides
 
-- `PIPELINE_UI_ENABLED` — master opt-OUT switch for the journal/analytics hooks, which are **ON BY DEFAULT**. They stay on unless you explicitly opt out by setting it to a falsy value (`0`/`false`/`no`/`off`); unset/empty — and any other value — leaves them enabled. When opted out, every hook no-ops at entry: the `SessionStart` hook (`session_relay.ts`) does not write `session.opened`, and the analytics hook (`analytics_relay.ts`, all of PreToolUse/PostToolUse/SubagentStop/Stop) emits no events and writes no mirror bindings. The Bun process for a registered hook still launches (an env var can't un-register a `hooks.json` entry) but exits immediately, so an opt-out drops per-hook cost to ~Bun-startup only — to remove the spawn entirely, disable the plugin. Does NOT gate the `pipeline event` journal writer (cheap, and what `pipeline logs` reads — so `/pipeline:run` lifecycle events are still journaled even when the hooks are opted out). Set it in your shell, your OS environment, or your project's `.claude/settings.json` `env` block (hooks inherit the session environment).
-- `PIPELINE_UI_TRANSCRIPTS` — narrower opt-out (same falsy parse, also ON by default) for the transcript work only: the `transcript_path` pointer recorded on a mirror binding, and the `Stop` hook's `turn.usage` token tail. Lifecycle events and run correlation are unaffected.
+- `PIPELINE_JOURNAL_ENABLED` — master opt-OUT switch for the journal/analytics hooks, which are **ON BY DEFAULT**. They stay on unless you explicitly opt out by setting it to a falsy value (`0`/`false`/`no`/`off`); unset/empty — and any other value — leaves them enabled. When opted out, every hook no-ops at entry: the `SessionStart` hook (`session_relay.ts`) does not write `session.opened`, and the analytics hook (`analytics_relay.ts`, all of PreToolUse/PostToolUse/SubagentStop/Stop) emits no events and writes no mirror bindings. The Bun process for a registered hook still launches (an env var can't un-register a `hooks.json` entry) but exits immediately, so an opt-out drops per-hook cost to ~Bun-startup only — to remove the spawn entirely, disable the plugin. Does NOT gate the `pipeline event` journal writer (cheap, and what `pipeline logs` reads — so `/pipeline:run` lifecycle events are still journaled even when the hooks are opted out). Set it in your shell, your OS environment, or your project's `.claude/settings.json` `env` block (hooks inherit the session environment).
+- `PIPELINE_JOURNAL_TRANSCRIPTS` — narrower opt-out (same falsy parse, also ON by default) for the transcript work only: the `transcript_path` pointer recorded on a mirror binding, and the `Stop` hook's `turn.usage` token tail. Lifecycle events and run correlation are unaffected.
 
-> The `PIPELINE_UI_*` naming is a leftover from the deleted local dashboard —
-> these gate the JOURNAL, which stays. Renaming them is plugin-thin `p4`.
+> Renamed from the `PIPELINE_UI_*` prefix in plugin-thin `p4` (clean break, no
+> alias). That prefix was a leftover from the deleted local dashboard — these
+> gate the JOURNAL, which stays.
 
 ## Rotation
 
@@ -522,7 +526,7 @@ Three properties are load-bearing:
 
 - **`transcript_path` is always `null`.** At pre-write time the child's transcript file does not exist. A pointer-less record names no transcript, so it does NOT widen transcript scope (issue #11).
 - **No `terminal` record is written, and none is needed.** `findRunIdForSession` already treats a binding as terminated once `pipeline.completed`/`pipeline.halted` appears for its `run_id` in the project journal — which retires every drive-session record of that run at once. A run that never terminates ages out at `BINDING_MAX_AGE_MS` (7 days). Growth is one line per step-session (the same order as the Path-B worker bindings already written per Agent spawn); a record whose spawn never happened names a session id that will never exist and can therefore never be matched by anything.
-- **`PIPELINE_UI_ENABLED` gates it.** The master opt-out promises "no events, no mirror bindings"; drive writes these unprompted, so `registerDriveSessionBinding` returns early when the switch is off.
+- **`PIPELINE_JOURNAL_ENABLED` gates it.** The master opt-out promises "no events, no mirror bindings"; drive writes these unprompted, so `registerDriveSessionBinding` returns early when the switch is off.
 
 **Shelf life, stated deliberately:** this depends on plugin hooks firing inside `claude -p`. When `-p` defaults to `--bare` they stop, and the mechanism has nothing to attach to. It is a near-term improvement, not an architecture — the identity minting it propagates (ux-v2 b4) is the half that survives.
 

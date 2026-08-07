@@ -38,8 +38,8 @@
  *    close never stalls on a large .stats tree.
  *
  * Gating: PIPELINE_STATS_ENABLED (default ON — set 0/false/off/no to disable;
- * NOTE this is deliberately independent of PIPELINE_UI_ENABLED — stats keep
- * their own gate even when the UI/analytics system is opted out). Also a no-op
+ * NOTE this is deliberately independent of PIPELINE_JOURNAL_ENABLED — stats keep
+ * their own gate even when the journal/analytics system is opted out). Also a no-op
  * when the cwd has no `.pipeline/.stats/`.
  *
  * Attribution: each tokens-null run recorded in the last 48h is folded with
