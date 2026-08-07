@@ -1,0 +1,19 @@
+apps/pipeline-cli/tests/vendor-privacy.test.ts
+  s_d2813188a263bf::t_232331c5cf6332 329-334
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "81d7ca8a586d4bd7857945deaa6b5c17a8c9f28b",
+  "prompts": {},
+  "sessions": {
+    "s_d2813188a263bf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_d2813188a263bf",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
