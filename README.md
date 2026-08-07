@@ -664,16 +664,16 @@ Flags: `-f`/`--follow` to stream live, `--tail <n>` (default 20) for the initial
 
 `pipeline logs --chat <run-id>` is the other half: it renders that run's Claude Code transcript(s) in the terminal — the post-mortem for a headless `pipeline drive` run, whose steps execute as separate processes and whose subagent transcripts otherwise become files nobody opens. It reads only what is already on your disk and uploads nothing.
 
-### The journal/analytics master switch — `PIPELINE_UI_ENABLED`
+### The journal/analytics master switch — `PIPELINE_JOURNAL_ENABLED`
 
-**The analytics hooks are ON BY DEFAULT** — they work out of the box, with no setup. To turn the whole system off, explicitly opt out by setting the environment variable `PIPELINE_UI_ENABLED` to a falsy value (`0`, `false`, `no`, or `off`):
+**The analytics hooks are ON BY DEFAULT** — they work out of the box, with no setup. To turn the whole system off, explicitly opt out by setting the environment variable `PIPELINE_JOURNAL_ENABLED` to a falsy value (`0`, `false`, `no`, or `off`):
 
 ```jsonc
 // .claude/settings.json  (per project — hooks inherit the session env)
-{ "env": { "PIPELINE_UI_ENABLED": "0" } }
+{ "env": { "PIPELINE_JOURNAL_ENABLED": "0" } }
 ```
 
-> The `PIPELINE_UI_` prefix is a leftover from the deleted local dashboard. These variables gate the **journal**, which is not going anywhere; renaming them is planned.
+> Renamed from the `PIPELINE_UI_` prefix in plugin-thin `p4` (clean break, no alias — there were no users to break). That prefix was a leftover from the deleted local dashboard; these variables gate the **journal**, which is not going anywhere.
 
 While it is **unset** (the default), or set to any non-falsy value, the system is on:
 
@@ -684,13 +684,13 @@ When you opt out (`0`/`false`/`no`/`off`): the `SessionStart` hook does not writ
 
 > Performance note: `SubagentStop` only fires the hook for the `pipeline-manager` subagent (via a `matcher`), so the dozens of other subagent stops in a run no longer spawn a hook process.
 
-### Transcript opt-out — `PIPELINE_UI_TRANSCRIPTS`
+### Transcript opt-out — `PIPELINE_JOURNAL_TRANSCRIPTS`
 
-Keep the journal on, but opt **out of the one privacy-sensitive part**: reading your Claude Code **transcripts**. `PIPELINE_UI_TRANSCRIPTS` is **ON BY DEFAULT** and, unlike the master switch above, gates **only** the transcript work — nothing else. Set it to a falsy value (`0`, `false`, `no`, or `off`) to disable just that:
+Keep the journal on, but opt **out of the one privacy-sensitive part**: reading your Claude Code **transcripts**. `PIPELINE_JOURNAL_TRANSCRIPTS` is **ON BY DEFAULT** and, unlike the master switch above, gates **only** the transcript work — nothing else. Set it to a falsy value (`0`, `false`, `no`, or `off`) to disable just that:
 
 ```jsonc
 // .claude/settings.json
-{ "env": { "PIPELINE_UI_TRANSCRIPTS": "0" } }
+{ "env": { "PIPELINE_JOURNAL_TRANSCRIPTS": "0" } }
 ```
 
 What it gates (all OFF when opted out):
@@ -704,13 +704,13 @@ What keeps working:
 - run correlation: the mirror **binding is still written** (so events still attribute to the right run), just **without the transcript pointer**,
 - `pipeline logs --chat`, which reads a transcript on your own disk on demand and never involves a pointer.
 
-This switch is **orthogonal** to `PIPELINE_STATS_ENABLED` — the separate local `.pipeline/.stats/` measurement fold keeps its own switch and its own default. Setting `PIPELINE_UI_ENABLED=0` (the master switch) already turns everything off, so `PIPELINE_UI_TRANSCRIPTS` only matters while the hooks are on.
+This switch is **orthogonal** to `PIPELINE_STATS_ENABLED` — the separate local `.pipeline/.stats/` measurement fold keeps its own switch and its own default. Setting `PIPELINE_JOURNAL_ENABLED=0` (the master switch) already turns everything off, so `PIPELINE_JOURNAL_TRANSCRIPTS` only matters while the hooks are on.
 
 ### Prompt match hook (opt-in) — `PIPELINE_PROMPT_MATCH_ENABLED`
 
 The plugin also ships a `UserPromptSubmit` hook that surfaces a matching pipeline for whatever you just typed — deterministic auto-discovery with **zero always-loaded context**. It runs the same BM25 matcher `/pipeline:find` and `/pipeline:dispatch` use against your prompt, and **only on a confident single match** (exactly one candidate, or the top score at least 2× the runner-up — the same ambiguity threshold `/pipeline:dispatch` uses) injects one line of context suggesting `/pipeline:run <first-iteration>` or `/pipeline:dispatch`. On no match or an ambiguous match it stays completely silent; it never blocks or modifies your prompt.
 
-Unlike the UI/analytics system (on by default), this hook is **OFF BY DEFAULT** and gated by its own environment variable (same non-falsy value parsing as `PIPELINE_UI_ENABLED`, but its own opt-in default):
+Unlike the journal/analytics system (on by default), this hook is **OFF BY DEFAULT** and gated by its own environment variable (same non-falsy value parsing as `PIPELINE_JOURNAL_ENABLED`, but its own opt-in default):
 
 ```jsonc
 // .claude/settings.json  (per project — hooks inherit the session env)
@@ -727,10 +727,10 @@ Everything the plugin reads from the environment, in one place. Set the per-proj
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PIPELINE_UI_ENABLED` | **on** | Master opt-OUT for the journal/analytics hooks (`SessionStart` + `PreToolUse`/`PostToolUse`/`SubagentStop`/`Stop`). Enabled unless explicitly set to a falsy value; `0`/`false`/`no`/`off` disables, unset/empty/any other value enables. The `_UI_` in the name is a leftover from the deleted local dashboard — it gates the journal. |
-| `PIPELINE_UI_TRANSCRIPTS` | **on** | Opt-OUT for **only** the transcript work: the `transcript_path` pointer recorded on a mirror binding, and the `Stop` hook's token tail. `0`/`false`/`no`/`off` disables just that; the basic lifecycle events and run correlation keep working. Orthogonal to `PIPELINE_UI_ENABLED` and `PIPELINE_STATS_ENABLED`. |
-| `PIPELINE_STATS_ENABLED` | **on** | Per-run measurement files under `.pipeline/.stats/` (durations, per-step timings, outcomes, tokens, tool failures — see "Measuring every run" above). Set `0`/`false`/`no`/`off` to disable. Independent of `PIPELINE_UI_ENABLED` and `PIPELINE_UI_TRANSCRIPTS`. |
-| `PIPELINE_AWAITING_INPUT_ENABLED` | **on** | The `Notification` hook that journals `run.awaiting_input` when a permission prompt or an input request blocks the session — the `⏸` line in `pipeline logs` and the awaiting-input surface in the cloud dashboard. Deliberately INDEPENDENT of `PIPELINE_UI_ENABLED`: a blocked run is worth surfacing even when the rest is opted out. `0`/`false`/`no`/`off` disables. |
+| `PIPELINE_JOURNAL_ENABLED` | **on** | Master opt-OUT for the journal/analytics hooks (`SessionStart` + `PreToolUse`/`PostToolUse`/`SubagentStop`/`Stop`). Enabled unless explicitly set to a falsy value; `0`/`false`/`no`/`off` disables, unset/empty/any other value enables. |
+| `PIPELINE_JOURNAL_TRANSCRIPTS` | **on** | Opt-OUT for **only** the transcript work: the `transcript_path` pointer recorded on a mirror binding, and the `Stop` hook's token tail. `0`/`false`/`no`/`off` disables just that; the basic lifecycle events and run correlation keep working. Orthogonal to `PIPELINE_JOURNAL_ENABLED` and `PIPELINE_STATS_ENABLED`. |
+| `PIPELINE_STATS_ENABLED` | **on** | Per-run measurement files under `.pipeline/.stats/` (durations, per-step timings, outcomes, tokens, tool failures — see "Measuring every run" above). Set `0`/`false`/`no`/`off` to disable. Independent of `PIPELINE_JOURNAL_ENABLED` and `PIPELINE_JOURNAL_TRANSCRIPTS`. |
+| `PIPELINE_AWAITING_INPUT_ENABLED` | **on** | The `Notification` hook that journals `run.awaiting_input` when a permission prompt or an input request blocks the session — the `⏸` line in `pipeline logs` and the awaiting-input surface in the cloud dashboard. Deliberately INDEPENDENT of `PIPELINE_JOURNAL_ENABLED`: a blocked run is worth surfacing even when the rest is opted out. `0`/`false`/`no`/`off` disables. |
 | `PIPELINE_PROMPT_MATCH_ENABLED` | off | Opt-in for the `UserPromptSubmit` pipeline-match hook (section above). Same non-falsy semantics. |
 | `PIPELINE_DEPARTMENT_NOTIFY_ENABLED` | **on** | Opt-OUT for the departments background notifier (section above): its `SessionStart` launcher and the pending-notification drain. `0`/`false`/`no`/`off` disables; no-ops anyway until `pipeline cloud connect` has been run once. The old name, `PIPELINE_MESH_NOTIFY_ENABLED`, is still read as a fallback (with a deprecation warning) when this one is unset. |
 | `PIPELINE_CLOUD_API` | `https://api.ai-pipeline.dev` | Overrides the control-plane API base used by `pipeline cloud connect` and the department notifier. |
@@ -740,11 +740,11 @@ Everything the plugin reads from the environment, in one place. Set the per-proj
 | `PIPELINE_HOOK_TIMEOUT_MS` | per-hook (600 000 create/finalize, 300 000 destroy) | Overrides the external-isolation worktree-hook timeout (positive integer, milliseconds). Mostly useful for testing hooks. |
 | `PIPELINE_WORKTREE_SCOPED` | on | Worktree-scoped pipeline I/O for `isolation: external` runs (the run plans from, and self-improves into, the run worktree's pipeline copy — committed state only). `0`/`false` restores the legacy main-scoped reads. FROZEN per run into `next.json` at init — a mid-run flip never mixes path models within one run. |
 | `PIPELINE_GIT_BIN` / `PIPELINE_GH_BIN` | `git` / `gh` from PATH | Override which `git`/`gh` binaries the CLI's guarded git operations (`pipeline submodule bump`) invoke. |
-| `PIPELINE_UI_DEBUG` / `PIPELINE_RELAY_DEBUG` | off | `=1` prints diagnostic detail to stderr from the event writer / relay hooks. Debugging only. |
+| `PIPELINE_JOURNAL_DEBUG` / `PIPELINE_RELAY_DEBUG` | off | `=1` prints diagnostic detail to stderr from the event writer / relay hooks. Debugging only. |
 
 **Hook contract (set BY the plugin, read by your hook scripts):** every `PIPELINE_WT_*` variable passed to the `worktree-create` / `worktree-finalize` / `worktree-destroy` hooks is specified in [`docs/worktree-hook-contract.md`](docs/worktree-hook-contract.md) — that contract is frozen; write hooks against it, never set those variables yourself.
 
-**Internal (do not set):** `PIPELINE_UI_RUN_ID` / `PIPELINE_UI_PARENT_RUN_ID` are run-correlation plumbing between `/pipeline:run` and the analytics hooks; setting them manually mis-attributes events. `PIPELINE_STATS_RUNNER` is set by `pipeline drive` to tag headless runs in the measurement files.
+**Internal (do not set):** `PIPELINE_RUN_ID` / `PIPELINE_PARENT_RUN_ID` are run-correlation plumbing between `/pipeline:run` and the analytics hooks; setting them manually mis-attributes events. `PIPELINE_STATS_RUNNER` is set by `pipeline drive` to tag headless runs in the measurement files.
 
 ## Departments (`/mcp` + background notifier)
 
@@ -817,7 +817,7 @@ bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" cloud connect
 bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" department notify --once --json
 ```
 
-Opt out with `PIPELINE_DEPARTMENT_NOTIFY_ENABLED=0` (same falsy-value convention as `PIPELINE_UI_ENABLED`) if you never want the daemon spawned or the queue drained. (`pipeline mesh notify` and `PIPELINE_MESH_NOTIFY_ENABLED` still work as deprecated, warning aliases for anyone with an existing service definition or shell profile.)
+Opt out with `PIPELINE_DEPARTMENT_NOTIFY_ENABLED=0` (same falsy-value convention as `PIPELINE_JOURNAL_ENABLED`) if you never want the daemon spawned or the queue drained. (`pipeline mesh notify` and `PIPELINE_MESH_NOTIFY_ENABLED` still work as deprecated, warning aliases for anyone with an existing service definition or shell profile.)
 
 > **Implementation note for the curious:** the notifier polls the departments' REST task surface using the same credential `pipeline cloud connect` stores, rather than the `/mcp` tool surface Claude Code itself uses — a headless background process has no browser session to complete an OAuth consent flow in, so it reuses the credential that's already there. See the header comment in `apps/pipeline-cli/src/lib/department-notify.ts` for the full reasoning.
 

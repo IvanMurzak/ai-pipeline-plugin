@@ -51,7 +51,7 @@
  *
  *     1. An explicit `runId` option passed by the caller (used for
  *        Path-C bypass synthesis, which mints its own run_id).
- *     2. The `PIPELINE_UI_RUN_ID` env var. This is set by
+ *     2. The `PIPELINE_RUN_ID` env var. This is set by
  *        `/api/chat` (Path A) and inherited by spawned subprocesses,
  *        so Path A reliably propagates. It is NOT propagated for
  *        Path B / Path C: /pipeline:run exports it in a Bash subshell
@@ -108,44 +108,45 @@ import { basename, dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { newId, hookIdFromToolUseId } from "../apps/pipeline-cli/src/lib/ids.ts";
 
-const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
+const DEBUG = process.env.PIPELINE_JOURNAL_DEBUG === "1";
 const log = (msg: string) => DEBUG && console.error(`[analytics_relay] ${msg}`);
 
-/** Master enable switch. The UI/analytics system is ON BY DEFAULT — this hook
- *  runs UNLESS the user has explicitly opted OUT by setting PIPELINE_UI_ENABLED
+/** Master enable switch. The journal/analytics system is ON BY DEFAULT — this hook
+ *  runs UNLESS the user has explicitly opted OUT by setting PIPELINE_JOURNAL_ENABLED
  *  to a falsy value (0/false/no/off); unset/empty (and any other value) leaves
  *  it enabled. When opted out: no event emission, no mirror bindings, no
  *  filesystem walks. The Bun process still spawns (the registration lives in
  *  hooks.json), but it exits immediately, so an explicit opt-out drops the cost
  *  per hook call to ~zero. To eliminate the spawn entirely, disable the plugin. */
-function pipelineUiEnabled(): boolean {
-  const v = (process.env.PIPELINE_UI_ENABLED ?? "").trim().toLowerCase();
+function journalEnabled(): boolean {
+  const v = (process.env.PIPELINE_JOURNAL_ENABLED ?? "").trim().toLowerCase();
   return v !== "0" && v !== "false" && v !== "no" && v !== "off";
 }
 
 /** Awaiting-input opt-out switch (PIPELINE_AWAITING_INPUT_ENABLED, default ON).
- *  Deliberately INDEPENDENT of PIPELINE_UI_ENABLED (D2): a `run.awaiting_input`
+ *  Deliberately INDEPENDENT of PIPELINE_JOURNAL_ENABLED (D2): a `run.awaiting_input`
  *  event has daemon-free value — `pipeline logs` shows the ⏸ line whether or not
- *  the dashboard runs — so a user who opted out of the UI still learns that a run
- *  is blocked on a permission prompt. Same falsy parse as the switches above. */
+ *  the dashboard runs — so a user who opted out of the journal still learns that
+ *  a run is blocked on a permission prompt. Same falsy parse as the switches above. */
 function awaitingInputEnabled(): boolean {
   const v = (process.env.PIPELINE_AWAITING_INPUT_ENABLED ?? "").trim().toLowerCase();
   return v !== "0" && v !== "false" && v !== "no" && v !== "off";
 }
 
-/** Transcript opt-out switch (PIPELINE_UI_TRANSCRIPTS, default ON) — gates
+/** Transcript opt-out switch (PIPELINE_JOURNAL_TRANSCRIPTS, default ON) — gates
  *  ONLY the privacy-sensitive transcript work this hook does: the Stop-handler
  *  token tail (which OPENS + reads the session transcript to sum tokens) and
- *  the transcript_path carried on the mirror bindings (which is what tells the
- *  daemon to copy this session's transcript into the UI chat panel). When it is
- *  opted OUT the hook still emits every BASIC lifecycle event — pipeline.*,
+ *  the transcript_path carried on the mirror bindings (which is what makes this
+ *  session's transcript reachable at all — by `pipeline logs --chat` locally, or
+ *  by the hosted dashboard for a `standalone` run that executed on our machine).
+ *  When it is opted OUT the hook still emits every BASIC lifecycle event — pipeline.*,
  *  tool.called, manager.stopped — and still writes mirror bindings for run
  *  correlation, just with transcript_path nulled. Same falsy parse + default-ON
- *  as pipelineUiEnabled; independent of it (this hook is a standalone Bun
- *  process, so — like pipelineUiEnabled — the reader is duplicated here rather
+ *  as journalEnabled; independent of it (this hook is a standalone Bun
+ *  process, so — like journalEnabled — the reader is duplicated here rather
  *  than imported from a sibling). Orthogonal to PIPELINE_STATS_ENABLED. */
-function pipelineUiTranscriptsEnabled(): boolean {
-  const v = (process.env.PIPELINE_UI_TRANSCRIPTS ?? "").trim().toLowerCase();
+function journalTranscriptsEnabled(): boolean {
+  const v = (process.env.PIPELINE_JOURNAL_TRANSCRIPTS ?? "").trim().toLowerCase();
   return v !== "0" && v !== "false" && v !== "no" && v !== "off";
 }
 
@@ -261,9 +262,9 @@ function ensureRuntimeDir(projectRoot: string): string {
 }
 
 interface AppendEventOpts {
-  /** Override run_id; default reads PIPELINE_UI_RUN_ID env. */
+  /** Override run_id; default reads PIPELINE_RUN_ID env. */
   runId?: string | null;
-  /** Override parent_run_id; default reads PIPELINE_UI_PARENT_RUN_ID env.
+  /** Override parent_run_id; default reads PIPELINE_PARENT_RUN_ID env.
    *  Pass `null` explicitly to clear (e.g. synthesized bypass events
    *  must not inherit a stale parent from the caller's shell env). */
   parentRunId?: string | null;
@@ -292,11 +293,11 @@ function appendEvent(
       run_id:
         opts.runId !== undefined
           ? opts.runId
-          : (process.env.PIPELINE_UI_RUN_ID ?? null),
+          : (process.env.PIPELINE_RUN_ID ?? null),
       parent_run_id:
         opts.parentRunId !== undefined
           ? opts.parentRunId
-          : (process.env.PIPELINE_UI_PARENT_RUN_ID ?? null),
+          : (process.env.PIPELINE_PARENT_RUN_ID ?? null),
       session_id:
         opts.sessionId !== undefined
           ? opts.sessionId
@@ -397,7 +398,7 @@ function isAgentSpawn(toolName: string): boolean {
 // `pipeline-executor`) is NOT a run anchor — it only gets a mirror binding.
 //
 // Discrimination of Path B (which would otherwise double-emit) CANNOT
-// rely on `process.env.PIPELINE_UI_RUN_ID` — /pipeline:run exports it
+// rely on `process.env.PIPELINE_RUN_ID` — /pipeline:run exports it
 // inside a Bash subshell, which never propagates back to Claude Code's
 // main process and therefore not to this hook subprocess. Instead, the
 // hook (1) extracts the literal `run_id = …` the supervisor writes into
@@ -619,13 +620,13 @@ function findChainControllerRunId(
 /** Resolve an active run_id for an event whose author doesn't already
  *  know which run owns it (tool.called outside an Agent-spawn payload,
  *  turn.usage from the Stop hook). Source order matches the file-header
- *  contract: explicit override > PIPELINE_UI_RUN_ID env > session-keyed
+ *  contract: explicit override > PIPELINE_RUN_ID env > session-keyed
  *  mirror-binding lookup > null.
  *
  *  Path B (/pipeline:run chain controller) and Path C (terminal bypass
  *  spawn) both populate the bindings file with the session_id they're
  *  attached to, so this fallback recovers the run_id when env propagation
- *  fails. Treats the empty string as unset so that `PIPELINE_UI_RUN_ID=""`
+ *  fails. Treats the empty string as unset so that `PIPELINE_RUN_ID=""`
  *  (a common shell idiom for clearing a stale value) cannot leak as a
  *  literal `run_id: ""` into the journal — see the appendEvent override
  *  helper. */
@@ -650,7 +651,7 @@ interface ResolvedBinding {
  *  `resolveRunIdFromEnvOrSession` has always applied, widened to return the
  *  STEP identity alongside the run identity.
  *
- *  Precedence is unchanged and deliberate: `PIPELINE_UI_RUN_ID` still wins for
+ *  Precedence is unchanged and deliberate: `PIPELINE_RUN_ID` still wins for
  *  the run id (an explicit env override must stay authoritative). The binding
  *  is still consulted in that case, but only to recover a `step_uuid`, and only
  *  from a binding that agrees with the env var about which run this is — a
@@ -660,7 +661,7 @@ interface ResolvedBinding {
  *  product exports it — `/pipeline:run` passes `run_id=` as a kv argument
  *  instead); every hot path already read the file.
  *
- *  This function is the single read of `PIPELINE_UI_RUN_ID` for correlation
+ *  This function is the single read of `PIPELINE_RUN_ID` for correlation
  *  purposes; new event sources call it (or the run-id wrapper above) rather
  *  than reading the env var themselves — see docs/journal-and-hooks.md's
  *  run-correlation invariant. */
@@ -668,7 +669,7 @@ function resolveBindingFromEnvOrSession(
   sessionId: string | null,
   projectRoot: string,
 ): ResolvedBinding {
-  const env = process.env.PIPELINE_UI_RUN_ID;
+  const env = process.env.PIPELINE_RUN_ID;
   const hit = findBindingForSession(sessionId, projectRoot);
   if (env && env.length > 0) {
     return {
@@ -951,12 +952,12 @@ interface MirrorBinding {
 
 function appendMirrorBinding(binding: MirrorBinding): void {
   try {
-    // PIPELINE_UI_TRANSCRIPTS off: withhold the transcript pointer so the
+    // PIPELINE_JOURNAL_TRANSCRIPTS off: withhold the transcript pointer so the
     // daemon never mirrors this session's transcript into the chat panel,
     // while KEEPING the binding (run_id + session_id) so the basic lifecycle
     // events still correlate to the run (source #3 of run-correlation). The
     // daemon already treats a transcript_path:null binding as non-mirrorable.
-    const rec = pipelineUiTranscriptsEnabled()
+    const rec = journalTranscriptsEnabled()
       ? binding
       : { ...binding, transcript_path: null };
     const path = mirrorBindingsPath();
@@ -1269,7 +1270,7 @@ function bypassRunIdFromToolUseId(toolUseId: string | null): string {
 
 const TELEMETRY_SYNC_ENV = "PIPELINE_SYNC_LOCAL_STATS";
 
-/** Same falsy-parse convention as `pipelineUiEnabled`/`awaitingInputEnabled`
+/** Same falsy-parse convention as `journalEnabled`/`awaitingInputEnabled`
  *  above; duplicated (not imported) from `telemetry-outbox.ts`'s
  *  `telemetrySyncEnabled` for the same "keep this hot hook's import graph
  *  light" reason the rest of this block explains. */
@@ -1788,7 +1789,7 @@ function handlePostToolUse(payload: Record<string, unknown>, projectRoot: string
   //      reset for the same reason.
   //   3. Otherwise (every OTHER tool call: the executor's internal
   //      Read/Edit/Bash, the chain controller's own tool calls), defer to
-  //      PIPELINE_UI_RUN_ID env then a session_id lookup against the
+  //      PIPELINE_RUN_ID env then a session_id lookup against the
   //      mirror-bindings file. The env var is not propagated for Paths
   //      B/C — it lives only in /pipeline:run's bash subshell, never in
   //      CC's parent process — so the session-keyed lookup is the
@@ -1812,9 +1813,9 @@ function handlePostToolUse(payload: Record<string, unknown>, projectRoot: string
   } else {
     // Pass runId explicitly (even when null) so appendEvent's env-var
     // default never overrides it with an empty string. resolveRunIdFrom
-    // EnvOrSession already treats `PIPELINE_UI_RUN_ID=""` as unset; the
+    // EnvOrSession already treats `PIPELINE_RUN_ID=""` as unset; the
     // explicit-null override seals the leak in appendEvent's fallback
-    // (`process.env.PIPELINE_UI_RUN_ID ?? null` returns "" for an empty
+    // (`process.env.PIPELINE_RUN_ID ?? null` returns "" for an empty
     // env, which is neither null nor a valid run_id).
     const resolved = resolveBindingFromEnvOrSession(sessionIdForLookup, projectRoot);
     toolCalledOpts = { runId: resolved.runId };
@@ -1946,8 +1947,8 @@ function handleStop(payload: Record<string, unknown>, projectRoot: string, workt
   // turn.usage. Basic lifecycle events (emitted by the other handlers) are
   // unaffected. Note run-stats prefers the daemon's transcript fold over these
   // turn.usage events anyway, so this is the secondary token source.
-  if (!pipelineUiTranscriptsEnabled()) {
-    log("PIPELINE_UI_TRANSCRIPTS off — skipping Stop transcript token tail");
+  if (!journalTranscriptsEnabled()) {
+    log("PIPELINE_JOURNAL_TRANSCRIPTS off — skipping Stop transcript token tail");
     return;
   }
   const transcriptPath = String(payload.transcript_path ?? "");
@@ -2024,7 +2025,7 @@ function handleStop(payload: Record<string, unknown>, projectRoot: string, workt
 
   if (assistantTurns > 0) {
     // Same env-or-session-lookup fallback as PostToolUse — see the long
-    // comment in handlePostToolUse for the why. PIPELINE_UI_RUN_ID is not
+    // comment in handlePostToolUse for the why. PIPELINE_RUN_ID is not
     // propagated to Stop hook subprocesses on Paths B/C, so without the
     // session lookup turn.usage events stamp run_id=null and the per-run
     // token totals stay at zero.
@@ -2203,10 +2204,10 @@ function handleNotification(
 
 async function main(): Promise<void> {
   // Gate ORDER is load-bearing, in BOTH directions:
-  //  - the payload read is hoisted above the PIPELINE_UI_ENABLED early-return,
+  //  - the payload read is hoisted above the PIPELINE_JOURNAL_ENABLED early-return,
   //    because the Notification branch must run with the UI opted out (D2);
   //  - but the FILESYSTEM work (resolveProjectRoot + hasPipelineDirUpTo) stays
-  //    BELOW it for every other event, because pipelineUiEnabled() promises an
+  //    BELOW it for every other event, because journalEnabled() promises an
   //    opt-out costs ~zero per hook call — and this hook fires twice per tool
   //    call. Reading stdin is cheap; walking the tree is not.
   const payload = (await readStdinJson()) ?? {};
@@ -2217,8 +2218,8 @@ async function main(): Promise<void> {
     log("PIPELINE_AWAITING_INPUT_ENABLED explicitly opted out — no-op");
     return;
   }
-  if (!isNotification && !pipelineUiEnabled()) {
-    log("PIPELINE_UI_ENABLED explicitly opted out (0/false/no/off) — no-op");
+  if (!isNotification && !journalEnabled()) {
+    log("PIPELINE_JOURNAL_ENABLED explicitly opted out (0/false/no/off) — no-op");
     return;
   }
 
@@ -2291,8 +2292,8 @@ export {
   resolveRunIdFromEnvOrSession,
   collectTerminatedRunIds,
   pathsMatch,
-  pipelineUiEnabled,
-  pipelineUiTranscriptsEnabled,
+  journalEnabled,
+  journalTranscriptsEnabled,
   MIRROR_BINDING_SCHEMA,
   SCHEMA_VERSION,
   BINDING_MAX_AGE_MS,

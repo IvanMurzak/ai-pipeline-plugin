@@ -4,6 +4,37 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## plugin 0.92.0 / CLI 0.13.0 — the journal stops being named after a deleted app
+
+The previous release deleted the local dashboard but kept the journal it fed, still named after it
+in every `PIPELINE_UI_*` variable. This release finishes that: a **clean break, no aliases** — there
+were no users of the plugin yet, so there was no installed base to keep compatible.
+
+**Triaged, not bulk-renamed.** Ten `PIPELINE_UI_*` variables existed; only five had live-code
+references, and only those five were renamed:
+
+| Old name | New name |
+| --- | --- |
+| `PIPELINE_UI_ENABLED` | `PIPELINE_JOURNAL_ENABLED` |
+| `PIPELINE_UI_DEBUG` | `PIPELINE_JOURNAL_DEBUG` |
+| `PIPELINE_UI_TRANSCRIPTS` | `PIPELINE_JOURNAL_TRANSCRIPTS` |
+| `PIPELINE_UI_RUN_ID` | `PIPELINE_RUN_ID` |
+| `PIPELINE_UI_PARENT_RUN_ID` | `PIPELINE_PARENT_RUN_ID` |
+
+None of the renamed names alias the old ones — setting `PIPELINE_UI_ENABLED` now does nothing.
+
+The other five configured the deleted server/daemon and had already dropped to zero live-code
+references at the previous release: `PIPELINE_UI_HOST`, `PIPELINE_UI_TOKEN`,
+`PIPELINE_UI_RECLAIM_PORT`, `PIPELINE_UI_WATCHDOG_ENABLED`, `PIPELINE_UI_IDLE_MINUTES`. These are
+**deleted outright**, not renamed — renaming a variable nothing reads would have preserved the
+fiction that something still does.
+
+Behavior is unchanged: `PIPELINE_JOURNAL_ENABLED` still gates exactly what `PIPELINE_UI_ENABLED`
+gated (the `SessionStart`/`PreToolUse`/`PostToolUse`/`SubagentStop`/`Stop` journal hooks and
+`pipeline drive`'s session-binding writer), `pipeline logs` still works regardless of it, and
+`tests/journal-end-to-end.test.ts` — which spawns the real hooks as real subprocesses and drives
+the real outbox — still passes under the new names.
+
 ## plugin 0.91.0 / CLI 0.12.0 — the local dashboard is gone; the journal it was built for is not
 
 The plugin shipped a local web dashboard: a background Bun daemon, a committed React bundle, a

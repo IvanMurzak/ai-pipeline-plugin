@@ -167,7 +167,7 @@ recorded error, never thrown — one bad server/org never aborts the whole poll 
 ### Gating and single-instance guard
 
 - `PIPELINE_DEPARTMENT_NOTIFY_ENABLED` — on by default, same falsy-value convention (`0`/`false`/`no`/`off`)
-  as `PIPELINE_UI_ENABLED`. The old name, `PIPELINE_MESH_NOTIFY_ENABLED`, is still READ as a fallback
+  as `PIPELINE_JOURNAL_ENABLED`. The old name, `PIPELINE_MESH_NOTIFY_ENABLED`, is still READ as a fallback
   when the new one is unset (a11's tier-3 dual-accept window — 08-terminology.md §3) — using it prints a
   one-line deprecation warning to stderr.
 - No-ops entirely (spawns nothing, drains nothing) until `credentialFilePath()` exists — i.e. until

@@ -17,7 +17,7 @@
  *
  * Gated: no-ops at entry unless PIPELINE_PROMPT_MATCH_ENABLED is set to a
  * non-empty, non-falsy value — prompt matching is OFF BY DEFAULT (its own
- * opt-in switch, distinct from the now-on-by-default PIPELINE_UI_ENABLED; only
+ * opt-in switch, distinct from the now-on-by-default PIPELINE_JOURNAL_ENABLED; only
  * the non-falsy value parsing is shared). Also skips silently when the prompt
  * is a slash command,
  * shorter than 20 chars, or no `.pipeline/` dir exists walking up
@@ -47,13 +47,13 @@ import { dirname, join, resolve } from "node:path";
 import { matchPipelines } from "../apps/pipeline-cli/src/lib/match.ts";
 import type { Candidate, MatchResult } from "../apps/pipeline-cli/src/lib/match.ts";
 
-const DEBUG = process.env.PIPELINE_UI_DEBUG === "1";
+const DEBUG = process.env.PIPELINE_JOURNAL_DEBUG === "1";
 const log = (msg: string) => DEBUG && console.error(`[prompt_match_relay] ${msg}`);
 
 /** Master enable switch. Prompt matching is OFF BY DEFAULT — this hook
  *  no-ops at entry UNLESS PIPELINE_PROMPT_MATCH_ENABLED is set to a
  *  non-empty, non-falsy value (anything other than 0/false/no/off opts in).
- *  Shares the non-falsy value parsing with PIPELINE_UI_ENABLED but keeps its
+ *  Shares the non-falsy value parsing with PIPELINE_JOURNAL_ENABLED but keeps its
  *  OWN default: prompt matching stays OFF unless explicitly enabled (unlike the
  *  UI/analytics system, which is on by default). The Bun process still spawns
  *  (the registration lives in hooks.json), but it exits immediately, so the
