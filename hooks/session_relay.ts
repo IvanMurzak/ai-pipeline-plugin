@@ -60,7 +60,7 @@ function journalEnabled(): boolean {
  *
  *  COPY of apps/pipeline-cli/src/lib/event.ts:submoduleWorktreeOf — hooks
  *  cannot import from a sibling .ts at runtime.
- *  apps/pipeline-cli/tests/resolve-parity.test.ts fails on drift. */
+ *  <superrepo>/tests/cross-repo/resolve-parity.test.ts fails on drift. */
 function submoduleWorktreeOf(commonDir: string): string | null {
   try {
     const config = readFileSync(join(commonDir, "config"), "utf-8");

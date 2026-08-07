@@ -37,7 +37,7 @@ import { mkdirSync, mkdtempSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { handlePostToolUse } from "../../../hooks/analytics_relay.ts";
+import { handlePostToolUse } from "../hooks/analytics_relay.ts";
 
 let tmpRoot: string;
 let homeDir: string;

@@ -23,7 +23,7 @@ import { tmpdir } from "node:os";
 import {
   hasPipelineDirUpTo,
   resolveProjectRoot,
-} from "../../../hooks/analytics_relay.ts";
+} from "../hooks/analytics_relay.ts";
 
 let tmpRoot: string;
 

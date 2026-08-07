@@ -20,9 +20,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { classifyNotification, handleNotification } from "../../../hooks/analytics_relay.ts";
+import { classifyNotification, handleNotification } from "../hooks/analytics_relay.ts";
 
-const HOOK_PATH = resolve(import.meta.dir, "../../../hooks/analytics_relay.ts");
+const HOOK_PATH = resolve(import.meta.dir, "../hooks/analytics_relay.ts");
 
 let tmpRoot: string;
 

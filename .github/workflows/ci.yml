@@ -45,6 +45,59 @@ jobs:
           bun src/cli.ts --version
           bun run build
 
+  # ── The plugin's own tests (plugin-thin `p5`) ───────────────────────────────
+  # `tests/` at the REPOSITORY ROOT covers `hooks/*.ts` and `hooks/run-hook.sh`
+  # — plugin code that does NOT travel with the CLI. Those files used to sit in
+  # `apps/pipeline-cli/tests/` reaching up through `../../../hooks/`, which was
+  # the only test home this repository had after task `p3` deleted the local web
+  # app. The CLI is being extracted into its own repository
+  # (`02-extract-cli.md`, phase 5) and would have taken them with it: the
+  # extracted suite exited 1 with 53 failures and 18 errors, all of them this.
+  #
+  # A RELOCATED TEST THAT NO JOB RUNS IS A DELETED TEST. That is the entire
+  # reason this job exists and why it is a separate job rather than a step in
+  # `pipeline-cli` above: when the CLI leaves, that job leaves with it and this
+  # one must not.
+  #
+  # NO ROOT `package.json`, DELIBERATELY. Claude Code installs a plugin by
+  # cloning this repository — there is no install step, ever. A root manifest
+  # would imply one, would put a second `name`/`version` beside
+  # `.claude-plugin/plugin.json`, and would risk the marketplace loader for a
+  # test runner that does not need it: `bun test` needs no manifest and no
+  # install to run the directory it is started in. That is what this job does.
+  #
+  # Both operating systems, because these are the files most exposed to the
+  # difference: `run-hook.sh` is POSIX sh (its resolution-chain block self-skips
+  # where `sh` is unavailable, while the `hooks.json` wiring assertions still
+  # run), and the daemon-lock tests turn on `wx` exclusive-create and real
+  # cross-process spawns.
+  plugin-hooks:
+    name: Plugin hooks + shim (tests/)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # ⚠ `working-directory`, NOT `bun test tests/`. A positional argument to
+    # `bun test` is a FILE-NAME FILTER, not a directory scope — `bun test
+    # --help` says so ("Run all test files with 'foo' or 'bar' in the file
+    # name"). `bun test tests/` from the root therefore matched every path
+    # containing `tests/`, which is `apps/pipeline-cli/tests/` and the
+    # templates' suites too: the first run of this job executed 2427 tests
+    # across 119 files and duplicated the whole `pipeline-cli` job. Bun scans
+    # from its working directory, so scoping it means putting it there.
+    defaults:
+      run:
+        working-directory: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # No install step and no manifest — see the note above.
+      - name: Run plugin tests
+        run: bun test
+
   manifest-validation:
     name: Plugin manifest validation
     runs-on: ubuntu-latest

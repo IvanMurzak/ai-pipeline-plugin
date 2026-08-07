@@ -5,9 +5,9 @@
  *
  *   bun test tests/hook-telemetry-daemon-lock.test.ts
  *
- * Two layers of coverage, mirroring
- * apps/pipeline-cli/tests/hook-department-notifier.test.ts and
- * apps/pipeline-cli/tests/credential-lock.test.ts (this repo's other `wx`
+ * Two layers of coverage, mirroring the parent monorepo's
+ * tests/cross-repo/hook-department-notifier.test.ts and the CLI's
+ * apps/pipeline-cli/tests/credential-lock.test.ts (the other `wx`
  * single-instance/advisory lock, `lib/credential-lock.ts`):
  *
  *   - `acquireTelemetryDaemonLock` exercised directly against a real
@@ -60,7 +60,7 @@ import {
   telemetryDaemonLockPath,
   telemetryDaemonSyncEnabled,
   TELEMETRY_LOCK_STALE_AGE_MS,
-} from "../../../hooks/analytics_relay.ts";
+} from "../hooks/analytics_relay.ts";
 
 const created: string[] = [];
 afterEach(() => {

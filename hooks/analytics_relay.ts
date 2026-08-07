@@ -1205,7 +1205,7 @@ function bypassRunIdFromToolUseId(toolUseId: string | null): string {
 // for a second caller to land in, because those are the SAME filesystem
 // operation. Only the caller whose `wx` call wins is told `'acquired'`; every
 // other concurrent caller is told `'already-running'` or `'skip'` and never
-// spawns. See `apps/pipeline-cli/tests/hook-telemetry-daemon-lock.test.ts` for
+// spawns. See `tests/hook-telemetry-daemon-lock.test.ts` for
 // the race test AND the mutation check (this scheme reverted to
 // `existsSync`-then-write, showing two acquisitions instead of one).
 //
@@ -1368,14 +1368,14 @@ function tryCreateTelemetryDaemonLock(lockPath: string, pid: number, now: number
 /**
  * Atomically claim the right to spawn this project's telemetry daemon. See
  * this block's header comment for the full race + stale-lock reasoning.
- * Exported for `apps/pipeline-cli/tests/hook-telemetry-daemon-lock.test.ts`.
+ * Exported for `tests/hook-telemetry-daemon-lock.test.ts`.
  *
  * ORDER MATTERS, and matches `lib/credential-lock.ts`'s own `acquireLock`
  * loop exactly (`tryCreate` first; `isStale` — a FRESH read — only ever
  * consulted AFTER a create has already failed): the exclusive `wx` create is
  * attempted BEFORE any unlink, on every call, with no preceding read. A
  * cross-process race test
- * (`apps/pipeline-cli/tests/hook-telemetry-daemon-lock-cross-process.test.ts`)
+ * (`tests/hook-telemetry-daemon-lock-cross-process.test.ts`)
  * caught the ORIGINAL, wrong order the hard way: reading first and THEN
  * unconditionally unlinking whatever the read had called "absent" or "stale"
  * — even after a concurrent winner had ALREADY written a brand-new, live
@@ -1579,7 +1579,7 @@ const PROMPT_RUN_ID_RE =
  *  500-line tail cap, or is simply absent — the spawn is misclassified
  *  `bypass-spawn`, a different run id is minted, and `synthesizeBypassStart`
  *  announces a PHANTOM second run on the dashboard. See
- *  apps/pipeline-cli/tests/hook-runid-shape-ownership.test.ts, which pins
+ *  <superrepo>/tests/cross-repo/hook-runid-shape-ownership.test.ts, which pins
  *  exactly that population (a fresh chain does NOT reproduce it). */
 function extractRunIdFromPrompt(toolInput: Record<string, unknown>): string | null {
   const candidates = [toolInput.prompt, toolInput.description, toolInput.message];
