@@ -45,19 +45,31 @@ jobs:
           bun src/cli.ts --version
           bun run build
 
-  # ── The plugin's own tests (plugin-thin `p5`) ───────────────────────────────
-  # `tests/` at the REPOSITORY ROOT covers `hooks/*.ts` and `hooks/run-hook.sh`
-  # — plugin code that does NOT travel with the CLI. Those files used to sit in
-  # `apps/pipeline-cli/tests/` reaching up through `../../../hooks/`, which was
-  # the only test home this repository had after task `p3` deleted the local web
-  # app. The CLI is being extracted into its own repository
-  # (`02-extract-cli.md`, phase 5) and would have taken them with it: the
-  # extracted suite exited 1 with 53 failures and 18 errors, all of them this.
+  # ── The plugin's own tests (plugin-thin `p5`, narrowed by `p6`) ────────────
+  # `tests/` at the REPOSITORY ROOT covers what is genuinely THIS repository's
+  # and does not travel with the CLI.
   #
-  # A RELOCATED TEST THAT NO JOB RUNS IS A DELETED TEST. That is the entire
-  # reason this job exists and why it is a separate job rather than a step in
-  # `pipeline-cli` above: when the CLI leaves, that job leaves with it and this
-  # one must not.
+  # `p5` put thirteen hook suites here, beside the `hooks/*.ts` relays they
+  # covered. `p6` turned those relays into `pipeline hook <name>` subcommands
+  # in `IvanMurzak/pipeline`, and twelve of the thirteen went with them — a
+  # test lives in the tree that contains what it tests, and after the move that
+  # tree is the CLI's. They run there in the `Pipeline CLI` job, on the same
+  # two-OS matrix; that job's own header says so, because A RELOCATED TEST NO
+  # JOB RUNS IS A DELETED TEST.
+  #
+  # What remains here is what `p6` deliberately did NOT move:
+  #   • hook-run-shim.test.ts — `hooks/run-hook.sh` (which survives, resolving
+  #     `pipeline` instead of `bun`) and the `hooks.json` wiring that routes
+  #     through it, including the committed 100755 mode. Both files are this
+  #     plugin's; moving their test to the CLI would have left it testing
+  #     nothing.
+  #   • cli-package-self-contained.test.ts — the guard that `apps/pipeline-cli`
+  #     reaches nothing above itself, which is what makes deleting that
+  #     directory safe. It goes away with the directory, not before.
+  #
+  # This is still a SEPARATE job rather than a step in `pipeline-cli` above,
+  # for the original reason: when `apps/pipeline-cli` is finally deleted, that
+  # job leaves with it and this one must not.
   #
   # NO ROOT `package.json`, DELIBERATELY. Claude Code installs a plugin by
   # cloning this repository — there is no install step, ever. A root manifest

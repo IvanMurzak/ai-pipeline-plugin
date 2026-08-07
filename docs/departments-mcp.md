@@ -2,7 +2,7 @@
 
 Source: `department-mesh` design, task `a1` (`.claude-plugin/plugin.json`'s `mcpServers` entry +
 `apps/pipeline-cli/src/lib/department-notify.ts` / `src/lib/os-notify.ts` / `src/commands/department-notify.ts` +
-`hooks/department_notifier_relay.ts`). Read this before editing any of those files.
+`<cli>/src/hooks/department-notifier-relay.ts`). Read this before editing any of those files.
 
 RENAME NOTE (a11, simplified-onboarding — 08-terminology.md / D10 / D31): this file was
 `docs/mesh-mcp.md`. "mesh"/"fleet" are gone from every user-facing surface and from this doc's own
@@ -113,7 +113,7 @@ a real cross-session notification) is deferred to the `e3` P2 gate, once `c12`/`
 ### Architecture
 
 ```
-hooks/department_notifier_relay.ts  (SessionStart, every session, any project)
+<cli>/src/hooks/department-notifier-relay.ts  (SessionStart, every session, any project)
   │
   ├─ job 1: ensureDaemonRunning() — pid-lock-guarded, spawns `pipeline department notify` detached
   │           lock: <credential-dir>/department-notify-daemon.lock  { pid, started_at }
@@ -149,7 +149,7 @@ Journal + lock files: <credential-dir>/department-notify-state.json, department-
    `linux` → `notify-send`, `win32` → a `System.Windows.Forms.NotifyIcon` balloon via PowerShell (no
    extra module required). An unrecognized platform, a missing binary, or any spawn failure is swallowed
    — this channel is never required for correctness.
-2. **SessionStart `additionalContext`** (`hooks/department_notifier_relay.ts`) — the durable fallback. Every
+2. **SessionStart `additionalContext`** (`<cli>/src/hooks/department-notifier-relay.ts`) — the durable fallback. Every
    notification lands in the pending journal regardless of whether the toast succeeded; the next time you
    open Claude Code, in *any* project (department tasks are org-scoped, not project-scoped, and SessionStart
    fires for every session regardless of cwd), the hook drains the queue and injects it as context. This

@@ -13,9 +13,19 @@
  * extracted suite exited 1 because of them.
  *
  * The rule enforced here is the general one: **a test lives in the tree that
- * contains what it tests.** Hook tests live at this repository's root `tests/`
- * (beside `hooks/`); tests that need BOTH a hook and CLI source live in the
- * parent monorepo's `tests/cross-repo/`, the only tree with both on disk.
+ * contains what it tests.**
+ *
+ * UPDATED BY plugin-thin `p6`. When this guard was written, the hooks were
+ * `.ts` relays in this repository's `hooks/` directory and their tests
+ * belonged in the root `tests/` beside them. The relays are now CLI
+ * subcommands (`pipeline hook <name>`) in `IvanMurzak/pipeline`, and twelve of
+ * those thirteen suites went with them. What is left in `hooks/` is
+ * `run-hook.sh` and `hooks.json` — plugin files, covered by
+ * `tests/hook-run-shim.test.ts`, which stays. So the destinations are now:
+ *
+ *   the shim / hooks.json      -> this repository's root tests/
+ *   a hook relay's behaviour   -> the CLI repository's tests/
+ *   plugin prose AND CLI code  -> the parent monorepo's tests/cross-repo/
  *
  * TWO SYNTACTIC FORMS, BOTH CHECKED — this is the load-bearing part. A grep for
  * `../../../` cannot see `resolve(import.meta.dir, '..', '..', '..')`, and that
@@ -150,8 +160,9 @@ describe('apps/pipeline-cli/tests reaches nothing above apps/pipeline-cli', () =
     expect(
       escapes,
       'these tests read files the extracted CLI will not have. Move each one to the tree that contains what it tests:\n' +
-        '  hooks only            -> this repository\'s root tests/\n' +
-        '  hooks AND CLI source  -> the parent monorepo\'s tests/cross-repo/\n\n' +
+        '  the shim / hooks.json     -> this repository\'s root tests/\n' +
+        '  a hook relay\'s behaviour  -> the CLI repository\'s tests/\n' +
+        '  plugin prose AND CLI code -> the parent monorepo\'s tests/cross-repo/\n\n' +
         escapes.join('\n'),
     ).toEqual([]);
 
@@ -163,7 +174,12 @@ describe('apps/pipeline-cli/tests reaches nothing above apps/pipeline-cli', () =
     );
   });
 
-  test('no test file under apps/pipeline-cli/tests imports a hook', () => {
+  // `hooks/` now holds only `run-hook.sh` and `hooks.json` (plugin-thin `p6`
+  // took the relays to the CLI repository), so what this catches today is a
+  // CLI test reaching for the shim or the hook manifest — which is still a
+  // reach out of the package, and still belongs in this repository's root
+  // tests/ where `hook-run-shim.test.ts` already covers both.
+  test('no test file under apps/pipeline-cli/tests reads anything in hooks/', () => {
     const offenders = files.filter((file) => {
       const code = stripComments(readFileSync(file, 'utf-8'));
       return [...moduleSpecifiers(code).filter((s) => s.startsWith('.')), ...selfAnchoredPaths(code)].some(
@@ -175,7 +191,7 @@ describe('apps/pipeline-cli/tests reaches nothing above apps/pipeline-cli', () =
     });
     expect(
       offenders.map((f) => relative(REPO_ROOT, f).replace(/\\/g, '/')),
-      'hook tests belong beside hooks/ — this repository\'s root tests/ — not inside the CLI package',
+      'the shim and hooks.json are plugin files — tests that read them belong in this repository\'s root tests/, not inside the CLI package',
     ).toEqual([]);
   });
 });

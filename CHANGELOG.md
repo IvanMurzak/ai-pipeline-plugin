@@ -4,6 +4,52 @@ Notable changes to the `pipeline` Claude Code plugin and the `@baizor/pipeline` 
 (they live in one repo and release together; version numbers are independent — see below).
 This file starts here; earlier history is in `git log`.
 
+## plugin 0.93.0 — the hooks become CLI subcommands
+
+**BREAKING for the plugin's install requirements: `@baizor/pipeline` must now be installed.**
+Install it once with `bun add -g @baizor/pipeline` (or `npm i -g @baizor/pipeline`). A session
+started without it prints one actionable line naming that command, from the SessionStart hook,
+and every hook then degrades to a silent no-op rather than failing.
+
+The five hook relays — `analytics_relay.ts`, `stats_relay.ts`, `session_relay.ts`,
+`prompt_match_relay.ts`, `department_notifier_relay.ts` — are **no longer files in this
+repository**. They moved into the CLI's own repository ([`IvanMurzak/pipeline`](https://github.com/IvanMurzak/pipeline))
+as subcommands:
+
+```
+pipeline hook analytics-relay          pipeline hook department-notifier-relay
+pipeline hook stats-relay              pipeline hook prompt-match-relay
+pipeline hook session-relay
+```
+
+`hooks/hooks.json` invokes `run-hook.sh hook <name>` instead of `run-hook.sh <relay>.ts`.
+
+**Why.** The relays imported CLI internals by relative path — `stats_relay.ts` imported
+`apps/pipeline-cli/src/lib/stats` and `lib/stats-backfill` — so they would have broken the moment
+that directory was deleted, which is where the plugin-thin work is going. And while the plugin
+shipped both a copy of the CLI and the relays, a user who had also installed `@baizor/pipeline`
+globally had two copies at potentially different versions, with the hooks always running the
+plugin's and nothing detecting the divergence. **A hook's version is now the CLI's version by
+construction.**
+
+**`hooks/run-hook.sh` survives, unchanged in shape.** It resolves `pipeline` instead of `bun`,
+with the same probe order (PATH → `$BUN_INSTALL/bin` → `~/.bun/bin` → `/opt/homebrew/bin` →
+`/usr/local/bin`), the same `exec` passthrough, the same `--loud`-on-SessionStart-only contract,
+and the same committed mode 100755. It exists because Claude Code runs hooks through a
+non-interactive `/bin/sh` that never sources `~/.zshrc`; that has nothing to do with which binary
+sits at the end of the chain.
+
+**No behaviour changed inside any relay.** Same gates, same events, same journal — including the
+deliberate ordering where `Notification` is evaluated BEFORE the `PIPELINE_JOURNAL_ENABLED`
+opt-out, under its own `PIPELINE_AWAITING_INPUT_ENABLED`, so a blocked run still shows in
+`pipeline logs` for a user with no cloud account.
+
+**Tests moved with the code.** Twelve relay suites now run in the CLI repository's `Pipeline CLI`
+CI job (ubuntu + windows). `tests/hook-run-shim.test.ts` stayed here, because the shim and
+`hooks.json` are this plugin's. The parent monorepo gained
+`tests/cross-repo/hook-subcommand-parity.test.ts` — the new seam, where a name in `hooks.json`
+that the CLI does not implement would otherwise be a silent, permanent no-op.
+
 ## plugin 0.92.0 / CLI 0.13.0 — the journal stops being named after a deleted app
 
 The previous release deleted the local dashboard but kept the journal it fed, still named after it
