@@ -10,8 +10,11 @@
  * half of the byte-equivalence check — the refactored hook must still
  * produce byte-identical `runs.jsonl` output for the SubagentStop path.
  *
- * Only the two import paths were adjusted (this file lives two directories
- * deeper than the real hook did); the algorithm below is untouched.
+ * Only the two import paths were adjusted (this file does not sit where the
+ * real hook does); the algorithm below is untouched. They were adjusted a
+ * second time in plugin-thin `p5`, when this fixture followed
+ * `hook-stats-relay.test.ts` out of `apps/pipeline-cli/tests/` and into the
+ * plugin's own root `tests/` — the depth changed, the copy did not.
  *
  * plugin-thin `p3`: the transcript-fold import moved from
  * `apps/pipeline-ui/transcript-stats` — deleted with the local dashboard — to
@@ -35,12 +38,12 @@ import {
   stepWindows,
   type RunFailureDetail,
   type TokenStats,
-} from '../../src/lib/stats';
+} from '../../apps/pipeline-cli/src/lib/stats';
 import {
   RUN_FAILURES_COLLECT_MAX,
   collectRunToolFailures,
   foldRunStatsFromTranscript,
-} from '../../src/lib/vendor/transcript-walk';
+} from '../../apps/pipeline-cli/src/lib/vendor/transcript-walk';
 
 const ENRICH_WINDOW_MS = 48 * 3600 * 1000;
 

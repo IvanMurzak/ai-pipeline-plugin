@@ -78,16 +78,25 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # ⚠ `working-directory`, NOT `bun test tests/`. A positional argument to
+    # `bun test` is a FILE-NAME FILTER, not a directory scope — `bun test
+    # --help` says so ("Run all test files with 'foo' or 'bar' in the file
+    # name"). `bun test tests/` from the root therefore matched every path
+    # containing `tests/`, which is `apps/pipeline-cli/tests/` and the
+    # templates' suites too: the first run of this job executed 2427 tests
+    # across 119 files and duplicated the whole `pipeline-cli` job. Bun scans
+    # from its working directory, so scoping it means putting it there.
+    defaults:
+      run:
+        working-directory: tests
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      # Run from the repository root, with no install step and no manifest.
-      # `bun test tests/` is scoped to the directory: it never descends into
-      # `apps/`, so this job and `pipeline-cli` above do not overlap.
+      # No install step and no manifest — see the note above.
       - name: Run plugin tests
-        run: bun test tests/
+        run: bun test
 
   manifest-validation:
     name: Plugin manifest validation

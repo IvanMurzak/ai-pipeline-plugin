@@ -71,7 +71,7 @@ hooks/
   analytics_relay.ts                # Multi-event hook (PreToolUse + PostToolUse + SubagentStop + Stop + Notification) — the Notification branch journals `run.awaiting_input` and is evaluated BEFORE the PIPELINE_JOURNAL_ENABLED opt-out under its own PIPELINE_AWAITING_INPUT_ENABLED (default ON), so a blocked run still shows in `pipeline logs` with no cloud account; mirror bindings, tool.called, run-level bypass synthesis, manager.stopped liveness, turn.usage. The transcript-sensitive bits (binding transcript_path + the Stop turn.usage tail) are separately gated by PIPELINE_JOURNAL_TRANSCRIPTS (default ON; off ⇒ null the pointer + skip the tail, basic events keep flowing) — orthogonal to the PIPELINE_JOURNAL_ENABLED master switch and to PIPELINE_STATS_ENABLED; see docs/journal-and-hooks.md
   stats_relay.ts                    # Stop + SubagentStop (matcher: pipeline-manager) — thin wrapper over lib/stats-backfill.ts; token + tool-failure enrichment for .stats/ run records (transcript fold; per-tool fail counts + .log fail details); gated by PIPELINE_STATS_ENABLED (default ON, independent of PIPELINE_JOURNAL_ENABLED)
   department_notifier_relay.ts      # SessionStart hook (department-mesh task a1, renamed from mesh_notifier_relay.ts at a11) — ensures `pipeline department notify` is running detached (pid-lock guarded) + drains its pending-notification journal into SessionStart additionalContext; gated by PIPELINE_DEPARTMENT_NOTIFY_ENABLED (default ON, falling back to the deprecated PIPELINE_MESH_NOTIFY_ENABLED with a warning), no-ops until `pipeline cloud connect` has run once; see docs/departments-mcp.md
-tests/                              # THE PLUGIN'S OWN TESTS — `hooks/*.ts` + `hooks/run-hook.sh`. Run from the REPO ROOT with `bun test tests/` (no root package.json and none wanted: a plugin install is a git clone with no install step, so a root manifest would imply one and sit beside .claude-plugin/plugin.json as a second name/version; `bun test <dir>` needs no manifest). Gated by the `plugin-hooks` CI job. See "Where a test lives" below
+tests/                              # THE PLUGIN'S OWN TESTS — `hooks/*.ts` + `hooks/run-hook.sh`. Run with `cd tests && bun test` (no root package.json and none wanted: a plugin install is a git clone with no install step, so a root manifest would imply one and sit beside .claude-plugin/plugin.json as a second name/version; bun needs no manifest to run a directory). ⚠ NOT `bun test tests/` from the root — a positional arg to `bun test` is a file-NAME filter, not a directory scope, so that form also matches apps/pipeline-cli/tests/. Gated by the `plugin-hooks` CI job. See "Where a test lives" below
   fixtures/                         #   spawn workers + the frozen pre-refactor stats_relay copy the byte-equivalence check spawns
 docs/                               # On-demand reference docs split out of CLAUDE.md — read before editing the matching subsystem
   cli.md                            #   the `pipeline` CLI — commands & contracts (plan/match/event/route/next/logs/fix/submodule bump)
@@ -183,7 +183,7 @@ reading something that will not travel with it.
 | What the test touches | Where it lives | What runs it |
 | --- | --- | --- |
 | CLI source only | `apps/pipeline-cli/tests/` | `bun run test` there; CI job `pipeline-cli` |
-| `hooks/*` only | **this repo's root `tests/`** | `bun test tests/` from the repo root; CI job `plugin-hooks` |
+| `hooks/*` only | **this repo's root `tests/`** | `cd tests && bun test`; CI job `plugin-hooks` |
 | `hooks/*` **and** CLI source | the parent monorepo's `tests/cross-repo/` (written `<superrepo>/tests/cross-repo/` in code comments here) | its CI job `cross-repo` — the only tree with both on disk |
 
 In code comments the two homes outside a file's own package are written
@@ -192,6 +192,12 @@ In code comments the two homes outside a file's own package are written
 monorepo, `IvanMurzak/ai-pipeline`, which carries this repository as a
 submodule). Both stay accurate after the CLI is extracted, which a bare
 `tests/…` would not.
+
+⚠ **A positional argument to `bun test` is a file-NAME filter, not a
+directory scope** — `bun test --help`: *"Run all test files with 'foo' or
+'bar' in the file name."* So `bun test tests/` from the repo root matches
+every path containing `tests/`, including `apps/pipeline-cli/tests/`. Scope
+by working directory (`cd tests && bun test`), which is what CI does.
 
 The third row is not a new invention: the parent monorepo's `drift` job already
 checks out submodules for exactly this reason. A comparison test that needs two
