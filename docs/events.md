@@ -100,7 +100,7 @@ The RUN ANCHOR is the **`pipeline-manager`** (Phase 2). Three call paths produce
 
 1. **`/pipeline:run` (supervisor, main session) + the `pipeline-manager` it spawns (depth 1)** — the canonical emitters. The supervisor emits the run-level lifecycle (`pipeline.started` / `pipeline.completed` / `halted`) and owns the liveness lockfile + mirror binding; the per-iteration events (`iteration.*`, `improver.*`, `script_creator.*`, `worktree.*`) are auto-emitted in-process by the `pipeline next` CLI as the manager drives it (the manager itself emits only the retrospective's `improver.*` / `script_creator.*` via `pipeline event`, passing the supervisor's `run_id` literally). The per-step worker (`step-executor`, formerly `pipeline-executor`) runs at depth 2. All share one `session_id`, so hook-emitted `tool.called` / `turn.usage` still correlate to the run through the binding.
 2. **`pipeline drive`** — the headless driver emits the same run-level and per-iteration events from its own process (see `commands/drive.ts`). *(This slot used to be the deleted dashboard's `POST /api/chat`; "Path A" in older prose means that endpoint and no longer exists.)*
-3. **Direct `Agent({subagent_type: "pipeline-manager"…})` from a terminal session ("Path C")** — uninstrumented run; nothing in the spawn chain knows it should emit the run-level lifecycle. The hooks (`analytics_relay.ts`) close this gap by SPLITTING **RUN-LEVEL** synthesis across the two hook ticks so the run shows as **active while the manager is in-flight**, not only after it finishes:
+3. **Direct `Agent({subagent_type: "pipeline-manager"…})` from a terminal session ("Path C")** — uninstrumented run; nothing in the spawn chain knows it should emit the run-level lifecycle. The hooks (`analytics-relay.ts`) close this gap by SPLITTING **RUN-LEVEL** synthesis across the two hook ticks so the run shows as **active while the manager is in-flight**, not only after it finishes:
    - **`PreToolUse`** (fires before the manager `Agent`/`Task` runs): emits the **START half** — `pipeline.started` ONLY.
    - **`PostToolUse`** (fires when the manager Agent returns): emits the **END half** — `pipeline.completed`/`halted` ONLY.
 
@@ -114,7 +114,7 @@ The RUN ANCHOR is the **`pipeline-manager`** (Phase 2). Three call paths produce
    - `pipeline.started.first_iteration_path === iterationPath` — covers the chain's FIRST iteration.
    - `iteration.started.iteration_path === iterationPath` (and the analogous `iteration.resumed`) — covers iterations 2..N.
 
-   The match function is `findChainControllerRunId` in `hooks/analytics_relay.ts`; it requires the matching event to carry a non-empty `run_id`.
+   The match function is `findChainControllerRunId` in `<cli>/src/hooks/analytics-relay.ts`; it requires the matching event to carry a non-empty `run_id`.
 
 ### `iteration.completed.terminal` (v2)
 
@@ -298,7 +298,7 @@ heuristic would false-positive on long thinking phases.
 
 ### `run.awaiting_input` (observability a2 — new TYPE, schema stays 4)
 
-Emitted by the **Notification hook** (`hooks/analytics_relay.ts`) when Claude
+Emitted by the **Notification hook** (`<cli>/src/hooks/analytics-relay.ts`) when Claude
 Code tells us the session is blocked on a human: a permission prompt, or an
 agent asking for input. Adding a new `type` is not a schema bump — same
 precedent as `manager.stopped`; every consumer already ignores unknown types.
@@ -335,7 +335,7 @@ the `PIPELINE_JOURNAL_ENABLED` opt-out: a blocked run is worth surfacing through
 
 ### `manager.stopped` (Phase 2 — agent-lifecycle liveness)
 
-Emitted by the **SubagentStop** hook (`analytics_relay.ts`) when a
+Emitted by the **SubagentStop** hook (`analytics-relay.ts`) when a
 `pipeline-manager` subagent ends — the PRIMARY "the run's orchestrator is
 gone" signal. Shape: `{ run_id, agent_id | null, step_uuid? }`. The `run_id` is
 resolved
@@ -453,7 +453,7 @@ The live implementation is `apps/pipeline-cli/src/lib/step-transcripts.ts` over 
 
 `tool.called` and `turn.usage` carry a `run_id` field — set by the `/pipeline:run` skill via the `PIPELINE_RUN_ID` env var, or recovered by the hooks via the session-keyed mirror-binding lookup. Events outside any pipeline run land in the journal as ambient telemetry, excluded from per-run aggregates. These events still feed the **per-iteration** tree breakdown (`IterationTree`/`StepDetail`), which has not yet been migrated to the transcript fold — so the per-iteration numbers remain subject to the undercount described above. (The per-RUN panel no longer uses them.)
 
-**Step attribution on the driven path (ux-v2 b7).** When the resolved binding is one of `pipeline drive`'s pre-spawn records, the same lookup also yields the **step** UUID, and `tool.called` / `turn.usage` / `manager.stopped` / `run.awaiting_input` carry it as `data.step_uuid`. The field is **absent, not null, when unresolved** — absent means "not known", never "no step" — so every pre-b7 event shape is unchanged and no schema bump is involved. This makes a driven step's tool calls and tokens attributable to one execution without correlating timestamps against `iteration.started`/`iteration.completed` windows (the LIFO-open-window rule above stays as the fallback for events that carry no `step_uuid` — everything on Paths A/B/C). Measured on live `pipeline drive` runs: hook events emitted inside `claude -p` went from **100% `run_id: null` (10/10 over two runs) to 0% (0/11)**, all of them additionally naming the step. The residual `run_id: null` on that path is `session.opened`, which `hooks/session_relay.ts` writes as a literal null and which never consults the resolver.
+**Step attribution on the driven path (ux-v2 b7).** When the resolved binding is one of `pipeline drive`'s pre-spawn records, the same lookup also yields the **step** UUID, and `tool.called` / `turn.usage` / `manager.stopped` / `run.awaiting_input` carry it as `data.step_uuid`. The field is **absent, not null, when unresolved** — absent means "not known", never "no step" — so every pre-b7 event shape is unchanged and no schema bump is involved. This makes a driven step's tool calls and tokens attributable to one execution without correlating timestamps against `iteration.started`/`iteration.completed` windows (the LIFO-open-window rule above stays as the fallback for events that carry no `step_uuid` — everything on Paths A/B/C). Measured on live `pipeline drive` runs: hook events emitted inside `claude -p` went from **100% `run_id: null` (10/10 over two runs) to 0% (0/11)**, all of them additionally naming the step. The residual `run_id: null` on that path is `session.opened`, which `<cli>/src/hooks/session-relay.ts` writes as a literal null and which never consults the resolver.
 
 Readers of the journal compute derived stats from the event stream:
 
@@ -491,7 +491,7 @@ sweeper is cheap only while they still exist.
 
 ## Environment overrides
 
-- `PIPELINE_JOURNAL_ENABLED` — master opt-OUT switch for the journal/analytics hooks, which are **ON BY DEFAULT**. They stay on unless you explicitly opt out by setting it to a falsy value (`0`/`false`/`no`/`off`); unset/empty — and any other value — leaves them enabled. When opted out, every hook no-ops at entry: the `SessionStart` hook (`session_relay.ts`) does not write `session.opened`, and the analytics hook (`analytics_relay.ts`, all of PreToolUse/PostToolUse/SubagentStop/Stop) emits no events and writes no mirror bindings. The Bun process for a registered hook still launches (an env var can't un-register a `hooks.json` entry) but exits immediately, so an opt-out drops per-hook cost to ~Bun-startup only — to remove the spawn entirely, disable the plugin. Does NOT gate the `pipeline event` journal writer (cheap, and what `pipeline logs` reads — so `/pipeline:run` lifecycle events are still journaled even when the hooks are opted out). Set it in your shell, your OS environment, or your project's `.claude/settings.json` `env` block (hooks inherit the session environment).
+- `PIPELINE_JOURNAL_ENABLED` — master opt-OUT switch for the journal/analytics hooks, which are **ON BY DEFAULT**. They stay on unless you explicitly opt out by setting it to a falsy value (`0`/`false`/`no`/`off`); unset/empty — and any other value — leaves them enabled. When opted out, every hook no-ops at entry: the `SessionStart` hook (`session-relay.ts`) does not write `session.opened`, and the analytics hook (`analytics-relay.ts`, all of PreToolUse/PostToolUse/SubagentStop/Stop) emits no events and writes no mirror bindings. The Bun process for a registered hook still launches (an env var can't un-register a `hooks.json` entry) but exits immediately, so an opt-out drops per-hook cost to ~Bun-startup only — to remove the spawn entirely, disable the plugin. Does NOT gate the `pipeline event` journal writer (cheap, and what `pipeline logs` reads — so `/pipeline:run` lifecycle events are still journaled even when the hooks are opted out). Set it in your shell, your OS environment, or your project's `.claude/settings.json` `env` block (hooks inherit the session environment).
 - `PIPELINE_JOURNAL_TRANSCRIPTS` — narrower opt-out (same falsy parse, also ON by default) for the transcript work only: the `transcript_path` pointer recorded on a mirror binding, and the `Stop` hook's `turn.usage` token tail. Lifecycle events and run correlation are unaffected.
 
 > Renamed from the `PIPELINE_UI_*` prefix in plugin-thin `p4` (clean break, no
@@ -504,7 +504,7 @@ When `events.jsonl` exceeds 50 MB, the writer renames it to `events-YYYYMMDD-HHM
 
 ## active-mirror-bindings.jsonl (per-user, NOT per-project)
 
-Lives at `~/.claude/pipeline-ui/active-mirror-bindings.jsonl`. Append-only journal of mirror bindings — the hooks (PreToolUse + PostToolUse in `analytics_relay.ts`, plus `pipeline event register-mirror-binding` for Path B) write a record whenever a `pipeline-manager` or worker (`step-executor`, or legacy `pipeline-executor`) spawn should have its transcript mirrored into the chat panel. **`pipeline drive` also writes here** (`kind: "drive-session"`, ux-v2 b7) — not to mirror anything, but to declare which run and step own the headless `claude -p` child it is about to spawn.
+Lives at `~/.claude/pipeline-ui/active-mirror-bindings.jsonl`. Append-only journal of mirror bindings — the hooks (PreToolUse + PostToolUse in `analytics-relay.ts`, plus `pipeline event register-mirror-binding` for Path B) write a record whenever a `pipeline-manager` or worker (`step-executor`, or legacy `pipeline-executor`) spawn should have its transcript mirrored into the chat panel. **`pipeline drive` also writes here** (`kind: "drive-session"`, ux-v2 b7) — not to mirror anything, but to declare which run and step own the headless `claude -p` child it is about to spawn.
 
 ```json
 {"event":"bound","tool_use_id":"toolu_...","run_id":"<id>","step_uuid":"<uuid-or-null>",
@@ -516,7 +516,7 @@ Lives at `~/.claude/pipeline-ui/active-mirror-bindings.jsonl`. Append-only journ
 
 `step_uuid` is written only by `kind: "drive-session"` records; every other writer binds at Agent-spawn time, where no step identity exists yet, and omits the field. Readers treat **absent as null** — the field is additive and does NOT bump the binding schema.
 
-**Strict scope (issue #11) — still load-bearing.** A session appears in this file only because a hook explicitly bound it, and a transcript is reachable only through a binding that names it. Sessions that never spawn a `pipeline-manager` or worker never appear here at all. The deleted dashboard's `MirrorService` was the first consumer of that guarantee; `analytics_relay.ts`'s own `findBindingForSession` is the one that remains, and it is what makes an event's `run_id`/`step_uuid` resolvable at all. `tests/mirror-scope-discipline.test.ts` is the regression test — do not weaken it.
+**Strict scope (issue #11) — still load-bearing.** A session appears in this file only because a hook explicitly bound it, and a transcript is reachable only through a binding that names it. Sessions that never spawn a `pipeline-manager` or worker never appear here at all. The deleted dashboard's `MirrorService` was the first consumer of that guarantee; `analytics-relay.ts`'s own `findBindingForSession` is the one that remains, and it is what makes an event's `run_id`/`step_uuid` resolvable at all. `tests/mirror-scope-discipline.test.ts` is the regression test — do not weaken it.
 
 ### `kind: "drive-session"` — the pre-spawn binding (ux-v2 b7)
 
@@ -534,4 +534,4 @@ Three properties are load-bearing:
 
 `project_root` is always the **main repository's working tree path**, never a worktree path. The writer resolves worktrees by reading `.git` — if it's a file starting with `gitdir: <path>`, it follows `<path>/commondir` to find the parent and uses that. Worktrees still report their location in the `worktree` field.
 
-The resolver is copied into every emitter that cannot import a sibling at runtime (`lib/event.ts`, `hooks/session_relay.ts`, `hooks/analytics_relay.ts`, `hooks/prompt_match_relay.ts`); `<superrepo>/tests/cross-repo/resolve-parity.test.ts` fails if any copy drifts.
+The resolver is copied into every emitter that cannot import a sibling at runtime (`lib/event.ts`, `<cli>/src/hooks/session-relay.ts`, `<cli>/src/hooks/analytics-relay.ts`, `<cli>/src/hooks/prompt-match-relay.ts`); `<superrepo>/tests/cross-repo/resolve-parity.test.ts` fails if any copy drifts.
