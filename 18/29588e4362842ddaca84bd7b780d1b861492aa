@@ -1,0 +1,27 @@
+CLAUDE.md
+  s_adda7d43be225a::t_ff3a563dfea816 237
+README.md
+  s_adda7d43be225a::t_2c0d4761dcaa26 527,631-633,654,762,813-816
+docs/cloud-connect.md
+  s_adda7d43be225a::t_1e8e566fc645eb 1-263
+docs/privacy-tiers.md
+  s_adda7d43be225a::t_cbdc11deee7bb2 1-337
+docs/running-pipelines.md
+  s_adda7d43be225a::t_04e1e425495d14 3-28,52-76,85-87,93,102-104,110,118-120,122-125,128-147,149,155,157-160,162-166,168-170,172-176,180-181,183-186,188,190,192-193,197-199,205-206,208,210-211,213-217,220-221,223,225,229,231,235-237,243,268-270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "1829588e4362842ddaca84bd7b780d1b861492aa",
+  "prompts": {},
+  "sessions": {
+    "s_adda7d43be225a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_adda7d43be225a",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
