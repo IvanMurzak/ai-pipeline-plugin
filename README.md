@@ -524,7 +524,7 @@ Keep it sequential when in doubt; parallelism is an optimization for independent
 
   **Worktree-scoped pipeline I/O (default).** An external-isolation run reads its pipeline definition from — and self-improves into — the run WORKTREE's pipeline copy: the CLI provisions at run init and plans from `<worktree>/<pipeline-root-rel>`, so a branch that modifies its own pipeline runs its own version, and improver/script-creator/retrospective edits ride your finalize commit/PR instead of dirtying the main checkout. Only **committed** state reaches the run (a worktree materializes commits; the CLI warns when the main pipeline dir is dirty). Run bookkeeping (`next.json`, events, `.stats`) stays under the main checkout, and `.gitignore` stubs inside the worktree keep run artifacts out of your finalize commit. Set `PIPELINE_WORKTREE_SCOPED=0` to restore the legacy main-scoped reads; the flag is frozen per run at init.
 
-- **`pipeline submodule bump` — a guarded submodule-pointer bump (a git primitive your finalize hook can call).** When a run advances a git *submodule* and you need the SUPERPROJECT's pointer recorded on its base branch, do NOT hand-roll `git` for it — call the bundled command instead: `bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" submodule bump --project-root <superproject> [--submodules a,b] [--base <branch>] [--source-worktree <path>] [--dry-run] [--json]`. It records the pointer change(s) and pushes them **isolation-safely** — the shared checkout is never `checkout`/`reset`/`switch`ed (its only mutation is `fetch` + `merge --ff-only`); all branch/commit work happens in a throwaway worktree off `origin/<base>`. Built-in guards make the dangerous mistakes *impossible*: it refuses to land a pointer that differs only because the base advanced past the run's fork (no accidental reverts), skips a pointer the base changed since the fork (no clobbering a concurrent bump), only bumps to a commit reachable from the submodule's `origin/<default>`, self-cleans orphaned throwaway worktrees from prior killed runs before it starts (idempotent), and STOPs on any error with a structured `halt_reason` + the exact manual recovery. It auto-detects drifted pointers from `.gitmodules` when `--submodules` is omitted, and a project with no submodules is a no-op. Output is one JSON object (`{status, bumped[], skipped[], pr, infra_sha, …}`); exit `0`/`1`/`2`. Needs `git` + `gh` on PATH.
+- **`pipeline submodule bump` — a guarded submodule-pointer bump (a git primitive your finalize hook can call).** When a run advances a git *submodule* and you need the SUPERPROJECT's pointer recorded on its base branch, do NOT hand-roll `git` for it — call the CLI command instead: `pipeline submodule bump --project-root <superproject> [--submodules a,b] [--base <branch>] [--source-worktree <path>] [--dry-run] [--json]`. It records the pointer change(s) and pushes them **isolation-safely** — the shared checkout is never `checkout`/`reset`/`switch`ed (its only mutation is `fetch` + `merge --ff-only`); all branch/commit work happens in a throwaway worktree off `origin/<base>`. Built-in guards make the dangerous mistakes *impossible*: it refuses to land a pointer that differs only because the base advanced past the run's fork (no accidental reverts), skips a pointer the base changed since the fork (no clobbering a concurrent bump), only bumps to a commit reachable from the submodule's `origin/<default>`, self-cleans orphaned throwaway worktrees from prior killed runs before it starts (idempotent), and STOPs on any error with a structured `halt_reason` + the exact manual recovery. It auto-detects drifted pointers from `.gitmodules` when `--submodules` is omitted, and a project with no submodules is a no-op. Output is one JSON object (`{status, bumped[], skipped[], pr, infra_sha, …}`); exit `0`/`1`/`2`. Needs `git` + `gh` on PATH.
 
 ## Configuration reference
 
@@ -628,8 +628,9 @@ list, step tree, timings, token counts and cost, tool-call and failure counts,
 the parked-question surface, and per-run analytics. It is installable as a web
 app, so it works from a phone without exposing anything on your network. What it
 receives is step metadata only — your prompts, transcripts, code, file paths,
-tool arguments and error text never leave your machine
-([privacy](https://ai-pipeline.dev/docs/privacy)).
+tool arguments and error text never leave your machine — see
+[Privacy tiers](docs/privacy-tiers.md), which lists the allowlist field by
+field, and [Connecting to the cloud](docs/cloud-connect.md).
 
 **`pipeline logs` is the offline path** and needs no account, no daemon and no
 network — see the next section. `pipeline logs -f` tails the same journal live,
@@ -650,7 +651,7 @@ Watch events scroll by in a terminal, pretty-printed as one line per event:
 
 ```bash
 # from anywhere inside a pipeline project:
-bun "<plugin>/apps/pipeline-cli/src/cli.ts" logs --follow
+pipeline logs --follow
 ```
 
 ```
@@ -758,7 +759,7 @@ Separate from pipelines: a **department** is an agent somebody else runs, on som
 | [Connect the cloud](https://ai-pipeline.dev/docs/connect-the-cloud) | What `init` did for you, on its own: `pipeline cloud connect` — one browser approval, no token typed or pasted — and what the Free plan includes. |
 | [Use a department](https://ai-pipeline.dev/docs/use-a-department) | `/mcp`, delegating in plain language, and what happens when a department asks you something back. |
 | [Build a department](https://ai-pipeline.dev/docs/build-a-department) | `department.yml`, then `new` / `validate` / `serve` / `status`, and running the same department on another machine. |
-| [Privacy](https://ai-pipeline.dev/docs/privacy-tiers) | Field by field, what leaves your machine once any of this is connected. |
+| [Privacy tiers](docs/privacy-tiers.md) | Field by field, what leaves your machine once any of this is connected — transcribed from the filter that runs, with its real output. |
 
 The plugin-internal contract behind the two client pieces — why the MCP entry and the notifier deliberately don't share a transport, what the `timeout` is sized against, and every file involved — is [`docs/departments-mcp.md`](docs/departments-mcp.md).
 
@@ -808,13 +809,11 @@ You don't do anything extra to get this: it reuses the same credential `pipeline
 ```bash
 # one-time (if you haven't already connected the CLI to the cloud for other reasons):
 pipeline cloud connect
-# …or, with no global install, the copy that ships inside the plugin:
-bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" cloud connect
 
-# manual smoke-test / debugging — runs one poll cycle and exits. Use the bundled
-# copy: the daemon the hook spawns is this one, and it is the version that
-# matters when the published CLI is older.
-bun "${CLAUDE_PLUGIN_ROOT}/apps/pipeline-cli/src/cli.ts" department notify --once --json
+# manual smoke-test / debugging — runs one poll cycle and exits. This is the
+# same binary the hook spawns: since plugin v0.93.0 the plugin ships no CLI of
+# its own, so there is only ever one copy and it is the globally installed one.
+pipeline department notify --once --json
 ```
 
 Opt out with `PIPELINE_DEPARTMENT_NOTIFY_ENABLED=0` (same falsy-value convention as `PIPELINE_JOURNAL_ENABLED`) if you never want the daemon spawned or the queue drained. (`pipeline mesh notify` and `PIPELINE_MESH_NOTIFY_ENABLED` still work as deprecated, warning aliases for anyone with an existing service definition or shell profile.)
