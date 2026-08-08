@@ -182,7 +182,17 @@ research purpose.
 ## Deleting it
 
 Deletion is requested per **organisation** or per **project**, by a member with
-the **admin** role or above.
+the **admin** role or above. There are two ways in, and both are live.
+
+**From the dashboard.** The nav menu has a **Delete data** entry — in the *Org*
+group, shown only to admins and owners, never behind a plan. It opens a
+`/deletion` overlay: choose the whole organisation or one project, type the
+confirmation phrase, submit. That is the whole request. While a request is open,
+a banner sits in the dashboard's own chrome — on every screen, not just that
+overlay — carrying a **Cancel deletion** button that is one click from wherever
+you already are. The overlay also lists past requests and their outcome.
+
+**From the API,** with your session credential:
 
 ```text
 POST /api/v1/deletion-requests   { "targetType": "project", "targetId": "<uuid>" }
@@ -191,31 +201,59 @@ GET  /api/v1/deletion-requests
 POST /api/v1/deletion-requests/<id>/cancel
 ```
 
-- **Deleting an organisation requires typing its slug** into `confirm`. A
-  project delete does not.
-- **A 7-day grace period.** The request records a `scheduledPurgeAt` seven days
-  out; the tree is purged after that.
-- **The org's owners and admins are emailed** when a request is created.
+- **Deleting an organisation requires typing its slug** into `confirm`, and the
+  *server* checks it — not only the form — so a mis-scripted `curl` is inert. A
+  project delete carries no server-side phrase; the dashboard asks you to type
+  the project's **name** anyway, because a target chosen from a dropdown is
+  exactly the one chosen by accident.
+- **A 7-day grace period — 168 hours, not "seven calendar days",** so it means
+  the same thing in every timezone and across a DST boundary. The request
+  records a `scheduledPurgeAt` exactly that far out and the database refuses a
+  row that says anything else. The boundary is inclusive: one millisecond before
+  it you can still cancel; at it you cannot.
+- **Nothing is removed until then.** `pending_deletion` is a state, not a
+  partial delete — the organisation or project stays fully live, fully readable
+  and still ingesting for the whole seven days.
+- **The purge itself runs on a background sweep** that ticks every 15 minutes and
+  re-checks the deadline under a row lock before deleting anything. That cadence
+  can only make a purge slightly *later* than the deadline, never earlier, and it
+  can never shorten the grace period.
+- **The org's owners and admins are emailed** when a request is created, and
+  again when one is cancelled. Neither email carries a cancel link — deliberately;
+  see the next bullet.
 - **Cancelling is permission-checked, not a link.** The cancel endpoint
   re-checks your role on the authenticated session, so forwarding the email to
   someone does not hand them the ability to cancel.
-- A project deletion explicitly removes that project's runs, steps and derived
-  rollups — not only the project row.
-
-**Status, honestly:** the API above is live. The **dashboard UI for it is not
-built yet** — it is the last task in the sequence that this documentation
-belongs to. Until it ships, a deletion request is made through the API with your
-session credential.
+- **One open request per target.** Asking a second time returns `409` and tells
+  you the deadline the first request already set.
+- A project deletion explicitly removes that project's runs — and with them
+  their step executions and events — plus its derived run and step rollups, its
+  tasks, schedules, alert rules and the alerts they fired, and its notification
+  channels. Not only the project row. The request row keeps a per-table count of
+  what went, so the deletion is auditable afterwards; an organisation purge takes
+  its own request row with it, so that record is the server's log line instead.
+- **A purge the database refuses** — an organisation with registry purchase
+  history it is not allowed to drop — is recorded as `blocked` rather than
+  half-completed; the transaction rolls back whole. A blocked request is still
+  **open**: it is still listed, still shown in the banner, and still cancellable.
 
 **Telemetry that arrives during the grace period is accepted and stored.**
 Refusing it would break a pipeline that is running right now, which is a promise
 this product does not break. It is removed with the tree at expiry and it does
 not cancel or postpone the deletion.
 
-Deleting a resource tree is not the same primitive as erasing one person's data
-— a departed employee's erasure request is handled separately
-(`POST /api/v1/erasure-requests`, also admin-gated) and, unlike this product
-grace period, is not cancellable by a third party.
+Deleting a resource tree is not the same primitive as erasing one person's data.
+A departed employee's erasure request is handled separately — API only, no
+dashboard screen — by `POST /api/v1/erasure-requests`, with
+`GET /api/v1/erasure-requests` as the organisation's erasure register. It is
+admin-gated the same way, and it inverts every property above: it runs
+**immediately**, inside the POST that asks for it, and it is **not cancellable
+by anyone** — there is no cancel route, there is no pending state a cancel could
+act on, and the register rows cannot be updated or deleted by anybody, including
+whoever wrote them. What it removes is one person's *attribution* from a tree
+that stays alive: their user reference is nulled, and text captured at write
+time becomes the tombstone `(erased)`. An open — or blocked — deletion request
+neither delays an erasure nor is changed by one.
 
 ---
 
