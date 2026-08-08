@@ -1,14 +1,31 @@
 # Running pipelines
 
-Four ways to run a pipeline. They differ in **where you start them from**, not in
-what they do — the same pipeline, the same steps, the same result.
+There is more than one place to start a pipeline. They differ in **where you
+start it from**, not in what it does — the same pipeline, the same steps, the
+same result. What they differ in besides that is **how finely the run is
+reported**, and this page says so per surface rather than promising parity
+everywhere.
 
-Every one of them streams live to your cloud dashboard at
-[ai-pipeline.dev](https://ai-pipeline.dev) once you have run
-`pipeline cloud connect`. That dashboard is the UI — hosted, installable as a
-web app, nothing to run on your machine. Without an account, `pipeline logs`
-shows you the same runs in the terminal; see
-[Watching without an account](#watching-without-an-account) below.
+Once you have run `pipeline cloud connect`, runs stream to your dashboard on
+[ai-pipeline.dev](https://ai-pipeline.dev). That dashboard is the UI — hosted,
+installable as a web app, nothing to run on your machine. Without an account,
+`pipeline logs` shows you the same runs in the terminal; see
+[Watching without an account](#watching-without-an-account).
+
+> The dashboard is served at **`api.ai-pipeline.dev`**, not at the apex — the
+> apex is the marketing site and has no run-detail route. Every link the CLI
+> prints already points at the right host; this note only matters if you are
+> hand-editing a URL.
+
+> **The plugin requires the `pipeline` CLI.** Since **v0.93.0** this plugin
+> ships no code of its own: its skills, its agents and all five of its hooks are
+> CLI subcommands (`pipeline hook <name>`). Install it with
+> `bun add -g @baizor/pipeline` (or `npm i -g @baizor/pipeline`). If the CLI is
+> missing or too old to know the `hook` subcommand, the plugin **will not block
+> your session** — a shim detects that case and exits cleanly — but every hook
+> **silently does nothing**, which costs you the tool-call granularity described
+> below. A `SessionStart` warning names the upgrade command once per session;
+> that line is the whole safety net, so it is worth reading.
 
 ## Terminology
 
@@ -32,7 +49,31 @@ Request (department)
 
 ---
 
-## 1. From Claude Code — `/pipeline:run`
+## The launch surfaces, and what each reports
+
+| # | Surface | How you start it | Live granularity | Status |
+| --- | --- | --- | --- | --- |
+| 1 | Claude Code, pipeline known | `/pipeline:run <step>` | run · step · **tool call** | shipped |
+| 2 | Claude Code, matched from a description | `/pipeline:dispatch <text>` (`/pipeline:find` to confirm first) | run · step · **tool call** | shipped |
+| 3 | Terminal, headless | `pipeline drive <pipeline>` | run · step · **tool call** | shipped |
+| 4 | ~~Local browser dashboard~~ | ~~`pipeline ui`~~ | — | **removed** — see below |
+| 5 | Cloud dispatch → **your own** runner | Dashboard → Run | run · step · tool call | **not shipped** — free when it is |
+| 6 | Cloud dispatch → **hosted** runner | Dashboard → Run | run · step · tool call | **not built** — paid when it is |
+| 7 | **Codex** | the Codex `pipeline` skill → the same npm CLI | run · step **only** | shipped |
+
+Rows 5 and 6 are unwired: the dashboard's Launch panel is a stub that fails on
+mount. Nothing about them works today, and no amount of local setup changes
+that.
+
+**Row 4 no longer exists.** Earlier versions shipped a local browser dashboard
+(`pipeline ui`, `/pipeline:ui`, a background Bun daemon serving a React app).
+All of it was deleted: the hosted dashboard is better at the shared 90%, and the
+two local capabilities with no cloud equivalent moved into the CLI as
+`pipeline logs --chat` and `pipeline fix` before it went.
+
+---
+
+## From Claude Code — `/pipeline:run` (surface 1)
 
 The main path. You already know which pipeline you want.
 
@@ -41,13 +82,15 @@ The main path. You already know which pipeline you want.
 ```
 
 Claude runs the chain step by step in fresh contexts, showing progress as it
-goes, and prints a dashboard link at the start.
+goes. The plugin's hooks observe the session, so the dashboard follows along
+*inside* a step: every tool call and every token tally is attributed to the step
+that made it.
 
 **Use it when:** you are working in Claude Code and you know the pipeline.
 
 ---
 
-## 2. From Claude Code — `/pipeline:dispatch`
+## From Claude Code — `/pipeline:dispatch` (surface 2)
 
 Same as above, but you describe the task and let it pick the pipeline.
 
@@ -56,16 +99,15 @@ Same as above, but you describe the task and let it pick the pipeline.
 ```
 
 It matches your description against every pipeline in the project, picks the
-best fit (or a chain of them), and runs it without asking.
-
-To see the match *before* running it, use `/pipeline:find` instead — it shows
-the ranked candidates and waits for your confirmation.
+best fit (or a chain of them), and runs it without asking. To see the match
+*before* running it, use `/pipeline:find` instead — it shows the ranked
+candidates and waits for your confirmation.
 
 **Use it when:** you have a task, not a pipeline name.
 
 ---
 
-## 3. From the terminal — `pipeline drive`
+## From the terminal — `pipeline drive` (surface 3)
 
 No Claude Code session needed. Runs headless.
 
@@ -73,96 +115,132 @@ No Claude Code session needed. Runs headless.
 pipeline drive support-answer
 ```
 
-```
-▶ support-answer
-  live at ai-pipeline.dev/acme/runs/8fk2qp
+When the project is connected, `drive` prints the run's dashboard link as its
+**second** line of progress, before step 1. It is the only surface that prints
+one today — from Claude Code you open the dashboard yourself:
 
-  ✓ 01-triage          12s
-  ✓ 02-search          34s
-  ⠋ 03-draft-answer    running…
+```text
+[drive] run.started run_id=019fc762-5762-7000-a9bf-922ed8fa00be pipeline_root=… experimental=true
+[drive] run.link url=https://api.ai-pipeline.dev/acme/runs/019fc762-5762-7000-a9bf-922ed8fa00be
+[drive] step.started …
 ```
+
+(Progress goes to stderr, one `key=value` line per event; `--json` emits the
+same events as JSON objects instead.)
+
+The URL carries the **full run UUID**. It is composed entirely locally — org
+slug out of `.pipeline/cloud.json`, UUID minted on your machine — so no server
+round trip is involved and there is nothing about it that can later fail to
+resolve. It is correct the moment it is printed, online or off.
+
+> **There is no short form of a run URL.** Earlier drafts described a derived
+> short code in place of the UUID; it was withdrawn and never shipped. Any
+> documentation or output showing a run URL whose last segment is not a full
+> UUID is stale.
+
+Each step runs as a real Claude Code session with the plugin's hooks active, and
+`drive` pre-binds that session to the run and step before spawning it — so tool
+calls are attributed correctly here too, and the run gets the same tool-call
+granularity as surfaces 1 and 2. `drive` additionally parses the child's output
+stream live, which is why you see tool activity scroll past in your terminal
+rather than a wall of silence per step.
 
 If a step needs your input, the run parks and tells you how to answer. Resume
-with the same command.
+with the same command plus `--resume --answer "<text>"`.
 
 **Use it when:** scripting, CI, or you just prefer the terminal.
 
 ---
 
-## 4. From the cloud — dispatch to a runner
+## From Codex — the `pipeline` skill (surface 7)
 
-> **Not shipped yet.** The dashboard's Launch button is not wired up. This
-> section describes the intended shape; the other three methods work today.
+The [Codex plugin](https://github.com/IvanMurzak/pipeline-codex) delegates to
+*the installed `pipeline` CLI*. It ships no CLI of its own, no hooks and no
+setup: because the uploader, the queue and the cloud identity all live in the
+CLI, telemetry works with **zero Codex-specific configuration**.
 
-Start a run from the dashboard and have it execute somewhere else.
+**Be clear about what you get.** Codex runs produce the same **run** and **step**
+rows on the dashboard as a Claude Code user's. They do **not** produce
+tool-call or per-turn token events — no `tool.called`, no `turn.usage` — because
+those come from Claude Code's hook system, which Codex does not have. There is
+no configuration that turns this on, and claiming parity would be false.
 
-```
-Dashboard → Run → pick project and pipeline
-```
+---
 
-The work is queued in the cloud and a runner picks it up. There are two kinds
-of runner:
+## From the cloud — dispatch to a runner (surfaces 5 and 6)
+
+> **Not shipped.** The dashboard's Launch button is a stub that fails on mount.
+> This section describes the intended shape; surfaces 1–3 and 7 work today.
+
+Start a run from the dashboard and have it execute somewhere else. The work is
+queued in the cloud and a runner picks it up. There are two kinds of runner:
 
 | Runner | Who provides the machine | Price |
 | --- | --- | --- |
-| **Your own** — `pipeline-runner` installed on your laptop, workstation, or server | You | **Free** |
-| **Hosted** — we run it for you, nothing to install | Us | Paid |
+| **Your own** — `pipeline-runner` installed on your laptop, workstation or server | You | **Free** |
+| **Hosted** — we run it for you, nothing to install | Us | Paid — **not built** |
 
-**Use it when:** launching from your phone, on a schedule, or from a GitHub
-webhook — anywhere you are not sitting at the machine that does the work.
+Registering your machine as a runner already works — `pipeline cloud connect`
+asks *"Also run cloud pipelines on this machine?"* and, if you say yes, mints
+the credential, registers the machine and installs the service for you, with no
+dashboard visit and no token to copy. It just has nothing to dispatch to it yet.
 
-To use your own machine:
+The manual equivalent, if you would rather do it by hand:
 
-```
+```bash
 bun add -g @baizor/pipeline-runner
-pipeline-runner register --url https://ai-pipeline.dev --token <token> --label my-laptop
+pipeline-runner register --url https://api.ai-pipeline.dev --token <runner-token> \
+    --label repo:acme/api
 pipeline-runner service install
 ```
 
-Once registered, it appears on the dashboard and can receive work.
+`--url` is the **control-plane** base URL (`api.ai-pipeline.dev`), not the
+marketing apex, and `--label` takes repeatable `key:value` pairs used for
+matching — `os:<detected>` is always added for you.
 
 ---
 
 ## What reaches the dashboard
 
-Once connected (`pipeline cloud connect`), every method above sends the same
-thing:
+Once connected (`pipeline cloud connect`), every surface above sends the same
+kind of thing:
 
-- step progress, timings, and outcomes
+- step progress, timings and outcomes
 - token counts and cost
-- tool-call and failure counts
-- the pipeline structure and which step failed
+- tool-call and failure counts (surfaces 1, 2 and 3)
+- the pipeline structure, and which step failed
 
-And nothing else. Prompts, transcripts, your code, file paths, tool arguments
-and outputs, and error text never leave your machine — see
-https://ai-pipeline.dev/docs/privacy for the exact list.
+And nothing else. Prompts, transcripts, your code, tool arguments, tool output,
+error text and absolute file paths never leave your machine. That is not a
+policy statement — it is a positive allowlist, and
+**[Privacy tiers](privacy-tiers.md) lists it field by field**, with the shipped
+filter's real output.
 
 Runs started on your own machine are labelled **Local**; runs dispatched from
-the cloud are labelled **Cloud**. Both appear in the same list.
+the cloud would be labelled **Cloud**. Both appear in the same list. Unknown
+token counts render as `—`, never `0` — a zero is a claim, a dash is an absence.
 
-**How often it updates.** From `/pipeline:run` and `/pipeline:dispatch`, the
-dashboard follows along inside a step — you see tool activity as it happens.
-From `pipeline drive` and cloud dispatch, it updates when each step finishes.
-Both are live; the first is finer-grained.
+To turn uploading off entirely:
 
-To turn telemetry off entirely:
-
-```
+```bash
 PIPELINE_SYNC_LOCAL_STATS=0
 ```
 
-To check what has been sent:
+To see what has been sent, what is queued and what was dropped:
 
-```
+```bash
 pipeline stats telemetry
 ```
+
+Connecting, history upload, retention, deletion and offline behaviour are all in
+[Connecting to the cloud](cloud-connect.md).
 
 ---
 
 ## Watching without an account
 
 Local execution never requires a cloud account, and neither does watching a run.
-Every method above writes an append-only journal at
+Every surface above writes an append-only journal at
 `<project>/.pipeline/.runtime/events.jsonl`, and two commands read it — both
 read-only, both offline, neither starting any background process:
 
@@ -187,5 +265,6 @@ disk. Both read only what is already on your machine and upload nothing.
 | Describe a task and let it choose | `/pipeline:dispatch` |
 | See the match before it runs | `/pipeline:find` |
 | Run from a terminal or a script | `pipeline drive` |
-| Launch from your phone or a schedule, on your own machine | Cloud dispatch + your own runner (free) |
-| Same, without providing a machine | Cloud dispatch + hosted runner (paid) |
+| Run from Codex | the Codex `pipeline` skill — run and step reporting, no tool-call detail |
+| Watch a run with no cloud account | `pipeline logs -f` |
+| Launch from your phone or a schedule | not yet — cloud dispatch is unshipped |
