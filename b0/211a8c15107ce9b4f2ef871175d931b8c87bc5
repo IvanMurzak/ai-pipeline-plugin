@@ -1,0 +1,19 @@
+docs/cloud-connect.md
+  s_7972a257bf7947::t_47a897723d5cbf 185-195,204-223,227-238,245-256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "b0211a8c15107ce9b4f2ef871175d931b8c87bc5",
+  "prompts": {},
+  "sessions": {
+    "s_7972a257bf7947": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_7972a257bf7947",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
