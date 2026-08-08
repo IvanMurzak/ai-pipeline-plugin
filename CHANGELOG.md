@@ -34,10 +34,30 @@ construction.**
 
 **`hooks/run-hook.sh` survives, unchanged in shape.** It resolves `pipeline` instead of `bun`,
 with the same probe order (PATH → `$BUN_INSTALL/bin` → `~/.bun/bin` → `/opt/homebrew/bin` →
-`/usr/local/bin`), the same `exec` passthrough, the same `--loud`-on-SessionStart-only contract,
+`/usr/local/bin`), the same stream passthrough, the same `--loud`-on-SessionStart-only contract,
 and the same committed mode 100755. It exists because Claude Code runs hooks through a
 non-interactive `/bin/sh` that never sources `~/.zshrc`; that has nothing to do with which binary
 sits at the end of the chain.
+
+**An out-of-date CLI can no longer break your session.** Because a hook command is now a
+*subcommand name* rather than a file path, it can be **absent** — a user whose plugin updates while
+their globally installed `@baizor/pipeline` does not gets `pipeline: unknown command 'hook'` and
+**exit 2**, and a non-zero `PreToolUse` exit *blocks the tool call*. That would have been a broken
+session on nearly every turn, so `run-hook.sh` now absorbs it:
+
+- the `hook` shape is run **without `exec`** (everything else the shim is asked to run still
+  `exec`s), with stdin/stdout/stderr **inherited exactly as before** — no pipe, no buffering, no
+  rewriting; the shell simply survives long enough to read the exit code;
+- a **zero** exit returns immediately — the normal path costs nothing extra;
+- a **non-zero** exit is classified by one read-only question, `pipeline hook --help`: a CLI that
+  has the subcommand prints its usage and exits 0, a CLI that does not refuses it. Version skew
+  exits **0** — with one actionable upgrade line under `--loud` (SessionStart), silent everywhere
+  else, the same contract the not-installed line follows.
+
+**A relay that genuinely failed still fails.** A `PreToolUse` deny is a *correct* non-zero exit
+(that is how the `pipeline fix` scope guard refuses out-of-scope edits), so it propagates verbatim
+— a blanket `exit 0` would have silently disabled a safety control. That is asserted in both
+directions in `tests/hook-run-shim.test.ts`, against two fake CLIs.
 
 **No behaviour changed inside any relay.** Same gates, same events, same journal — including the
 deliberate ordering where `Notification` is evaluated BEFORE the `PIPELINE_JOURNAL_ENABLED`

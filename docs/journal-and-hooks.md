@@ -38,6 +38,17 @@ cannot happen. It also means this plugin now genuinely REQUIRES
 when it is missing. Every lockstep rule below still applies — the files just
 live one repository over, and a change to a relay is a change to the CLI.
 
+**A CLI that is installed but TOO OLD is handled in the shim, not here.** A
+plugin that updates ahead of the CLI asks for a subcommand that CLI has never
+heard of; `pipeline: unknown command 'hook'` exits 2, and a non-zero PreToolUse
+exit blocks the tool call. `run-hook.sh` therefore does not blindly `exec` the
+`hook` shape any more: it runs it with the streams still inherited, and on a
+non-zero exit asks the CLI one read-only question — `pipeline hook --help`,
+which succeeds on a CLI that has the subcommand and is refused by one that does
+not. Version skew exits 0 (with one actionable upgrade line under `--loud`); a
+relay that genuinely failed still propagates its exit code, because a
+PreToolUse deny is a correct non-zero exit and must not be swallowed.
+
 **Write scope with respect to the consumer project: STRICTLY inside
 `<project>/.pipeline/`.** The hooks only ever append to `.runtime/events.jsonl`
 (plus the per-user bindings journal under `~/.claude/pipeline-ui/`). They never
